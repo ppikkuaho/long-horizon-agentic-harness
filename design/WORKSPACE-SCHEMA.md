@@ -1,0 +1,451 @@
+# AI Architecture — Workspace and Document Schema (Process Design)
+
+Defines workspace structure, document types, edit policies, and naming conventions for each level in the 5-level hierarchy.
+
+---
+
+## Overview
+
+The project workspace is a shared file space where ephemeral agents come and go. Quality lives in artifacts and conventions, not individual continuity. Closest real-world analog: open source projects — stateless contributors, artifact-first, quality from conventions not continuity. Also relevant: consulting firm methodologies (standardized docs, rotating staff) and SBAR medical handoffs (structured handoff protocols).
+
+The workspace tree mirrors the management tree. Each parent physically contains its children's workspaces. Five levels, nested: L1 owns the portfolio, L2 owns the project, L3 owns areas within the project, L4 owns workstreams within areas, L5 owns tasks within workstreams. The path tells you who owns what.
+
+## The One Hierarchical-Path Spine
+
+The single most load-bearing structural decision in the system: **one hierarchical path is reused as six things at once.** A node's position in the workspace tree *is* its identity for every other subsystem. There is one namespace, not six parallel ones to keep in sync.
+
+| Facet | Realized as | Example |
+|-------|-------------|---------|
+| **Workspace path** | The folder in this tree | `proj/payments/gateway/stripe-client/` |
+| **Agent address** | Workspace node path + `#role-variant` suffix | `proj/payments/gateway#exec`, `proj/payments/gateway#review` |
+| **Requirement ID** | Dotted prefix mirroring the same descent | `R-003.2.1` |
+| **Git branch** | The path as a branch name | `payments/gateway/stripe-client` |
+| **Rubric location** | The `acceptance.md` at that node | `proj/payments/gateway/stripe-client/acceptance.md` |
+| **Visibility scope** | Derived from the path (subtree + siblings + parent) | see below |
+
+Properties of the spine:
+
+- **Semantic, not numeric.** Addresses use area/workstream/task names (`payments/gateway`), not opaque indices (`L3.1`). The name is the address.
+- **Bound to the work node, not the instance.** An address survives respawn, collapse, and resurrection because it is a property of the *position in the tree*, not of any one ephemeral agent. A fresh execution-L3 inherits the same address its planning-L3 used.
+- **Role-variant suffix disambiguates seats at one node.** A work node hosts more than one seat — an executor (`#exec`) and its independent reviewer (`#review`, the L5+ / right-arm reviewer). The suffix names the seat; the path names the node.
+- **Parent is recoverable by truncation.** Drop the last path segment (or the last dotted index) and you have the parent — for both addresses and requirement IDs. A child cannot exist without a declared parent.
+- **One decision serves all.** Decide where a unit sits once, and its branch, its rubric file, its address, its requirement-ID prefix, and its visibility scope all follow. This is what makes the [requirements traceability](PLAN-ALIGNMENT-GATE.md) RTM generable by truncation and the visibility graph derivable rather than hand-maintained.
+
+**Two renderings of the same path.** The physical workspace tree carries explicit `L{n}/` segments for namespace isolation and ownership clarity (`L3/payments/L4/gateway/L5/stripe-client/`). The *address* and *branch* renderings collapse those level markers to the semantic spine (`payments/gateway/stripe-client`, matching `git-protocol.md`'s `{area}/{workstream}/{task}`). They are the same descent; the level markers are folder bookkeeping, not part of the identity.
+
+Cross-references: requirement IDs and the RTM are specified in `PLAN-ALIGNMENT-GATE.md`; branch naming in `git-protocol.md`; addressing-as-routing and the live transport in `COMMUNICATION.md`.
+
+### Trace-Blocks Live in the Work-Node Artifacts
+
+The requirement-traceability links are carried **per element, inside the work-node artifacts themselves** — not in a separate trace registry and not as whole-file `intent_ids:` front-matter. Every element a level authors (an ADR, an interface clause or contract field, a substrate primitive, a design element, a workstream, a task, an acceptance test, a rubric line) carries a small adjacent machine-readable `trace:` stanza — `{ id, serves, kind, level, node }` — where `node` is this same one-spine path. The artifacts that hold them are the work-node files defined below: `project.md` / `design.md` / `plan.md` (design and workstream elements), the interface contracts, the decision/ADR records, `brief.md` (the responsible ID-set), and `acceptance.md` (per-test/per-rubric-line stanzas). Because the stanza is co-located with the element and keyed by the node path, the RTM-builder greps the artifacts in place and joins by prefix-truncation and `serves` — generated, never maintained. The exact stanza syntax, the dotted-child minting rule, the per-level emission obligation, and the preflight-hook rejection conditions are specified in `PLAN-ALIGNMENT-GATE.md` (Requirements Traceability); this schema only fixes *where* the stanzas live (in the node) and *that* they are per-element, not per-file.
+
+## Visibility & Read-Permission Graph
+
+**Supersedes** the earlier "any agent can read broadly across the project" posture. Read access is **need-to-know**, derived mechanically from the path spine. The default is *not* broad project-wide read; it is a tight neighborhood plus two god-view exceptions.
+
+For any node, the readable set is:
+
+1. **Own subtree** — everything at and below the node's own path. A node owns its descendants' work and must read it.
+2. **Same-level siblings** — nodes sharing the same parent (`payments/gateway` ↔ `payments/webhooks`). Siblings must coordinate on the interface contracts that bind them; they see each other to do so. **Cousins are excluded** — `payments/gateway` does NOT see `checkout/cart`. Cross-parent coordination is not done by peeking; it is escalated to the common ancestor that owns both contracts (the level that froze the interface between them).
+3. **Parent** — one level up (the node's path minus its last segment). A child reads its parent's brief, the area/project design it descends from, and the shared conventions that govern it.
+
+Everything else is **not readable by default**. The interface contract a sibling exposes is readable; the sibling's *internals* are visible only because siblings sit in the readable set at all — what a node actually depends on is the published contract, per the talk-only-through-interfaces rule in `DECOMPOSITION-METHODOLOGY.md`.
+
+**Two god-view exceptions** (read-only, whole-portfolio):
+
+- **L1** sees the entire portfolio. It owns intent and triage; it must be able to read any node to guard fidelity and route escalations.
+- **Optimizer-L1** (Internal Affairs) sees the entire portfolio, read-only, for recurring-issue monitoring and cross-run pattern-spotting. See `IMPROVEMENT-WORKSPACE.md`.
+
+Both god-views are **read-only**: they observe everything, mutate nothing in the work tree.
+
+**Direction asymmetry.** Visibility (read) is the tight neighborhood above. *Authority* (downward command/override) flows freely down one's own subtree and is unrestricted there — a parent may direct any descendant. Visibility ≠ authority: a node can read its siblings but has no authority over them; a parent has authority over the whole subtree but, in practice, reads through the living-doc navigation layer rather than micromanaging every leaf.
+
+**Read table:**
+
+| Reader | Own subtree | Same-level siblings | Parent | Cousins / other subtrees |
+|--------|-------------|---------------------|--------|--------------------------|
+| L2 | ✅ whole project | (peer projects: no) | client-brief, L1 brief | — |
+| L3 (area) | ✅ area + below | ✅ sibling areas (contracts) | L2 project.md, L2 brief | ❌ |
+| L4 (workstream) | ✅ workstream + tasks | ✅ sibling workstreams (contracts) | L3 area design, L3 brief | ❌ |
+| L5 (task) | ✅ task folder | ✅ sibling tasks (contracts) | L4 workstream plan, brief | ❌ |
+| L1 | ✅ whole portfolio (god-view) | — | — | ✅ (god-view) |
+| optimizer-L1 | ✅ whole portfolio (god-view, read-only) | — | — | ✅ (god-view, read-only) |
+
+**Derivation, not maintenance.** Because the graph is a pure function of the path, it is computed at spawn time (path-scoping the agent's readable roots) — not hand-curated in a permissions file. Enforcement is layered: spawn-time path-scoping is the primary mechanism; convention (documents declare their owner/policy in frontmatter, and agents respect the read table) is the floor; filesystem-level ACLs are an available hardening when the substrate supports them. The graph derives from F35's addressing, so a node respawned at the same path inherits exactly the same visibility.
+
+## Workspace Structure
+
+```
+project-{name}/
+  client-brief/
+    vision.md                       # The user's vision as articulated with L1 (immutable)
+    priorities.md                   # User's triage + priority overrides (immutable)
+  L2-config.md                      # L2 role identity, domain context, user priorities (spawn artifact)
+  README.md                         # Onboarding (L2 maintains)
+  conventions.md                    # Project conventions (L2 writes)
+  status.md                         # Central project status board (all leads update)
+  log.md                            # Append-only structured project log
+
+  L2/
+    project.md                      # Concept design → evolves into living project state
+    decisions/                      # Numbered, immutable
+    briefs/                         # Area briefs for L3s
+
+  L3/
+    {area}/
+      design.md                     # Detailed area design (north star for execution)
+      plan.md                       # Living workstream status (execution phase)
+      briefs/                       # Workstream briefs for L4s
+      reviews/                      # Reviews of L4 work
+
+      L4/
+        {workstream}/
+          plan.md                   # Task decomposition + status
+          briefs/                   # Task briefs for L5s
+          reviews/                  # Reviews of L5 work
+
+          L5/
+            {task}/
+              brief.md              # Task brief (L4 → L5; immutable once sent)
+              acceptance.md         # FROZEN rubric + acceptance tests (read-only to L5; see below)
+              report.md             # Structured report (templated)
+              scratch/              # Temp work, infrastructure-cleaned
+              [final artifacts]
+
+  comms/                            # Durable mailbox / audit copy (NOT the live channel — see below)
+  status/                           # Status board
+  reference/                        # Shared reference material
+```
+
+The nesting ensures three things:
+
+- **Namespace isolation** — two areas can have workstreams with the same name without collision.
+- **Clear ownership** — the path tells you who owns what: `payments/gateway/stripe-client/` is unambiguous.
+- **Access boundaries** — derived from the path: the [Visibility & Read-Permission Graph](#visibility--read-permission-graph) (own subtree + same-level siblings + parent) is computed directly from where a node sits in this tree.
+
+The same hierarchical path is reused as five things at once — see [The One Hierarchical-Path Spine](#the-one-hierarchical-path-spine).
+
+## Key Artifacts
+
+### client-brief/vision.md
+
+The user's vision as articulated through collaborative discussion with L1. Contains: what is being built, who it serves, what problem it solves, what success looks like, and any constraints or preferences the user has declared. Written by L1. Immutable once the project starts — the founding reference that concept validation checks against. Anyone can read, nobody modifies.
+
+### client-brief/priorities.md
+
+The user's triage of what they care about. Contains: which areas the user wants deep collaborative definition on, which are delegated ("tech stack — your call"), and any priority overrides that should flow through the entire project ("I care about performance more than polish"). Written by L1. Immutable. These priorities override domain defaults at every level.
+
+### L2-config.md
+
+The spawn artifact for L2. Contains: professional role identity for this project (e.g., "technical architect for a fintech app"), domain context, and user priorities inherited from the client brief. L1 creates this at project initiation. L1 invokes it to spawn L2. For new projects, L1 follows a skill/guide for creating a new L2 configuration.
+
+### status.md
+
+Central project status board. Hierarchical view of the full project: areas and workstreams with their current state. NOT task-level detail — for that, drill into L4's plan.md.
+
+Updated by each level's lead as part of their normal approval workflow:
+- **L2** updates area-level status lines (phase, area approval states)
+- **L3** updates workstream-level status lines within their area
+- **L4** updates their workstream's progress summary (e.g., "3/5 tasks complete")
+- **L5** does not touch this file
+
+Each level only touches their scope. The file gives L1 (and anyone) a single-glance view of where the entire project stands without traversing the tree.
+
+Structure:
+```
+# Project Status — {project-name}
+Phase: {current phase}
+Last updated: {timestamp}
+
+## {area-name} [L3: {status}]
+Lead: {role identity}
+Design: {approved/pending/sent-back}
+
+  {workstream-name} [L4: {status}, {n/m tasks}]
+  {workstream-name} [L4: {status}, {n/m tasks}]
+
+## {area-name} [L3: {status}]
+...
+```
+
+### log.md
+
+Append-only structured project log. Two types of entries:
+
+**State change entries** — appended by each level on every state transition:
+```
+[{ISO-timestamp}] [{level}] [{scope-path}] [{STATE}] [{optional notes}]
+```
+
+States: `STARTED`, `SUBMITTED`, `APPROVED`, `SENT-BACK`
+
+Examples:
+```
+[2026-03-29T10:00] L5 data-pipeline/api/auth-endpoint SUBMITTED
+[2026-03-29T10:30] L4 data-pipeline/api/auth-endpoint APPROVED
+[2026-03-29T11:00] L4 data-pipeline/api SUBMITTED workstream complete
+[2026-03-29T12:00] L3 data-pipeline/api APPROVED
+[2026-03-29T14:00] L3 data-pipeline SUBMITTED area complete
+[2026-03-29T15:00] L2 data-pipeline SENT-BACK interface contract mismatch with auth-system
+```
+
+**Narrative entries** — appended for significant events that aren't state changes:
+```
+[{ISO-timestamp}] [{level}] NOTE: {description}
+```
+
+The log provides the history view: what happened and when. status.md provides the snapshot view: where things are now. Together they give full state awareness.
+
+### L2/project.md
+
+Starts life as the concept design artifact (Phase 2 of the planning process). Contains: what is this system, how does it work, boundaries, key decisions with reasoning, major areas of work, interfaces between areas. Evolves into living project state as execution proceeds — status updates, course corrections, completion tracking added. L2 is sole owner. This is THE source of truth for the project.
+
+### L3/{area}/design.md
+
+The detailed area design artifact (Phase 4 of the planning process). Contains: area architecture, workstreams with scope and acceptance criteria, interface contracts (cross-area and internal), decisions at this level with reasoning, internal dependencies and sequencing. Submitted to L2 for cross-area coherence review. Once approved, becomes the north star for execution. L3 is owner; L2 has review/approval authority. Immutable after approval — amendments go through decision records.
+
+### L3/{area}/plan.md
+
+Living workstream status during execution phase. Created after design.md is approved. Active workstreams in full detail (description, status, assignee, blockers), completed workstreams collapsed to one-liners. This is L3's execution navigation layer.
+
+### L3/{area}/L4/{workstream}/plan.md
+
+Task decomposition within the workstream. Active tasks in detail, completed collapsed. L4's navigation layer.
+
+### {task}/brief.md
+
+The distilled task brief, written by L4 into the task node at spawn. **Pointer-not-payload:** it carries the spec, constraints, the interface contract the task must honor, and the relevant ADRs (the rationale bridge) — but *references* raw upstream intent rather than copying it (pullable on demand). Thin-but-decision-complete: enough that the worker never has to ask before starting. Immutable once sent. For a cross-runtime executor (e.g. a Codex/GPT-5.5 L5), the semantic brief is identical; only a thin runtime adapter injects the tool manifest and harness envelope at spawn — see `runtime-and-model-map.md`.
+
+### {task}/acceptance.md — frozen rubric (D26)
+
+The acceptance/rubric artifact: a **dedicated, frozen, per-unit** file living *in the work node* alongside `brief.md` and `report.md` — never a section inside the brief, never reconstructed from the worker's output.
+
+- **Authored at planning time, before the work, from the spec, by ≠ the worker.** For an L5 task, the L4-tester lateral writes the executable acceptance tests + the reviewer rubric from L4's spec before L5 is spawned to code. This is the temporal anti-theater rule made physical: the work is anchored to the tests, never the tests to the work.
+- **Frozen and READ-ONLY to the executor.** L5 may *read* `acceptance.md` and must make it pass; L5 may not *edit* it. Immutability is the enforcement — a worker who cannot move the goalposts cannot launder failing work into a passing rubric. Edit policy is carried in the file's frontmatter and is infrastructure-enforced.
+- **ID-tagged with a per-element trace-block.** Each acceptance test and rubric line carries its own machine-readable `trace:` stanza (`{ id, serves, kind: test, level, node }`) naming the requirement it verifies — *not* a whole-file `intent_ids:` header. These per-element stanzas are what the RTM-builder greps and joins (see Trace-Blocks Live in the Work-Node Artifacts, below, and `PLAN-ALIGNMENT-GATE.md`).
+- **Read by two seats:** the executor (`#exec`, to satisfy it) and the independent reviewer (`#review`, the L5+ / right-arm reviewer, who checks the work *against this same frozen file* — not against the code).
+
+**The same pattern recurses at every level.** Each delegating level, during its Plan phase, emits the acceptance criteria / gate rubric for the level below as a frozen artifact in the child's node *before that child executes* — the Plan-phase output contract (spec + acceptance tests + gate rubric). At area/workstream nodes the artifact carries the level's gate rubric; at the leaf it carries L5's executable tests. See `QUALITY-GATE.md` for how the gate rubric is consumed.
+
+### L3/{area}/L4/{workstream}/L5/{task}/report.md
+
+L5's structured report. Pre-seeded template at spawn time. L5 fills it in during execution and submits when complete.
+
+## Spawn Templates
+
+Each spawn point has a template that defines the complete onboarding package for the spawned agent. Each level's spawn template (`operational/L{n}/spawn-template.md`) contains fixed parts (level docs to load, process, communication protocol) and variable parts (role identity, assignment, workspace path, context pointers) that the parent fills in.
+
+| Template | Parent fills | Spawns |
+|----------|-------------|--------|
+| `operational/L2/spawn-template.md` | L1 | L2 for a project |
+| `operational/L3/spawn-template.md` | L2 | L3 for an area |
+| `operational/L4/spawn-template.md` | L3 | L4 for a workstream |
+| `operational/L5/spawn-template.md` | L4 | L5 for a task |
+
+Planning L3s use `operational/L3/planning-template.md` instead of the L3 spawn template — they are temporary spawns that produce a design and collapse.
+
+The spawn template is a contract: if the parent fills in the variables correctly, the spawned agent has everything it needs to do its job without asking questions. If the agent needs to ask before starting, the template is incomplete.
+
+## Document Types and Edit Policies
+
+Each document carries editing rules in frontmatter (owner, edit_policy). The agent reads the file, sees the rules, knows what it can do.
+
+| Document | Owner | Policy |
+|----------|-------|--------|
+| `client-brief/vision.md` | L1 | Written at project creation. Immutable. |
+| `client-brief/priorities.md` | L1 | Written at project creation. Immutable. |
+| `L2-config.md` | L1 | Written at project creation. L1 may update for role/priority changes. |
+| `status.md` | Shared | L2 updates area lines. L3 updates workstream lines. L4 updates progress summaries. Each level touches only its scope. |
+| `project.md` | L2 | Owner-only. Starts as concept design, evolves to living state. |
+| `conventions.md` | L2 | Owner-only |
+| `design.md` | L3 (specific) | Owner creates. L2 reviews/approves. Immutable after approval (amendments via decision records). |
+| `plan.md` (L3 level) | L3 (specific) | Owner: full edit. L2: override authority. |
+| `plan.md` (L4 level) | L4 (specific) | Owner: full edit. L3: override authority. |
+| `report.md` | L5 (specific) | Full edit until submitted, immutable after |
+| `brief.md` / `briefs/` | Delegating level | Immutable once sent. Distilled, pointer-not-payload. |
+| `acceptance.md` (per-unit rubric) | Delegating level / its tester lateral | Written once at planning, **frozen**, **READ-ONLY to the executor**. Infrastructure-enforced. |
+| `log.md` | -- | Append-only, structured entries, any level |
+| `decisions/` | L2 | Immutable once written |
+| `README.md` | L2 | Owner-only |
+
+## Naming Conventions
+
+- **Date-prefixed** for chronological files: `YYYY-MM-DD_subject.md` (briefs, reviews)
+- **Numbered** for sequential files: `001_topic.md` (decision records)
+- **Descriptive** for area/workstream/task folders: `{name}/` (matches the name in the parent's plan or project doc)
+
+## Living Docs as Navigation Layer
+
+No archive, no file moves, no index files. `plan.md`, `project.md`, and `design.md` serve as the navigation layer:
+- Active items in full detail (description, status, path, assignee, blockers)
+- Completed items collapsed to one-liners (name, date, outcome)
+- Files stay where they are — paths stay stable, references don't break
+
+This handles file accumulation without additional infrastructure. Scratch cleanup on task completion is infrastructure-handled.
+
+## comms/ — Durable Mailbox, Not the Live Channel
+
+**Supersedes** the filesystem-inbox-as-transport model. The live transport is now the **bus** (real-time); the durable truth is **docs**. `comms/` is reframed accordingly: it is a **durable mailbox / audit copy**, not the channel work flows through.
+
+- **The bus carries the live message.** A report, escalation, or nudge is delivered in real time over the bus to the recipient. See `COMMUNICATION.md` for the bus, addressing (`#exec`/`#review` variants on the path spine), and escalation payloads.
+- **The message is a pointer/nudge, not the payload.** It says "area design ready — see `proj/payments/design.md`," not a copy of the design. The truth lives in the doc it points at. This is the link-don't-copy rule, sharpened: because the doc is the truth, the message can be thin and the transport can be best-effort.
+- **Best-effort transport is acceptable** precisely because truth lives in docs. A dropped or missed bus nudge does not lose state: the recipient's living docs and the `comms/` audit copy still reflect what happened. The parent can always reconstruct status by reading the child's living docs (the navigation layer) regardless of message delivery.
+- **`comms/` is the durable record** — an append-only mailbox/audit copy of inbound messages, useful for boot reconciliation and for the optimizer-L1 audit trail. It is read at boot to catch anything that arrived while no instance was live; it is **not** the place work is coordinated turn-by-turn.
+
+This keeps `comms/` outside git (infrastructure-managed, per `git-protocol.md`) and removes the old `unread/`→`read/` inbox mechanics from the critical path: state awareness comes from docs, not from inbox folder hygiene.
+
+## Shutdown Handoff Protocol
+
+Mandatory, infrastructure-enforced. Shutdown doesn't complete until handoff artifacts are written:
+1. Update living docs (project.md, design.md, or plan.md) to reflect current state
+2. Update status.md with current state of your scope
+3. Append to project log what was done
+4. Update README with anything the next instance needs to know
+
+An agent that crashes without completing handoff is degraded but recoverable — living docs and log from before the crash still exist.
+
+## Per-Level Workspace Needs
+
+**L5 (Task Executor):** Receives a seeded task folder (`L3/{area}/L4/{workstream}/L5/{task}/`) containing `brief.md`, the frozen `acceptance.md` (read-only), and a pre-created `report.md` template. Reads brief, conventions, SWE handbook, and the acceptance tests it must make pass — but cannot edit `acceptance.md`. Works in scratch/ and task folder. Fills report.md. Appends to project log. Minimal document needs, fully templated. (On a cross-runtime seat — a Codex/GPT-5.5 L5 — only the runtime adapter differs; the seeded artifacts are identical. See `runtime-and-model-map.md`.)
+
+**L4 (Workstream Coordinator):** Owns `L3/{area}/L4/{workstream}/`. Creates task folders for L5s at spawn time, seeding each with `brief.md` and the frozen `acceptance.md` (the latter authored by the L4-tester lateral from the spec, before L5 codes). Writes reviews. Maintains plan.md. Appends to project log. Escalates to L3 over the bus when needed (durable copy lands in L3's mailbox).
+
+**L3 (Module Designer):** Owns `L3/{area}/`. Spawned by L2 with a specific professional role identity and two inputs: the full concept (`L2/project.md`, for context) and the area assignment (`L2/briefs/`, for scope). Two phases:
+- *Design phase:* Produces design.md, submits to L2 for cross-area coherence review.
+- *Execution phase:* Creates L4 workstream folders, writes briefs, reviews L4 reports, maintains plan.md.
+
+Appends to project log. Escalates to L2 over the bus when needed (durable copy lands in L2's mailbox).
+
+**L2 (Project Architect):** Owns `L2/`, project-level README.md, conventions.md. Creates L3 area folders at spawn time. Produces concept design in project.md. Writes decision records. Reviews L3 designs for cross-area coherence. Reads L3 design.md and plan.md for execution status. Appends to project log. Reports to L1 over the bus; the durable copy lands in L1's `comms/` mailbox.
+
+**L1 (System Orchestrator):** Portfolio-level workspace. See dedicated section below.
+
+## L1 Portfolio Workspace
+
+L1's workspace is fundamentally different from L2-L5. Lower levels produce work products in structured folders. L1 produces decisions and direction, and mostly consumes information from below. Its primary input is unstructured user conversation across any number of topics; its primary output is structured delegation.
+
+### Workspace Structure
+
+```
+L1/
+  portfolio.md              # Living portfolio state — L1's source of truth
+  README.md                 # L1 onboarding (any instance can boot from this)
+  log.md                    # Append-only portfolio log
+  decisions/                # Portfolio-level decisions (numbered, immutable)
+  comms/                    # Durable mailbox / audit copy of L2 messages (live nudges arrive on the bus)
+  threads/                  # Open conversation threads with user (one file per topic)
+  notes/                    # Structured session captures (date-prefixed, immutable)
+```
+
+This sits alongside project workspaces — L1 is a peer, not a container:
+
+```
+workspace/
+  L1/                       # Portfolio-level (above)
+  projects/
+    {project-name}/          # Per-project (existing schema)
+```
+
+### L1 Documents
+
+| Document | Purpose | Policy |
+|----------|---------|--------|
+| `portfolio.md` | Projects, priorities, open items, pointers | L1 owner, updated in real time |
+| `README.md` | Onboarding for any new L1 instance | L1 owner |
+| `log.md` | Append-only portfolio log | Append-only |
+| `decisions/` | Portfolio-level decisions (priority changes, project creation/pausing, resource allocation) | Numbered, immutable once written |
+| `threads/{topic}.md` | Living doc per ongoing conversation thread with user | L1 owner, timestamped entries |
+| `notes/{date}_{topic}.md` | Structured extracts from user sessions | Immutable after capture |
+| `comms/` | Durable mailbox / audit copy of inbound messages | Append-only record; the live channel is the bus (see below) |
+
+### portfolio.md
+
+L1's equivalent of L2's `project.md`. Everything a cold-started L1 needs to orient. Thin and navigational — does not duplicate project state.
+
+Contents:
+- **Projects table** — name, status, current focus, L2 config path, workspace path
+- **Priorities** — current ordering with reasoning (not just "what" but "why")
+- **Open items** — pending actions, items waiting on user, things to follow up
+- **Active threads** — pointers to `threads/` with one-line summaries
+- **Pointers** — user profile, status board, resource config paths
+
+### threads/
+
+Living docs per ongoing topic with the user. Each thread has enough context that a cold-started L1 can resume the conversation. Threads have explicit states: open, parked (with revisit-by date), closed (collapsed to a one-liner in portfolio.md). Each entry is timestamped.
+
+### notes/
+
+Structured captures from user conversations. Date-prefixed, immutable after capture. These are the output of the documentation-capture process — discrete items extracted, classified, and recorded. Not transcripts — structured extractions.
+
+### What L1 Reads (Produced by Others)
+
+- **L2's `project.md`** — drill-down when L1 needs project detail. L1 reads the top for status, doesn't need a separate compressed report.
+- **Status board** (`status/`) — infrastructure-managed, shows active agents and states across all projects
+- **User profile** — preferences, communication style, context
+- **L2 messages** — L2 reports nudge L1 live over the bus and land a durable copy in L1's `comms/` mailbox; the truth they point at lives in `project.md`
+
+### What L1 Writes
+
+- **portfolio.md** — updated continuously during conversation, not just at shutdown
+- **threads/** — created and updated as conversation topics emerge
+- **notes/** — session captures, produced by documentation-capture process
+- **decisions/** — portfolio-level decisions, numbered and immutable
+- **log.md** — append-only, what happened at portfolio level
+
+### L2 Configuration Artifacts
+
+Each project has a predefined L2 configuration — the artifact that defines how to invoke an L2 for that project. Includes: the professional role identity L2 should be spawned with (e.g., "technical architect for a fintech app"), domain context, project conventions, and any user-declared priorities that override domain defaults. Lives in the project workspace (property of the project, not of L1):
+
+```
+projects/{name}/L2-config.md
+```
+
+L1 invokes these, doesn't build them from scratch in normal operation. For new projects, L1 follows a skill/guide for creating a new L2 configuration.
+
+### Real-Time Note-Taking Discipline
+
+L1's primary challenge: it receives continuous, unstructured user conversation with no session boundaries. Compacts can fire at any time and destroy context. Anything not written to disk is lost.
+
+L1 does not batch note-taking for "later" — there is no later. The discipline is: **after any exchange that produces something worth keeping, write it down before moving on.** This is a core behavioral requirement, specified in L1's soul doc.
+
+Three mechanisms ensure nothing is lost, ordered by intensity:
+
+1. **Real-time writing** — L1's continuous behavioral discipline. After any decision, action item, priority shift, new idea, or significant user statement, L1 updates the relevant file (thread, portfolio.md, or creates a note). This is the primary mechanism.
+
+2. **Periodic refresh** — every ~5-10 user turns, infrastructure triggers a lightweight documentation-capture pass. A background agent scans recent conversation, checks: did L1 miss anything? Any undocumented decisions, unrecorded action items, new topics without threads? Catches what real-time discipline missed.
+
+3. **Pre-compact capture** — before compact fires (automatic every ~30 turns, or user-triggered), a full documentation-capture sweep runs. Scans everything in current context, extracts all undocumented items, writes to files, reconciles living docs with current state. Only after this completes does compact proceed. This is the hard guarantee — nothing survives in context that isn't on disk.
+
+### Boot Reconciliation
+
+Every new L1 instance follows a boot sequence before engaging with the user:
+
+1. Read `README.md` — orient to portfolio structure
+2. Read `portfolio.md` — current state, priorities, open items
+3. Scan `threads/` — flag anything with last-update beyond staleness threshold
+4. Read `comms/` — process the durable mailbox copy of L2 reports/escalations that arrived while no instance was live
+5. Reconcile — update portfolio.md if anything changed from steps 3-4
+6. Ready for user
+
+Infrastructure-enforced, not optional. Ensures staleness is caught every time a new instance boots.
+
+### Staleness Protection
+
+All entries in threads and portfolio.md carry timestamps (infrastructure-applied, not L1-managed). Staleness is addressed at three points:
+
+- **Per-turn** — real-time updates keep active threads current
+- **Periodic** — refresh pass every 5-10 turns flags drift
+- **Boot** — reconciliation scan on every new instance
+
+Threads untouched beyond a configurable threshold are flagged. L1 reviews flagged threads and either updates, parks (with revisit-by date), or closes them (collapses to one-liner in portfolio.md).
+
+## Log Mechanics
+
+Single log at project level only (no area-level or workstream-level logs — plan.md already tracks status at each level). Append-only with an append queue mechanism rather than file locks, since appends don't conflict with each other. Multiple agents can submit entries concurrently; entries are appended in order.
+
+---
+
+*Created: 2026-03-17*
+*Updated: 2026-03-29 — Restructured for 5-level hierarchy with nested workspace tree*
+*Updated: 2026-06-02 — Added the one hierarchical-path spine (F35/D26 unification); the Visibility & Read-Permission Graph (F34, supersedes broad project-wide read); per-unit frozen read-only `acceptance.md` rubric (D26); reframed `comms/` as a durable mailbox/audit copy with the bus as live transport (F33).*
+*Status: Extracted from NOTES.md and promoted to standalone process design document; consolidated against `working-notes/consolidation-plan-2026-06-02.md`*
