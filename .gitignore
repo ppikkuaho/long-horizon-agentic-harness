@@ -1,0 +1,18 @@
+# Runtime artifacts — the project trees the harness creates when it builds software.
+# These are NOT committed (they'd churn endlessly and are per-run throwaway).
+/runtime/
+/.runtime/
+
+# Pinned Claude Code install (vendored separately, not committed here)
+/.cc-pinned/
+/vendor/claude-code/
+
+# Python / Node / OS cruft
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+.DS_Store
+*.log

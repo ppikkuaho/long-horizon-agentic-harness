@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L1-L4 Workflow Diagram</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --user: #555;
+    --user-bg: #f7f7f7;
+    --user-border: #ccc;
+    --l1: #444;
+    --l1-bg: #f5f5f5;
+    --l1-border: #c0c0c0;
+    --l2: #333;
+    --l2-bg: #f3f3f3;
+    --l2-border: #b8b8b8;
+    --l3: #444;
+    --l3-bg: #f5f5f5;
+    --l3-border: #c0c0c0;
+    --l4: #444;
+    --l4-bg: #f5f5f5;
+    --l4-border: #c0c0c0;
+    --review: #444;
+    --review-bg: #f5f5f5;
+    --review-border: #c0c0c0;
+    --grid-dot: #e0e0e0;
+    --arrow: #333;
+    --arrow-dash: #888;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: #fafafa;
+    color: #1f2937;
+    overflow-x: auto;
+    overflow-y: auto;
+  }
+
+  .page-header {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 100;
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 16px 32px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  .page-header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .page-header .subtitle {
+    font-size: 13px;
+    color: #6b7280;
+    font-weight: 400;
+  }
+
+  .diagram-container {
+    position: relative;
+    width: 3200px;
+    padding: 24px 48px 120px 0;
+    background:
+      radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
+    background-size: 20px 20px;
+    background-position: 10px 10px;
+  }
+
+  /* Swimlanes */
+  .swimlane {
+    position: relative;
+    height: 110px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .swimlane:last-child {
+    border-bottom: none;
+  }
+
+  .lane-label {
+    position: sticky;
+    left: 0;
+    z-index: 50;
+    width: 150px;
+    min-width: 150px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    background: #fff;
+    border-right: 2.5px solid;
+  }
+
+  .lane-label .label-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .lane-label .label-sub {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 10px;
+    font-weight: 400;
+    opacity: 0.6;
+  }
+
+  .lane-content {
+    position: relative;
+    flex: 1;
+    height: 100%;
+    padding: 0 24px;
+  }
+
+  /* Lane colors */
+  .lane-user .lane-label { color: var(--user); border-color: var(--user-border); background: var(--user-bg); }
+  .lane-l1 .lane-label { color: var(--l1); border-color: var(--l1-border); background: var(--l1-bg); }
+  .lane-l2 .lane-label { color: var(--l2); border-color: var(--l2-border); background: var(--l2-bg); }
+  .lane-l3 .lane-label { color: var(--l3); border-color: var(--l3-border); background: var(--l3-bg); }
+  .lane-l4 .lane-label { color: var(--l4); border-color: var(--l4-border); background: var(--l4-bg); }
+  .lane-review .lane-label { color: var(--review); border-color: var(--review-border); background: var(--review-bg); }
+
+  /* Lane stripe backgrounds */
+  .lane-user { background: rgba(0, 0, 0, 0.008); }
+  .lane-l1 { background: rgba(0, 0, 0, 0.015); }
+  .lane-l2 { background: rgba(0, 0, 0, 0.025); }
+  .lane-l3 { background: rgba(0, 0, 0, 0.015); }
+  .lane-l4 { background: rgba(0, 0, 0, 0.008); }
+  .lane-review { background: rgba(0, 0, 0, 0.02); }
+
+  /* Nodes */
+  .node {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 14px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: normal;
+    width: 115px;
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.35;
+    cursor: default;
+    border: 1.5px solid;
+    transition: box-shadow 0.15s ease, transform 0.1s ease;
+    z-index: 10;
+  }
+
+  .node:hover {
+    box-shadow: 0 3px 12px rgba(0,0,0,0.12);
+    z-index: 20;
+    transform: translateY(-50%) scale(1.03);
+  }
+
+  .node .step-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    opacity: 0.45;
+    margin-right: 5px;
+  }
+
+  /* Node colors by lane */
+  .node-user { background: #fff; border-color: #bbb; color: #333; }
+  .node-l1 { background: #fff; border-color: #999; color: #222; }
+  .node-l2 { background: #fff; border-color: #888; color: #111; font-weight: 600; }
+  .node-l3 { background: #fff; border-color: #999; color: #222; }
+  .node-l4 { background: #fff; border-color: #999; color: #222; }
+  .node-review { background: #fff; border-color: #999; color: #222; }
+
+  /* Gate nodes */
+  .node.gate {
+    border-style: dashed;
+    border-width: 2px;
+    border-color: #666;
+    font-weight: 600;
+    padding: 10px 18px;
+    position: relative;
+    background: #fafafa;
+    color: #111;
+  }
+
+  .node.gate.gate-l1 { background: #f8f8f8; }
+  .node.gate.gate-l2 { background: #f8f8f8; }
+  .node.gate.gate-review { background: #f8f8f8; }
+
+  .node.gate::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    border: 1px dashed;
+    border-radius: 12px;
+    opacity: 0.25;
+    border-color: inherit;
+    pointer-events: none;
+  }
+
+  .gate-icon {
+    font-size: 10px;
+    margin-right: 4px;
+    opacity: 0.7;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #f9fafb;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 400;
+    white-space: normal;
+    width: max-content;
+    max-width: 250px;
+    line-height: 1.55;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+
+  .tooltip::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: #1f2937;
+  }
+
+  .node:hover .tooltip {
+    display: block;
+  }
+
+  /* For nodes near top of diagram, show tooltip below. For nodes near bottom, show above */
+  .tooltip-above {
+    top: auto !important;
+    bottom: calc(100% + 10px) !important;
+  }
+  .tooltip-above::before {
+    bottom: auto !important;
+    top: 100% !important;
+    border-bottom-color: transparent !important;
+    border-top-color: #1f2937 !important;
+  }
+
+  /* SVG overlay for arrows */
+  .arrow-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* Legend */
+  .legend {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: #fff;
+    border-top: 1px solid #e5e7eb;
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 12px;
+    color: #6b7280;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1.5px solid;
+  }
+
+  .legend-line {
+    width: 30px;
+    height: 0;
+    border-top: 2px solid;
+  }
+
+  .legend-line.solid {
+    border-color: var(--arrow);
+  }
+
+  .legend-line.dashed {
+    border-style: dashed;
+    border-color: var(--arrow-dash);
+  }
+
+  .legend-title {
+    font-weight: 600;
+    color: #374151;
+    margin-right: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .legend-sep {
+    width: 1px;
+    height: 18px;
+    background: #e5e7eb;
+    margin: 0 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>L1-L4 Workflow</h1>
+  <span class="subtitle">Sequence-style swimlane -- follow the arrows from Request to Deliverable</span>
+</div>
+
+<div class="diagram-container" id="diagram">
+
+  <!-- User Lane -->
+  <div class="swimlane lane-user" id="lane-user">
+    <div class="lane-label"><div class="label-text">User<span class="label-sub">Human</span></div></div>
+    <div class="lane-content">
+      <div class="node node-user" id="n1" style="left: 42px;">
+        <span class="step-num">1</span>Request
+        <div class="tooltip">User submits a request or task. This is the entry point for all work in the system.</div>
+      </div>
+      <div class="node node-user" id="n4" style="left: 434px;">
+        <span class="step-num">4</span>Confirm / correct
+        <div class="tooltip">User validates L1's understanding of intent, or provides corrections to ensure alignment before work begins.</div>
+      </div>
+      <div class="node node-user" id="n27" style="left: 2688px;">
+        <span class="step-num">27</span>Receive deliverable
+        <div class="tooltip">User receives the final shaped output. The complete round-trip from request to delivery is finished.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- L1 Lane -->
+  <div class="swimlane lane-l1" id="lane-l1">
+    <div class="lane-label"><div class="label-text">L1<span class="label-sub">Orchestrator</span></div></div>
+    <div class="lane-content">
+      <div class="node node-l1" id="n2" style="left: 140px;">
+        <span class="step-num">2</span>Intent reading
+        <div class="tooltip">L1 analyzes the user's request to understand true intent, context, and implicit requirements beyond what was literally stated.</div>
+      </div>
+      <div class="node node-l1" id="n3" style="left: 322px;">
+        <span class="step-num">3</span>Verify with user
+        <div class="tooltip">L1 presents its understanding back to the user for validation. Catches misalignment early before any planning begins.</div>
+      </div>
+      <div class="node node-l1" id="n5" style="left: 574px;">
+        <span class="step-num">5</span>Route to L2
+        <div class="tooltip">L1 packages the confirmed intent and routes it to L2 for planning and decomposition.</div>
+      </div>
+      <div class="node node-l1 gate gate-l1" id="n11" style="left: 1288px;">
+        <span class="gate-icon">&#9670;</span><span class="step-num">11</span>Pre-execution gate
+        <div class="tooltip">GATE: L1 reviews L2's proposed approach. Must sign off before any execution begins. Can reject, request changes, or approve.</div>
+      </div>
+      <div class="node node-l1" id="n26" style="left: 2562px;">
+        <span class="step-num">26</span>Shape delivery
+        <div class="tooltip">L1 shapes the raw results into a user-appropriate deliverable. Translates technical output into user-facing form.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- L2 Lane -->
+  <div class="swimlane lane-l2" id="lane-l2">
+    <div class="lane-label"><div class="label-text">L2<span class="label-sub">Planner</span></div></div>
+    <div class="lane-content">
+      <div class="node node-l2" id="n6" style="left: 672px;">
+        <span class="step-num">6</span>Generative skeleton
+        <div class="tooltip">L2 creates a high-level structural plan -- the skeleton that will be filled in by domain experts.</div>
+      </div>
+      <div class="node node-l2" id="n7" style="left: 854px;">
+        <span class="step-num">7</span>Spawn planning L3s
+        <div class="tooltip">L2 spawns temporary L3 agents to decompose work across relevant domains in parallel.</div>
+      </div>
+      <div class="node node-l2" id="n9" style="left: 1078px;">
+        <span class="step-num">9</span>Cross-domain review
+        <div class="tooltip">L2 reviews domain decompositions for conflicts, dependencies, and coherence across all domains involved.</div>
+      </div>
+      <div class="node node-l2" id="n10" style="left: 1246px;">
+        <span class="step-num">10</span>Present approach
+        <div class="tooltip">L2 presents the consolidated plan to L1 for approval at the pre-execution gate.</div>
+      </div>
+      <div class="node node-l2" id="n12" style="left: 1470px;">
+        <span class="step-num">12</span>Write L3 briefs
+        <div class="tooltip">After gate approval, L2 writes detailed execution briefs for each L3 domain agent with scope, constraints, and objectives.</div>
+      </div>
+      <div class="node node-l2 gate gate-l2" id="n14" style="left: 1666px;">
+        <span class="gate-icon">&#9670;</span><span class="step-num">14</span>Plan sign-off
+        <div class="tooltip">GATE: L2 reviews L3 decompositions and acceptance tests. Signs off on the execution plan before L4 work begins.</div>
+      </div>
+      <div class="node node-l2" id="n24" style="left: 2394px;">
+        <span class="step-num">24</span>Evaluate results
+        <div class="tooltip">L2 evaluates integrated results against the original plan and acceptance criteria. Checks for completeness and quality.</div>
+      </div>
+      <div class="node node-l2" id="n25" style="left: 2562px;">
+        <span class="step-num">25</span>Report to L1
+        <div class="tooltip">L2 reports evaluation results to L1 with summary, outcomes, and any deviations from the original plan.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- L3 Lane -->
+  <div class="swimlane lane-l3" id="lane-l3">
+    <div class="lane-label"><div class="label-text">L3<span class="label-sub">Domain Lead</span></div></div>
+    <div class="lane-content">
+      <div class="node node-l3" id="n8" style="left: 923px;">
+        <span class="step-num">8</span>Domain decomposition
+        <div class="tooltip">Parallel temporary L3s decompose work within their domains. They identify tasks, dependencies, constraints, and domain-specific requirements.</div>
+      </div>
+      <div class="node node-l3" id="n13" style="left: 1554px;">
+        <span class="step-num">13</span>Decompose + tests
+        <div class="tooltip">L3 decomposes briefs into concrete tasks with acceptance tests. Defines precisely what "done" looks like for each task.</div>
+      </div>
+      <div class="node node-l3" id="n15" style="left: 1792px;">
+        <span class="step-num">15</span>Spawn L4s
+        <div class="tooltip">L3 spawns L4 execution agents with specific task assignments, acceptance criteria, and context needed to do the work.</div>
+      </div>
+      <div class="node node-l3" id="n22" style="left: 2240px;">
+        <span class="step-num">22</span>Review L4 reports
+        <div class="tooltip">L3 reviews completed L4 work reports, checking results against acceptance criteria and domain standards.</div>
+      </div>
+      <div class="node node-l3" id="n23" style="left: 2408px;">
+        <span class="step-num">23</span>Integrate domain
+        <div class="tooltip">L3 integrates all L4 results within its domain and reports the consolidated outcome up to L2.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- L4 Lane -->
+  <div class="swimlane lane-l4" id="lane-l4">
+    <div class="lane-label"><div class="label-text">L4<span class="label-sub">Executor</span></div></div>
+    <div class="lane-content">
+      <div class="node node-l4" id="n16" style="left: 1847px;">
+        <span class="step-num">16</span>Execute task
+        <div class="tooltip">L4 performs the actual work -- coding, writing, analysis, research, or whatever the task requires.</div>
+      </div>
+      <div class="node node-l4" id="n17" style="left: 1973px;">
+        <span class="step-num">17</span>Self-verify
+        <div class="tooltip">L4 runs its own verification against acceptance tests before submitting. Catches obvious issues early before review.</div>
+      </div>
+      <div class="node node-l4" id="n18" style="left: 2086px;">
+        <span class="step-num">18</span>Write report
+        <div class="tooltip">L4 documents what was done, decisions made, trade-offs considered, and any issues encountered. Submitted for review.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Review Lane -->
+  <div class="swimlane lane-review" id="lane-review">
+    <div class="lane-label"><div class="label-text">Review<span class="label-sub">Quality Dept</span></div></div>
+    <div class="lane-content">
+      <div class="node node-review" id="n19" style="left: 2072px;">
+        <span class="step-num">19</span>Automated tools
+        <div class="tooltip">Automated quality checks: linting, type checking, test suites, security scanning, and any configured CI pipeline steps.</div>
+      </div>
+      <div class="node node-review" id="n20" style="left: 2198px;">
+        <span class="step-num">20</span>Code review
+        <div class="tooltip">Structured code/work review against acceptance criteria, coding standards, architectural principles, and best practices.</div>
+      </div>
+      <div class="node node-review gate gate-review" id="n21" style="left: 2310px;">
+        <span class="gate-icon">&#9670;</span><span class="step-num">21</span>Review verdict
+        <div class="tooltip tooltip-above">GATE: Pass or fail. Pass sends work to L3 for integration. Fail kicks back to L4 with specific feedback for rework.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SVG Arrow Layer -->
+  <svg class="arrow-layer" id="arrowSvg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ah" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" fill="#333">
+        <polygon points="0 0, 10 4, 0 8" />
+      </marker>
+      <marker id="ah-green" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" fill="#555">
+        <polygon points="0 0, 10 4, 0 8" />
+      </marker>
+      <marker id="ah-red" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" fill="#666">
+        <polygon points="0 0, 10 4, 0 8" />
+      </marker>
+      <marker id="ah-amber" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" fill="#666">
+        <polygon points="0 0, 10 4, 0 8" />
+      </marker>
+      <marker id="ah-gray" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" fill="#999">
+        <polygon points="0 0, 10 4, 0 8" />
+      </marker>
+    </defs>
+  </svg>
+
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <span class="legend-title">Legend</span>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--user-bg); border-color: var(--user-border);"></div>
+    User
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--l1-bg); border-color: var(--l1-border);"></div>
+    L1
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--l2-bg); border-color: var(--l2-border);"></div>
+    L2
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--l3-bg); border-color: var(--l3-border);"></div>
+    L3
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--l4-bg); border-color: var(--l4-border);"></div>
+    L4
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background: var(--review-bg); border-color: var(--review-border);"></div>
+    Review
+  </div>
+  <div class="legend-sep"></div>
+  <div class="legend-item">
+    <div class="legend-line solid"></div>
+    Handoff
+  </div>
+  <div class="legend-item">
+    <div class="legend-line dashed" style="border-color: #888;"></div>
+    Alignment check
+  </div>
+  <div class="legend-item">
+    <div class="legend-line dashed" style="border-color: #777;"></div>
+    Kickback
+  </div>
+  <div class="legend-item">
+    <div class="legend-line dashed" style="border-color: #999;"></div>
+    Escalation
+  </div>
+  <div class="legend-sep"></div>
+  <div class="legend-item">
+    <span style="font-size: 13px; color: #555; margin-right: 2px;">&#9670;</span>
+    Gate (control point)
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const svg = document.getElementById('arrowSvg');
+  const container = document.getElementById('diagram');
+
+  function resizeSvg() {
+    svg.setAttribute('width', container.scrollWidth);
+    svg.setAttribute('height', container.scrollHeight);
+  }
+  resizeSvg();
+  window.addEventListener('resize', resizeSvg);
+
+  // Get node anchor points relative to diagram container
+  function nodeAnchors(id) {
+    const node = document.getElementById(id);
+    const cRect = container.getBoundingClientRect();
+    const nRect = node.getBoundingClientRect();
+    const cx = nRect.left - cRect.left + nRect.width / 2;
+    const cy = nRect.top - cRect.top + nRect.height / 2;
+    const t = nRect.top - cRect.top;
+    const l = nRect.left - cRect.left;
+    return {
+      cx, cy,
+      top:    { x: cx, y: t + 1 },
+      bottom: { x: cx, y: t + nRect.height - 1 },
+      left:   { x: l + 1, y: cy },
+      right:  { x: l + nRect.width - 1, y: cy }
+    };
+  }
+
+  function makePath(d, opts = {}) {
+    const {
+      stroke = '#333',
+      width = 1.5,
+      dash = '',
+      marker = 'ah'
+    } = opts;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', stroke);
+    path.setAttribute('stroke-width', width);
+    if (dash) path.setAttribute('stroke-dasharray', dash);
+    // arrowheads removed per user preference
+    svg.appendChild(path);
+    return path;
+  }
+
+  function makeLabel(x, y, text, opts = {}) {
+    const { fill = '#555', size = 11, italic = true, anchor = 'start' } = opts;
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', x);
+    t.setAttribute('y', y);
+    t.setAttribute('font-family', 'IBM Plex Sans, sans-serif');
+    t.setAttribute('font-size', size);
+    t.setAttribute('fill', fill);
+    t.setAttribute('text-anchor', anchor);
+    if (italic) t.setAttribute('font-style', 'italic');
+    t.textContent = text;
+    svg.appendChild(t);
+  }
+
+  // Vertical arrow between lanes (bezier)
+  function vertArrow(fromId, toId, opts = {}) {
+    const { fromAnchor = 'auto', toAnchor = 'auto', xOff = 0, xOffEnd = 0 } = opts;
+    const a = nodeAnchors(fromId);
+    const b = nodeAnchors(toId);
+
+    const goingDown = a.cy < b.cy;
+    const fA = fromAnchor === 'auto' ? (goingDown ? 'bottom' : 'top') : fromAnchor;
+    const tA = toAnchor === 'auto' ? (goingDown ? 'top' : 'bottom') : toAnchor;
+
+    const p1 = a[fA];
+    const p2 = b[tA];
+    const x1 = p1.x + xOff, y1 = p1.y;
+    const x2 = p2.x + xOffEnd, y2 = p2.y;
+    const dy = y2 - y1;
+
+    const d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.45}, ${x2} ${y2 - dy * 0.45}, ${x2} ${y2}`;
+    makePath(d, opts);
+
+    if (opts.label) {
+      const mx = (x1 + x2) / 2 + (opts.labelOffX || 6);
+      const my = (y1 + y2) / 2 + (opts.labelOffY || -4);
+      makeLabel(mx, my, opts.label, { fill: opts.stroke || '#6b7280' });
+    }
+  }
+
+  // Horizontal arrow within a lane
+  function horizArrow(fromId, toId, opts = {}) {
+    const a = nodeAnchors(fromId);
+    const b = nodeAnchors(toId);
+    const x1 = a.right.x, y1 = a.right.y;
+    const x2 = b.left.x, y2 = b.left.y;
+    const dx = x2 - x1;
+
+    const d = `M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1}, ${x2 - dx * 0.4} ${y2}, ${x2} ${y2}`;
+    makePath(d, opts);
+  }
+
+  // ===== MAIN FLOW =====
+
+  // 1 -> 2: User Request -> L1 Intent reading
+  vertArrow('n1', 'n2');
+
+  // 2 -> 3: L1 Intent reading -> L1 Verify with user
+  horizArrow('n2', 'n3');
+
+  // 3 -> 4: L1 Verify with user -> User Confirm/correct
+  vertArrow('n3', 'n4');
+
+  // 4 -> 5: User Confirm/correct -> L1 Route to L2
+  vertArrow('n4', 'n5');
+
+  // 5 -> 6: L1 Route to L2 -> L2 Generative skeleton
+  vertArrow('n5', 'n6');
+
+  // 6 -> 7: L2 Generative skeleton -> L2 Spawn planning L3s
+  horizArrow('n6', 'n7');
+
+  // 7 -> 8: L2 Spawn planning L3s -> L3 Domain decomposition
+  vertArrow('n7', 'n8');
+
+  // 8 -> 9: L3 Domain decomposition -> L2 Cross-domain review
+  vertArrow('n8', 'n9');
+
+  // 9 -> 10: L2 Cross-domain review -> L2 Present approach
+  horizArrow('n9', 'n10');
+
+  // 10 -> 11: L2 Present approach -> L1 Pre-execution gate
+  vertArrow('n10', 'n11');
+
+  // 11 -> 12: L1 Pre-execution gate -> L2 Write L3 briefs
+  vertArrow('n11', 'n12', { label: 'approved', stroke: '#555', marker: 'ah-green', labelOffX: 6 });
+
+  // 12 -> 13: L2 Write L3 briefs -> L3 Decompose + tests
+  vertArrow('n12', 'n13');
+
+  // 13 -> 14: L3 Decompose + tests -> L2 Plan sign-off
+  vertArrow('n13', 'n14');
+
+  // 14 -> 15: L2 Plan sign-off -> L3 Spawn L4s
+  vertArrow('n14', 'n15', { label: 'approved', stroke: '#555', marker: 'ah-green', labelOffX: 6 });
+
+  // 15 -> 16: L3 Spawn L4s -> L4 Execute task
+  vertArrow('n15', 'n16');
+
+  // 16 -> 17: L4 Execute task -> L4 Self-verify
+  horizArrow('n16', 'n17');
+
+  // 17 -> 18: L4 Self-verify -> L4 Write report
+  horizArrow('n17', 'n18');
+
+  // 18 -> 19: L4 Write report -> Review Automated tools
+  vertArrow('n18', 'n19');
+
+  // 19 -> 20: Review Automated tools -> Review Code review
+  horizArrow('n19', 'n20');
+
+  // 20 -> 21: Review Code review -> Review Review verdict
+  horizArrow('n20', 'n21');
+
+  // 21 -> 22: Review verdict (pass) -> L3 Review L4 reports
+  vertArrow('n21', 'n22', {
+    label: 'pass', stroke: '#555', marker: 'ah-green',
+    fromAnchor: 'top', toAnchor: 'bottom',
+    labelOffX: 6
+  });
+
+  // 22 -> 23: L3 Review L4 reports -> L3 Integrate domain
+  horizArrow('n22', 'n23');
+
+  // 23 -> 24: L3 Integrate domain -> L2 Evaluate results
+  vertArrow('n23', 'n24');
+
+  // 24 -> 25: L2 Evaluate results -> L2 Report to L1
+  horizArrow('n24', 'n25');
+
+  // 25 -> 26: L2 Report to L1 -> L1 Shape delivery
+  vertArrow('n25', 'n26');
+
+  // 26 -> 27: L1 Shape delivery -> User Receive deliverable
+  vertArrow('n26', 'n27');
+
+
+  // ===== FEEDBACK LOOPS (dashed) =====
+
+  // Review kickback: Review verdict -> L4 Execute task (fail)
+  {
+    const a = nodeAnchors('n21');
+    const b = nodeAnchors('n16');
+    // Go from top of review verdict, curve back up-left to bottom of execute task
+    const x1 = a.top.x - 20, y1 = a.top.y;
+    const x2 = b.bottom.x + 20, y2 = b.bottom.y;
+    // Route: go up from review, then curve left to L4
+    const midY = (y1 + y2) / 2;
+    const d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+    makePath(d, { stroke: '#777', dash: '6 4', marker: 'ah-red' });
+    makeLabel((x1 + x2) / 2 - 30, midY - 6, 'fail / kickback', { fill: '#777' });
+  }
+
+  // L2->L1 alignment check (from cross-domain review area up toward L1)
+  {
+    const a = nodeAnchors('n9');
+    const b = nodeAnchors('n11');
+    const x1 = a.top.x - 25, y1 = a.top.y;
+    const x2 = b.bottom.x - 30, y2 = b.bottom.y;
+    const dy = y2 - y1;
+    const d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.45}, ${x2} ${y2 - dy * 0.45}, ${x2} ${y2}`;
+    makePath(d, { stroke: '#888', dash: '5 4', marker: 'ah-amber' });
+    makeLabel((x1 + x2) / 2 - 50, (y1 + y2) / 2 - 4, 'alignment check', { fill: '#888' });
+  }
+
+  // L3->L2 alignment check (from decompose+tests up toward write L3 briefs)
+  {
+    const a = nodeAnchors('n13');
+    const b = nodeAnchors('n12');
+    const x1 = a.top.x - 25, y1 = a.top.y;
+    const x2 = b.bottom.x + 25, y2 = b.bottom.y;
+    const dy = y2 - y1;
+    const d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.45}, ${x2} ${y2 - dy * 0.45}, ${x2} ${y2}`;
+    makePath(d, { stroke: '#888', dash: '5 4', marker: 'ah-amber' });
+    makeLabel((x1 + x2) / 2 - 50, (y1 + y2) / 2 - 4, 'alignment check', { fill: '#888' });
+  }
+
+  // Escalation: L4 -> L3
+  {
+    const a = nodeAnchors('n16');
+    const b = nodeAnchors('n15');
+    const x1 = a.top.x - 25, y1 = a.top.y;
+    const x2 = b.bottom.x - 25, y2 = b.bottom.y;
+    const dy = y2 - y1;
+    const d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.45}, ${x2} ${y2 - dy * 0.45}, ${x2} ${y2}`;
+    makePath(d, { stroke: '#9ca3af', dash: '4 4', marker: 'ah-gray' });
+    makeLabel(x1 - 50, (y1 + y2) / 2 - 2, 'escalate', { fill: '#9ca3af' });
+  }
+
+  // Escalation: L3 -> L2
+  {
+    const a = nodeAnchors('n15');
+    const b = nodeAnchors('n14');
+    const x1 = a.top.x - 30, y1 = a.top.y;
+    const x2 = b.bottom.x + 30, y2 = b.bottom.y;
+    const dy = y2 - y1;
+    const d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.45}, ${x2} ${y2 - dy * 0.45}, ${x2} ${y2}`;
+    makePath(d, { stroke: '#9ca3af', dash: '4 4', marker: 'ah-gray' });
+    makeLabel(x1 - 50, (y1 + y2) / 2 - 2, 'escalate', { fill: '#9ca3af' });
+  }
+
+  // Escalation: L2 -> L1 (from n14 area up)
+  {
+    const a = nodeAnchors('n14');
+    const b = nodeAnchors('n11');
+    const x1 = a.top.x + 30, y1 = a.top.y;
+    const x2 = b.bottom.x + 30, y2 = b.bottom.y;
+    const dy = y2 - y1;
+    const d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.45}, ${x2} ${y2 - dy * 0.45}, ${x2} ${y2}`;
+    makePath(d, { stroke: '#9ca3af', dash: '4 4', marker: 'ah-gray' });
+    makeLabel(x1 + 6, (y1 + y2) / 2 - 2, 'escalate', { fill: '#9ca3af' });
+  }
+
+});
+</script>
+
+</body>
+</html>
