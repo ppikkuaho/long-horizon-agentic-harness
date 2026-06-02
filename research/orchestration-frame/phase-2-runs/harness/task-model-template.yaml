@@ -1,0 +1,148 @@
+# Task Model — Self-Improvement Loop Harness
+#
+# This file defines the state machine for a harness instance.
+# Copy into your instance directory as task_model.yaml and customize
+# the states, transitions, and roles for your task.
+#
+# The control plane and supervisor load this file at startup.
+# All state names, transitions, and role mappings are derived from here.
+
+# All valid states in this instance's state machine.
+# Transitions to unlisted states are rejected.
+states:
+  # lifecycle
+  - planned
+  - stopped
+  - blocked
+  - cancelled
+  # coordinator
+  - coordinator_pending
+  - coordinator_in_progress
+  - coordinator_done
+  - coordinator_failed_infrastructure
+  # reviewer 1 (adherence)
+  - reviewer_1_pending
+  - reviewer_1_result_ready
+  - reviewer_1_continue
+  - reviewer_1_pass
+  # reviewer 2 (quality)
+  - reviewer_2_pending
+  - reviewer_2_result_ready
+  - reviewer_2_continue
+  - reviewer_2_pass
+  # reviewer 3 (task finish)
+  - reviewer_3_pending
+  - reviewer_3_result_ready
+  - reviewer_3_dead_candidate
+  - reviewer_3_pass
+
+# Allowed state transitions.
+# Each source state maps to the list of states it can reach.
+# Include the source state itself if compare-and-set retries should be idempotent.
+# Repair-junction states (see below) are automatically expanded to allow all states.
+transitions:
+  planned: [planned, coordinator_pending, coordinator_in_progress, blocked, cancelled]
+  coordinator_pending: [coordinator_pending, coordinator_in_progress, blocked, cancelled]
+  coordinator_in_progress: [coordinator_in_progress, coordinator_done, coordinator_failed_infrastructure, blocked, cancelled]
+  coordinator_failed_infrastructure: [coordinator_failed_infrastructure, coordinator_pending, coordinator_in_progress, blocked, cancelled]
+  coordinator_done: [coordinator_done, reviewer_1_pending, blocked, cancelled]
+  reviewer_1_pending: [reviewer_1_pending, reviewer_1_result_ready, reviewer_1_continue, reviewer_1_pass, blocked, cancelled]
+  reviewer_1_result_ready: [reviewer_1_result_ready, reviewer_1_continue, reviewer_1_pass, blocked, cancelled]
+  reviewer_1_continue: [reviewer_1_continue, planned, coordinator_pending, coordinator_in_progress, blocked, cancelled]
+  reviewer_1_pass: [reviewer_1_pass, reviewer_2_pending, blocked, cancelled]
+  reviewer_2_pending: [reviewer_2_pending, reviewer_2_result_ready, reviewer_2_continue, reviewer_2_pass, blocked, cancelled]
+  reviewer_2_result_ready: [reviewer_2_result_ready, reviewer_2_continue, reviewer_2_pass, blocked, cancelled]
+  reviewer_2_continue: [reviewer_2_continue, planned, coordinator_pending, coordinator_in_progress, blocked, cancelled]
+  reviewer_2_pass: [reviewer_2_pass, reviewer_3_pending, blocked, cancelled]
+  reviewer_3_pending: [reviewer_3_pending, reviewer_3_result_ready, reviewer_3_dead_candidate, reviewer_3_pass, blocked, cancelled]
+  reviewer_3_result_ready: [reviewer_3_result_ready, reviewer_3_dead_candidate, reviewer_3_pass, blocked, cancelled]
+  reviewer_3_dead_candidate: [reviewer_3_dead_candidate, planned, coordinator_pending, coordinator_in_progress, blocked, cancelled]
+  reviewer_3_pass: [reviewer_3_pass, planned, stopped, blocked, cancelled]
+  stopped: [stopped]
+  blocked: []  # repair junction: expanded to all states at load time
+  cancelled: [cancelled]
+
+# Role definitions for the supervisor.
+# Maps actor roles to their control-plane state semantics.
+# The supervisor uses these to detect and reconcile terminal runtime states.
+#
+# Required fields per role:
+#   active_state  — the control-plane state while this actor is running
+#   done_state    — the state to transition to when the actor completes
+#
+# Optional fields:
+#   infrastructure_failure_state — distinct state for infra failures (auth, etc.)
+#   prompt_binding_checks — validates that a role's delegation prompt references
+#     specific artifact keys. Structure:
+#       strict: true|false  # when true, missing references become validation errors
+#       prompt_artifact_key: <artifact_paths key for the prompt file>
+#       required_artifact_keys: [<artifact keys that must appear in the prompt>]
+roles:
+  coordinator:
+    active_state: coordinator_in_progress
+    done_state: coordinator_done
+    infrastructure_failure_state: coordinator_failed_infrastructure
+  reviewer_1:
+    active_state: reviewer_1_pending
+    done_state: reviewer_1_result_ready
+    prompt_binding_checks:
+      strict: true
+      prompt_artifact_key: reviewer_1_prompt
+      required_artifact_keys:
+        - reviewer_1_output
+  reviewer_2:
+    active_state: reviewer_2_pending
+    done_state: reviewer_2_result_ready
+    prompt_binding_checks:
+      strict: true
+      prompt_artifact_key: reviewer_2_prompt
+      required_artifact_keys:
+        - reviewer_2_output
+  reviewer_3:
+    active_state: reviewer_3_pending
+    done_state: reviewer_3_result_ready
+    prompt_binding_checks:
+      strict: true
+      prompt_artifact_key: reviewer_3_prompt
+      required_artifact_keys:
+        - reviewer_3_output
+
+# States that require an active_actor in the manifest.
+# The control plane validates that active_actor is present and well-formed
+# whenever the manifest status is one of these states.
+# If omitted, falls back to the legacy heuristic (states ending in '_in_progress').
+requires_active_actor:
+  - coordinator_in_progress
+
+# States that act as repair junctions.
+# A repair junction can transition to any known state.
+# Artifact-path keys that are round-scoped.
+# When present, validate() checks that each listed key in artifact_paths
+# points within the active round path (current_round_path).
+# Omit or leave empty for instances that do not use round-scoped artifacts.
+round_scoped_artifact_keys:
+  - coordinator_return_capture
+  - coordinator_artifact
+
+# Role-separation invariants.
+# Declares machine-checkable constraints on how roles relate to each other.
+# Omit entirely for topologies that do not need role-separation validation.
+#
+# distinct_actor_sets — lists of roles that must never share the same
+#   active_subagent_id within a round. Each entry is a list of >= 2 role names.
+#
+# selection_gates — each entry declares that gate_state must appear in the
+#   ledger between from_role's done_state and to_role's active_state.
+#   Ensures an explicit selection step separates producing options from
+#   executing one.
+#
+# role_separation:
+#   distinct_actor_sets:
+#     - [role_a, role_b]
+#   selection_gates:
+#     - from_role: role_a
+#       to_role: role_b
+#       gate_state: <state between from done and to start>
+
+repair_junction_states:
+  - blocked
