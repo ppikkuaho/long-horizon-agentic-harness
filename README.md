@@ -18,7 +18,7 @@ This repo holds two things: the **design corpus** (the hardened spec, copied fro
 | `design/` | The system spec — 17 core docs. Start with `PROJECT-PLANNING.md` (the flow), `PLAN-ALIGNMENT-GATE.md` (the alignment gate), `DECOMPOSITION-METHODOLOGY.md`, `ARCHITECTURE.md`. `working-notes/` holds the consolidation history. |
 | `operational/` | The agent definitions — `L1`–`L5` (role/config/spawn-template) + `shared/` (runtime-and-model-map, agent-definition-principles, comms-protocol, git-protocol, agent-lifecycle, intent-spec-contract, user-profile-schema). |
 | `reference/` *(dry-run)* | `dry-run/` — the finishing-pass simulation output: a real Payments slice built end-to-end (intent spec, ADRs, area design, frozen acceptance tests, working code, 17/17 passing). A reference exemplar, not part of the spec. |
-| `_archive-from-lifeos/` | Parked, **suspect** research copied along from Life-OS (orchestration-frame, preference-extraction, etc.) — unrelated to this system. Prunable; kept only for traceability. |
+| `research/` | Curated prior research from Life-OS, kept for reference (pruned ~630 → 45). **Suspect — reference, not source of truth.** Holds: `agentic-design/` (building good agents/skills), `ai-driven-autonomous-iterative-improvement/` + `orchestration-frame/self-improvement-harness/` (prior self-improvement-loop work — feeds the Improvement Workspace), `reference/`. |
 | `PRIOR-ART-SUSPECT.md` | Life-OS code/infra to mine for *lessons* (not reuse) during the build — marked suspect. |
 
 ## Build decisions (settled 2026-06-02)

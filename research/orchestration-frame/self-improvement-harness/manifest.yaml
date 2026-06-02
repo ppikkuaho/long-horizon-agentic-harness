@@ -1,0 +1,137 @@
+name: self-improvement-harness
+status: stopped
+state_entered_at: '2026-04-12T19:14:58+03:00'
+last_control_plane_update_at: '2026-04-13T11:32:28+03:00'
+objective: 'Turn the orchestration-frame project into a true runnable LLM self-improvement
+  harness with reviewer-governed stop conditions, explicit control-plane artifacts,
+  and usable round state.
+
+  '
+current_iteration: 6
+current_iteration_path: iterations/iteration-06
+current_round_brief: iterations/iteration-06/brief.md
+stop_condition: 'Reviewer 2 must explicitly state that the highest remaining worthwhile
+  improvement severity is smaller than medium.
+
+  '
+user_contact_policy:
+  mode: extraordinary_only
+  extraordinary_conditions:
+  - destructive_or_irreversible_action
+  - authoritative_artifact_conflict
+  - true_external_blocker
+  - safety_or_compliance_issue
+reporting_policy:
+  mode: extraordinary_or_terminal
+  terminal_states:
+  - stopped
+  default: suppress
+extraordinary_condition_open: false
+next_action:
+  owner: orchestrator
+  kind: done
+  trigger: none
+  on_trigger:
+  - No further action. Reviewer 2 stopped the loop with only small residual hardening
+    suggestions.
+  user_dependency: false
+global_completion:
+  satisfied: true
+  authority: iterations/iteration-06/reviewer-2-verdict.md
+  reason: iteration_06_reviewer_2_stop
+  evidence:
+  - iterations/iteration-06/reviewer-1-verdict.md
+  - iterations/iteration-06/reviewer-2-verdict.md
+  open_workstreams: []
+  open_stream_ids: []
+activity_lease:
+  enabled: true
+  owner: null
+  heartbeat_interval_s: 900
+  stale_after_s: 3600
+  last_heartbeat_at: '2026-04-12T19:14:58+03:00'
+  last_progress_at: '2026-04-12T19:10:55+03:00'
+  status: inactive
+watchdog:
+  enabled: true
+  poll_interval_s: 60
+  stale_grace_checks: 2
+  condition: terminal
+  last_checked_at: '2026-04-13T11:32:28+03:00'
+  suspect_since: null
+  stale_check_count: 0
+  recovery_attempts: 0
+  auto_resume_command: null
+  last_recovery_at: null
+  last_evidence:
+    source: watchdog_poll
+    heartbeat_at: '2026-04-12T19:14:58+03:00'
+    progress_at: '2026-04-12T19:10:55+03:00'
+    lease_status: inactive
+    next_action_kind: done
+observation_window:
+  status: terminal
+  observed_at: '2026-04-13T11:32:28+03:00'
+  lease_status: inactive
+  heartbeat_at: '2026-04-12T19:14:58+03:00'
+  progress_at: '2026-04-12T19:10:55+03:00'
+  blocker_class: null
+  summary: Harness is in terminal state 'stopped'; watchdog is only observing.
+  evidence_ref: iterations/iteration-06/brief.md
+  recommended_action: none
+target_artifacts:
+- control_plane.py
+- CONTROL-PLANE.md
+- RUNBOOK.md
+- continuation-template.md
+- self-improvement-loop-contract.md
+- manifest.yaml
+- CONTINUATION.md
+- iterations/iteration-06/brief.md
+- iterations/iteration-06/builder-output.md
+last_reviewer_1_verdict: iterations/iteration-05/reviewer-1-verdict.md
+last_reviewer_2_verdict: iterations/iteration-06/reviewer-2-verdict.md
+open_required_changes: []
+open_suggested_changes:
+- Extend continuation freshness to `workboard.py`-only resume-relevant mutations,
+  or derive the workboard/watchdog dashboard fields at read time so those secondary
+  surfaces cannot drift between control-plane commits.
+- Add a validator or regression check that compares generated `CONTINUATION.md` against
+  manifest-plus-ledger truth and detects partial-write drift after future changes.
+reference_docs:
+- ../frame.md
+- ../frame-design-notes.md
+- ../experiment-protocol.md
+- ../process-observation-rubric.md
+- ../prompt-craft.md
+- ../phase-2-runs/research/rubric-v2-proposal.md
+- ../phase-2-runs/research/synthesis.md
+- ../phase-2-runs/research/methodology-log.md
+resume_packet:
+- manifest.yaml
+- run-ledger.jsonl
+- WORKBOARD.yaml
+- workboard.py
+- CONTINUATION.md
+- continuation-template.md
+- control_plane.py
+- watchdog.py
+- watchdog-service.sh
+- test_watchdog.py
+- CONTROL-PLANE.md
+- WATCHDOG.md
+- RUNBOOK.md
+- iterations/iteration-06/brief.md
+- iterations/iteration-05/reviewer-1-verdict.md
+- iterations/iteration-05/builder-output.md
+- reference-map.md
+notes:
+- Iteration 06 structurally fixed continuation ownership and stopped under Reviewer
+  2 with only small residual hardening suggestions remaining.
+- Iteration 02 remains evidence that the canonical repair loop locally converged;
+  that evidence does not stop the top-level program by itself.
+- The top-level program remains open while the canonical integration, supervision,
+  and observability workstreams stay unresolved.
+current_builder_output: iterations/iteration-06/builder-output.md
+current_reviewer_1_verdict: iterations/iteration-06/reviewer-1-verdict.md
+current_reviewer_2_verdict: iterations/iteration-06/reviewer-2-verdict.md

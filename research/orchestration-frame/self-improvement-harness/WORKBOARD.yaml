@@ -1,0 +1,160 @@
+version: 1
+objective: Keep the reopened top-level self-improvement harness explicit, observable,
+  and parallelized until the global completion gate is honestly satisfied.
+owner: codex-orchestrator-main
+last_reconciled_at: '2026-04-12T19:14:41+03:00'
+status: inactive
+saturation:
+  minimum_active_streams: 3
+  preferred_active_streams: 4
+  maximum_active_streams: 5
+streams:
+- stream_id: WS-001
+  kind: supervision
+  status: completed
+  owner: codex-orchestrator-main
+  objective: Keep the top-level harness live under external supervision and maintain
+    an active lease while reconciliation work is open.
+  stop_condition: The harness globally completes or is intentionally parked with a
+    released lease and an honest next action.
+  write_targets:
+  - manifest.yaml
+  - run-ledger.jsonl
+  - .watchdog/status.json
+  evidence_refs:
+  - manifest.yaml
+  - run-ledger.jsonl
+  - .watchdog/status.json
+  next_action: Global completion was satisfied by iteration 06 Reviewer 2; supervision
+    stream is complete.
+  opened_at: '2026-04-12T17:58:29+03:00'
+  updated_at: '2026-04-12T19:14:31+03:00'
+  notes:
+  - Live watchdog currently runs in a foreground PTY-owned session.
+  - The harness is stopping under reviewer authority after the structural continuation-ownership
+    fix.
+- stream_id: WS-002
+  kind: canonical_integration
+  status: completed
+  owner: codex-orchestrator-main
+  objective: Fold the completed planner-builder-evaluator and saturation findings
+    back into the canonical self-improvement harness.
+  stop_condition: The canonical harness docs and control surfaces explicitly encode
+    the adopted lessons or reject them with named reasons.
+  write_targets:
+  - self-improvement-loop-playbook.md
+  - self-improvement-loop-contract.md
+  - CONTROL-PLANE.md
+  - reference-map.md
+  evidence_refs:
+  - ../phase-2-runs/instances/planner-builder-evaluator-loop/run-01.md
+  - ../phase-2-runs/research/ARCHITECTURE-FINDINGS.md
+  - ../phase-2-runs/research/compute-saturation-policy-01.md
+  next_action: Canonical integration stream completed by the iteration 03-06 carry-back
+    and structural continuation-refresh work.
+  opened_at: '2026-04-12T18:01:37+03:00'
+  updated_at: '2026-04-12T19:14:34+03:00'
+  notes:
+  - This is the first content-level reconciliation stream above the locally converged
+    repair loop.
+  - Explorer Lorentz owns the primary carry-back audit.
+  - Explorer Lorentz completed the primary carry-back audit; main orchestrator is
+    now integrating the findings into canonical artifacts.
+  - Control-plane validation now checks the current builder and reviewer artifacts
+    plus their frontmatter instead of trusting bare state transitions.
+  - Canonical harness docs and control-plane surfaces now encode the adopted lessons
+    under reviewer authority.
+- stream_id: WS-003
+  kind: observability_hardening
+  status: completed
+  owner: codex-orchestrator-main
+  objective: Close the gap between a live watchdog process and the operator-visible
+    status commands so foreground supervision is directly observable.
+  stop_condition: Operators can confirm watchdog liveness and mode without inferring
+    from stale sidecar files.
+  write_targets:
+  - watchdog.py
+  - watchdog-service.sh
+  - WATCHDOG.md
+  evidence_refs:
+  - WATCHDOG.md
+  - .watchdog/status.json
+  - .watchdog/runtime.json
+  next_action: Observability hardening is complete; watchdog and continuation surfaces
+    are now structurally readable.
+  opened_at: '2026-04-12T18:01:37+03:00'
+  updated_at: '2026-04-12T19:14:38+03:00'
+  notes:
+  - Current service status only detects pid-file daemons.
+  - Explorer Rawls is auditing the remaining structural observability and anti-drift
+    gaps after the latest fixes.
+  - Runtime metadata and lock-based status detection are now implemented locally;
+    explorer Rawls is auditing the remaining gaps.
+  - Explorer Rawls completed the structural-gap audit; main orchestrator is now integrating
+    the findings into control-plane and watchdog policy.
+  - Recovery is now single-flight under stale conditions, and the watchdog regression
+    suite passes against the patched runtime.
+  - Runtime observability and continuation ownership both landed before stop.
+- stream_id: WS-004
+  kind: round_packet
+  status: completed
+  owner: codex-orchestrator-main
+  objective: Open the next canonical round with a fully compliant brief and builder
+    packet instead of carrying forward the iteration-02 template debt.
+  stop_condition: Iteration 03 exists with the required brief fields, explicit topology,
+    basin-lock handling, and verification surfaces.
+  write_targets:
+  - iterations/iteration-03/brief.md
+  - iterations/iteration-03/builder-output.md
+  - manifest.yaml
+  - iterations/iteration-03/brief.md
+  evidence_refs:
+  - round-template.md
+  - builder-template.md
+  - iterations/iteration-02/brief.md
+  - iterations/iteration-02/builder-output.md
+  - iterations/iteration-03/brief.md
+  next_action: Iteration 03 is now canonical; packet-opening work on this stream is
+    complete.
+  opened_at: '2026-04-12T18:01:37+03:00'
+  updated_at: '2026-04-12T18:39:49+03:00'
+  notes:
+  - The current manifest still carries the iteration-02 packet debt identified in
+    open_required_changes.
+  - Worker Locke owns only the iteration-03 packet draft files.
+  - Draft packet created by worker Locke and is pending local reconciliation.
+  - Worker Locke completed the initial iteration-03 packet draft; main orchestrator
+    owns further revisions.
+  - Iteration 03 was promoted into builder_in_progress and is no longer only a draft
+    packet.
+- stream_id: WS-005
+  kind: shadow_review
+  status: completed
+  owner: codex-orchestrator-main
+  objective: Run an orthogonal policy-promotion audit focused on generalized anti-drift
+    and saturation rules that deserve canonical promotion now.
+  stop_condition: The carry-back candidate set is pressure-tested by an independent
+    review that distinguishes proven generalized rules from advisory or task-local
+    material.
+  write_targets:
+  - WORKBOARD.yaml
+  - self-improvement-loop-playbook.md
+  - CONTROL-PLANE.md
+  evidence_refs:
+  - ../phase-2-runs/research/compute-saturation-policy-01.md
+  - ../phase-2-runs/research/compute-saturation-enforcement-design.md
+  - ../phase-2-runs/research/methodology-log.md
+  next_action: Produce a conservative promotion set that excludes domain-specific
+    or under-evidenced rules.
+  opened_at: '2026-04-12T18:06:18+03:00'
+  updated_at: '2026-04-12T18:15:51+03:00'
+  notes:
+  - Explorer Zeno owns the shadow-review pass on generalized manager-control policy.
+  - Explorer Zeno completed the shadow-review pass on generalized manager-control
+    promotion rules; the stream now waits only on local incorporation of those findings.
+notes:
+- Reconciled the board after promoting iteration 03 into the canonical builder round;
+  the remaining active streams are supervision, canonical integration, and observability
+  hardening.
+- All tracked streams are complete after iteration 06 Reviewer 2 stop; the workboard
+  is now globally inactive.
