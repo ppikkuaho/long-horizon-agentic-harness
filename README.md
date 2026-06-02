@@ -1,78 +1,67 @@
-# long-horizon-agentic-harness
+# L1–L5 Agent Harness
 
-A design and specification for a long-horizon, multi-agent system for building software. Work is organized across a five-level hierarchy (L1–L5), where each level handles a distinct kind of decision and delegates the rest downward.
+A hierarchy of LLM agents that turns a user's intent into built, verified software — and keeps what gets built faithful to what was meant, all the way down to the code.
 
-This repository is the design/specification layer. The runtime — spawn machinery, message bus, visibility graph, the enforcing hooks, and the per-level runtime — is not built yet. These documents are the specification it would be built from. The only worked exercise so far is a tabletop dry-run (`dry-run/`). It is an ongoing project and parts of it are unfinished or in flux.
+Models already write good code, so the bottleneck in building software with them has shifted from execution to coordination and fidelity: directing many efforts in parallel, and keeping what gets built faithful to what was meant. One person can run one project by hand; they cannot direct, keep coherent, and quality-check twenty at once, nor guarantee that a long autonomous build still matches what they asked for. This system enforces a separation of concerns across five levels of abstraction, each doing a genuinely different kind of thinking, so the person sets and guards intent while the hierarchy carries the work. Three things come out of that:
 
-## Status
+**1 — Higher-quality architecture and code.** It architects the way a senior architect actually does, not ad-hoc. There's a real method underneath: carve a system by where its connections are thin — where change is naturally isolated — not by drawing arbitrary boxes; keep complexity hidden behind narrow, stable interfaces; point dependencies toward the stable core. "Deep modules" is used as a quality rubric that pressure-tests a design, never as the carving rule itself. The result is codebases with clean seams that stay coherent as they grow.
 
-- Design/specification stage; no running system.
-- `design/ARCHITECTURE.md` notes that only its first section is at build resolution; later sections are coarser and carry open placeholders.
-- The five-level model is current. Some navigation documents (`ROADMAP.md`, `PROJECT-GUIDE.md`, `DOCUMENT-HIERARCHY.md`, `GIT-INTEGRATION.md`, `GUI-DESIGN.md`) are parked and still describe an earlier four-level layout; they are kept for reference and have not been brought current.
-- Model assignments, concurrency limits, and similar values in the docs are working values expected to change.
+**2 — Long-horizon, high-difficulty autonomous execution.** Large autonomous builds usually degrade because error compounds over a long horizon with nothing to catch it. Here, nothing runs without a validated plan; work is decomposed until each unit is small and independently verifiable; every level reviews composition and fidelity at its own altitude; and tests are frozen before code, so the work is anchored to them rather than the reverse. A genuinely hard task can run end-to-end with accuracy held up by structure instead of hope.
 
-## The levels
+**3 — Alignment and fidelity.** The first priority is that the thing built is the thing meant — and stays that way from intent to shipped code. Intent is captured precisely: the intake probes tradeoffs to find where the user actually has opinions (people reveal them at a fork, not when asked "do you care?"), and records how technically fluent they are per area, so the system knows what to decide for them and what to bring back. Every requirement then carries a stable ID that threads through the whole system — design element, test, branch, and review all trace to it. The gate, the per-level independent reviews, and that traceability spine exist for one purpose: to kill drift.
 
-| Level | Role | Responsibility |
-|---|---|---|
-| L1 | System Orchestrator | Captures user intent and routes it to a project. |
-| L2 | Project Architect | Owns one project; makes the architecturally-significant decisions. |
-| L3 | Module Designer | Designs one area, then a fresh instance oversees its build (two clean-context phases). |
-| L4 | Workstream Coordinator | Decomposes a workstream into tasks and writes the acceptance tests for the level below. |
-| L5 | Task Executor | Writes code as an execute-then-review pair. |
+## The five levels
 
-Levels are separated by the kind of thinking they do, not by rank. Autonomy narrows downward: a level may spawn only the levels beneath it, and only within the scope its parent gave it. The five levels are a maximum, not a minimum — a task is routed only through the levels that add a distinct kind of decision.
+A separation by the kind of thinking each does, not a rank ladder:
 
-## How work flows
+- **L1 — System Orchestrator** — captures the user's intent, guards it for the life of the project, routes work, and is the only level the user talks to.
+- **L2 — Project Architect** — designs the shape of the solution: where the module boundaries fall, the interfaces between them, the decisions that are expensive to reverse.
+- **L3 — Module Designer** — takes one module and designs it in depth, then manages its construction.
+- **L4 — Workstream Coordinator** — breaks a module into concrete tasks and authors the acceptance tests they'll be judged against.
+- **L5 — Task Executor** — writes the actual code against frozen tests, paired with an independent reviewer (L5+) that checks it.
 
-Two nested Plan → Execute → Review cycles meet at one checkpoint:
+Direction flows down as minimal "short-email" briefs (what, not how); results flow up as compressed reports. Raw work never moves up, and clean context is preserved at every boundary.
 
-- A **design cycle** (intake → architecture → planning) produces a validated plan and no code.
-- A **build cycle** (execution → coordination → task execution) produces code against the frozen plan.
-- Between them sits the **plan-alignment gate**: it checks the assembled plan against the user's tagged intent before any code is written.
+## How it works, end to end
 
-Recurring design choices across the spec:
+Work runs as two cycles joined by a single hard gate — design, then build — never one big waterfall.
 
-- Documentation is the primary memory. Each level reads its state from artifacts and writes it back; the system is meant to reconstruct from documents alone if running processes are stopped.
-- Acceptance tests and review rubrics are written from the spec, before the work, by an agent that is not the worker.
-- One hierarchical path scheme serves at once as requirement IDs, agent addresses, workspace paths, git branches, rubric locations, and the need-to-know visibility graph.
-- A message bus carries best-effort nudges and pointers; durable truth lives in the documents in each work node.
+The **design cycle** produces a validated plan and not a line of code. Intake turns the user's intent into a precise, tagged, traceable spec. The architect proposes the structure. The module designers detail each area in a single coordinated round, renegotiating interfaces against real constraints. And — critically — the tests and review rubrics are written here, before any code, by agents that aren't the ones who'll do the work.
+
+The **plan-alignment gate** is the heart of the system, at the seam between designing and building. It reads the whole assembled plan against the original intent — something per-level reviews structurally can't do — and catches the three ways a plan drifts even when every local step looked fine: dropped requirements, unrequested additions, and requirements technically present but subtly wrong. It even inspects its own first translation (turning the user's prose into requirements), because that's where drift enters upstream of every other check. A human gives a warm sign-off on a triangulated view; nothing builds until it passes.
+
+The **build cycle** begins only on PASS: executors write code against the now-frozen plan, every level's output checked by independent review before it moves up.
+
+## What makes it distinctive
+
+- **Tests before code, by not-the-coder.** Tests written after the fact get bent to fit the code; written first, from the spec, by someone else, the code must serve them. (Corollary, proven in simulation: tests anchor only what they assert — so an independent reviewer is load-bearing, catching the fidelity gaps tests miss.)
+- **One spine.** A single hierarchical scheme is the requirement ID, the agent's address, the workspace path, the git branch, the rubric location, and the visibility graph — decided once, it serves all of them.
+- **Cross-model by design.** Opus 4.8 for the generative/architecture levels; GPT-5.5 (via Codex) for execution, where literal precision is the strength. Failures escalate rather than silently degrade.
+- **Documentation is memory.** Every level can be killed and respawned from its artifacts; truth lives in documents, coordinated over a lightweight bus. The system also keeps a workspace to observe itself and propose its own improvements.
+- **Walking-skeleton first.** A thin end-to-end thread proves the connections before the full build commits to them.
+
+The methodology isn't invented — it's borrowed from how architecture firms and consultancies actually turn a client's intent into a built thing, instantiated with agents instead of people.
 
 ## Repository layout
 
+This repository is the design and specification layer — the documents the runtime would be built from.
+
 ```text
-design/                       the specification corpus
-  ARCHITECTURE.md             the system design
-  VISION.md  PROJECT-PLANNING.md  DESIGN-PRINCIPLES.md     scope, plan, principles
-  PLAN-ALIGNMENT-GATE.md  DECOMPOSITION-METHODOLOGY.md     mechanisms
-  QUALITY-GATE.md  OBSERVABILITY.md  COMMUNICATION.md
-  WORKSPACE-SCHEMA.md  IMPROVEMENT-WORKSPACE.md
-  GIT-INTEGRATION.md  GUI-DESIGN.md  ROADMAP.md            parked / older nav docs
-  PROJECT-GUIDE.md  DOCUMENT-HIERARCHY.md  NOTES.md
-  working-notes/consolidation-plan-2026-06-02.md          decision log / consolidation plan
-operational/                  what each agent loads at spawn
-  L1/ … L5/                   per level: role, config, soul, spawn-template
-                              (L1 also: handbook, intake template, a new-project skill;
-                               L3: planning template; L5: swe-handbook)
-  shared/                     runtime-and-model-map, agent-definition-principles,
-                              agent-lifecycle, comms-protocol, git-protocol,
-                              intent-spec-contract, user-profile-schema
-dry-run/                      a tabletop simulation
-  intent-spec.md              the worked intent
-  L2/                         architect output: ADRs, contracts, plan
-  skeleton/                   a throwaway walking skeleton
-  gate-report.md              the plan-alignment gate run
-  build/payments/             a tested payments implementation
+design/         the specification corpus: architecture, principles, and the
+                mechanism docs (plan-alignment gate, decomposition, quality gate,
+                observability, communication, workspace schema, improvement workspace),
+                plus parked navigation docs and a consolidation/decision log
+operational/    what each agent loads at spawn: L1–L5 (role, config, soul,
+                spawn-template) and shared protocols (runtime-and-model map,
+                agent-definition principles, lifecycle, comms, git, intent-spec
+                contract, user-profile schema)
+dry-run/        the end-to-end simulation: an intent-spec taken through L2
+                (ADRs, contracts, plan), a walking skeleton, the plan-alignment
+                gate report, and the built payments slice with its tests
 ```
 
-## Where to start
+Good entry points: `design/working-notes/consolidation-plan-2026-06-02.md` (the decision log), `design/ARCHITECTURE.md` (the system design), and `dry-run/` (the worked example).
 
-- `design/working-notes/consolidation-plan-2026-06-02.md` — the decision log; the most direct record of what was decided and why.
-- `design/ARCHITECTURE.md` — the system design.
-- `dry-run/` — the worked example, including the gate report and the payments build.
+## Status
 
-## Notes
-
-- This is one part of a larger personal effort and does not depend on or include the rest of it.
-- V1 targets building software; broader task types are noted in the docs as possible future direction, not current scope.
-- The dry-run is a simulation against a fictional brief: there is no real user, no datastore, and no deployment. Its plan-alignment gate returns a conditional fail, and the payments build is included as a finishing-pass demonstration rather than a clean gated run.
+The design is complete and hardened against a full end-to-end simulation — which built a real vertical slice (17/17 tests passing, a genuine cross-model handoff) and surfaced the gaps, now closed. The runtime harness, on a pinned Claude Code, is the next build.
