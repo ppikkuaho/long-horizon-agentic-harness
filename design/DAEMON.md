@@ -470,7 +470,7 @@ replay that transition deterministically (§4.4):
   "node_address": "payments/gateway/stripe-client#exec",
   "event": "spawned",
   "actor": "harnessd",              // executor is the only writer of this journal
-  "len": 274, "crc32": "a1b2c3d4",  // record frame (§4.4): byte length + checksum of this line's payload
+  "crc32": "a1b2c3d4",              // content checksum (FORK-CRC); NO in-payload "len" — the byte length is the append_framed <byte-len> PREFIX (§4.4), not a field inside the json (self-referential len is circular)
 
   // --- the transition this WAL row commits (drives deterministic replay) ---
   "from_state": "spawning",         // pre-image state the CAS expected
