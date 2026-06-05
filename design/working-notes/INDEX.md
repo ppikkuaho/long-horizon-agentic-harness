@@ -6,6 +6,7 @@
 - `runtime-decisions-and-commissioning-2026-06-04.md` — the include/defer cut, the liveness/ownership synthesis (detector + lease + accounting + fencing), the commissioning method.
 - `arch-gap-review-2026-06-04.md` — the 8 blocking gaps + 9 contradictions from the adversarial review.
 - `path-to-ready-2026-06-04.md` — doc-health verdict + the 8-phase path to build.
+- `DEFERRED-REGISTER.md` — the single consolidated owed/deferred/open register (the completeness-pair's other half with `design/INDEX.md`). Every concern not built in v1 lives here or is presumed dropped. **Maintenance rule:** a new deferral is added here in the same change.
 
 ## ACTIVE inputs (verify / consume, then archive)
 - `L1-config-design-notes.md`, `L2-config-design-notes.md` — owed-work inputs; their stated targets `L1-CONFIG.md`/`L2-CONFIG.md` don't exist — verify whether they were propagated into `operational/L1|L2/config.md`, then archive.
