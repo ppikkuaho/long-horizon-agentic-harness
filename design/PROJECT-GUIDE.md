@@ -29,6 +29,10 @@ When implementation reveals a gap, trace it to the right level before fixing:
 
 Do not patch implementation when the problem is architectural. Do not patch architecture when the problem is a missing principle.
 
+### Intake → delivery lifecycle
+
+The above hierarchy is the *document* stack. The runtime *application* arc — how one user request becomes a delivered product on the L1–L5 harness — runs: **kickoff** (user → running L1) → **intent-spec** (L1 dispatches the grilling session; returns the 8-field spec, incl. the delivery destination; L1 freezes it) → **project genesis** (L1 writes the project node + `client-brief/`) → **L2 spawn** → **execution** (the L3/L4/L5 cascade builds inside `/runtime/`) → **final-accept** (L1 judges against the frozen intent-spec) → **promotion** (`harnessd` delivers the product out of `/runtime/` to the intake-captured destination, gated on accept). `INTAKE-TO-DELIVERY.md` is canonical for this arc. (This "promotion" — control-plane delivery of a finished product out of the runtime tree — is a different mechanism from the NOTES→design-doc "graduation/promotion" below; do not conflate them.)
+
 ---
 
 ## 2. File Inventory

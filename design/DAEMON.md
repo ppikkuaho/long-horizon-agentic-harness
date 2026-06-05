@@ -343,11 +343,13 @@ occupy one node via different suffixes. (FORK note below.)
                    semantic_event_at: null }   # semantic_event_at: ② writes (semantic detector); null in v1
 
   # --- deliverable-state (the workboard-stream half, merged onto the node; §3.3) ---
-  deliverable_state: active           # planned|active|waiting|completed|blocked|cancelled
+  deliverable_state: active           # planned|active|waiting|completed|blocked|cancelled|delivered|delivery-failed
   stop_condition: "stripe-client passes acceptance.md"
-  write_targets: [ "src/payments/gateway/stripe-client/" ]   # git/fs paths
+  write_targets: [ "src/payments/gateway/stripe-client/" ]   # IN-JAIL relative write surface inside the node
   evidence_refs: [ "report.md" ]                              # completion artifacts
   acceptance_ref: "acceptance.md"     # frozen rubric at the node (read-only)
+  delivery_destination: null          # OUT-OF-JAIL promotion TARGET — user-path or git-remote (from intent-spec §8); set at intake, consumed by promote-out (INTAKE-TO-DELIVERY §3). Distinct from write_targets (the in-jail source).
+  delivery_kind: null                 # filesystem-path | git-remote — drives copy-out vs push at promotion
 
   # --- terminal-signal (the durable completion/death fact the parent's kill keys off; NEW) ---
   terminal_signal: null               # DONE|FAILED|ESCALATED|DIED_INFRA|DIED_METHODOLOGY|FENCED (§3.6 table)

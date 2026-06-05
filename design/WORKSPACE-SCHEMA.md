@@ -135,6 +135,12 @@ The user's vision as articulated through collaborative discussion with L1. Conta
 
 The user's triage of what they care about. Contains: which areas the user wants deep collaborative definition on, which are delegated ("tech stack — your call"), and any priority overrides that should flow through the entire project ("I care about performance more than polish"). Written by L1. Immutable. These priorities override domain defaults at every level.
 
+### `/runtime/` root + promotion-out-of-`/runtime/`
+
+The logical `proj/{project}/...` tree shown above is rooted, at runtime, at the **gitignored throwaway `/runtime/`** (per-build project trees live under `/runtime/proj/{project}/`; see `INDEX.md`). Everything an agent produces — the whole project node and its deliverable — is written **inside `/runtime/`**, and every agent's write-jail confines it to its own node subtree there (`SECURITY.md` §1.3, §2.3: global `(deny file-write*)` then an allow-list scoped to `<WORKROOT>`).
+
+A finished project's deliverable does not stay in `/runtime/`. On L1 **final-accept**, the **control plane (`harnessd`) promotes the deliverable OUT of `/runtime/` to the destination captured at intake** (a user-path or git remote, recorded as a field of the frozen intent-spec). This destination is **outside every node's write-jail**, so the cross-boundary write is a **control-plane operation, gated on L1's accept signal — never a jailed-agent write**. The deliverable binding (`deliverable_state` + the dedicated `delivery_destination`/`delivery_kind`, the harnessd per-node binding block in `harnessd/IMPLEMENTATION-PLAN.md` §3.2) tracks it — the promote step sets `deliverable_state=delivered` (or `delivery-failed`) and records the target in `delivery_destination`, kept distinct from `write_targets` (the in-jail source surface). The L1-authored `client-brief/` files (`vision.md`, `priorities.md` — views of the frozen intent-spec, written at project creation, immutable, above) are the brief side of the same arc; promotion is the delivery side. See `INTAKE-TO-DELIVERY.md` for the full intake→delivery arc.
+
 ### L2-config.md
 
 The spawn artifact for L2. Contains: professional role identity for this project (e.g., "technical architect for a fintech app"), domain context, and user priorities inherited from the client brief. L1 creates this at project initiation. L1 invokes it to spawn L2. For new projects, L1 follows a skill/guide for creating a new L2 configuration.

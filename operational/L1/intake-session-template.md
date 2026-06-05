@@ -74,7 +74,8 @@ Run the M50/K45 method. Depth is **variable by design** — spend it where the u
 5. **Decompose every must-never-fail.** A compound MNF minted whole is the highest-stakes place for silent loss. Split each into atomic, individually-testable obligations, each with the concrete failure it forbids, the distinct mechanism that defeats it, and the **negative/failure-path test** the gate will require. Probe the **safe-failure direction** (which way the system should fail when a guard trips).
 6. **Surface L1-derived requirements explicitly.** Where the user's stated constraints *imply* a requirement they did not state (e.g. "Stripe" + "never double-charge" ⇒ webhook reconciliation), mint it as an **ordinary root `R-NNN` requirement flagged `[L1-derived]`** in the ID→intent-span map (§5), flagged for reflect-back — never silently fold it into a verbatim requirement, and **never as a `DR-` row** (`DR-` is reserved for derived requirements born *below* intake; a requirement surfaced AT intake is a root `R-NNN` with an `[L1-derived]` flag, even if the user did not speak its exact words).
 7. **Mint IDs and trace-blocks.** Assign dotted-hierarchical IDs (minted **only** at intake), attach a trace-block to each requirement, and build the verbatim ID→intent-span map.
-8. **Write the reflect-back script.** Plain-language playback mapping each claim to its IDs, calling out the load-bearing confirmations (MNF decomposition, safe-failure direction, every L1-derived item) as `pending`.
+8. **Capture the delivery destination.** Elicit where the finished product ships — a single resolvable user-path (e.g. `~/Projects/foo`) or a git remote — or an explicit *in-place / no external delivery*. Record it as contract §8 (Destination + Kind). This is the promotion target the control plane delivers to on L1 final-accept; an absent destination is a contract violation, not an implied no-op.
+9. **Write the reflect-back script.** Plain-language playback mapping each claim to its IDs, calling out the load-bearing confirmations (MNF decomposition, safe-failure direction, every L1-derived item) as `pending`.
 
 ---
 
@@ -89,8 +90,9 @@ Run the M50/K45 method. Depth is **variable by design** — spend it where the u
 5. Verbatim ID→intent-span map with `[L1-derived]` flags
 6. A trace-block per requirement (root of the flow-down chain)
 7. The reflect-back script + confirmation status (`PENDING`)
+8. The delivery destination (§8) — a single user-path or git remote (+ its kind), or an explicit *in-place / no external delivery* mark
 
-**Self-check before returning** (a checker applies the same): every requirement has an ID that resolves to a parent by truncation; every `MNF: YES` is decomposed; every minted ID appears in the span-map; every L1-derived row is flagged; every requirement carries a parseable trace-block; no row is missing a tag or a fluency value. If any fails, you are not done — fix it before returning. A malformed spec is a return-contract violation; L1 will bounce it.
+**Self-check before returning** (a checker applies the same): every requirement has an ID that resolves to a parent by truncation; every `MNF: YES` is decomposed; every minted ID appears in the span-map; every L1-derived row is flagged; every requirement carries a parseable trace-block; no row is missing a tag or a fluency value; the **delivery destination (§8) is present** (or explicitly marked *no external delivery*). If any fails, you are not done — fix it before returning. A malformed spec is a return-contract violation; L1 will bounce it.
 
 **Return nothing else.** No transcript, no draft history, no design opinions beyond what the spec's L1-derived rows capture. Append one short **return note** to L1 listing: any profile-update candidates you logged, and which confirmations remain load-bearing-pending. The note is metadata for L1's ingestion; it is not part of the spec.
 

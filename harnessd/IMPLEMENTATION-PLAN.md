@@ -824,6 +824,32 @@ shape 6/7 were written against.
 > boot confirmed, session_uuid + model_used recorded, single journaled sign-off then stop. This is the
 > only test that touches the subscription window; closes the whole Phase-5 done_when.
 
+> **Increment 17 — control-plane promotion / delivery (promote-out-of-`/runtime/`).** The FIRST and ONLY
+> sanctioned cross-write-jail action: a harnessd operation, GATED on L1's final-accept signal for a
+> project, that copies the finished deliverable OUT of the gitignored `/runtime/proj/{project}/` node TO
+> the delivery destination captured at intake in the frozen intent-spec (a filesystem user-path or a git
+> remote). Agents CANNOT do this — every agent is write-jailed to its `/runtime/` node subtree and the
+> destination is OUTSIDE every jail; only the control plane (harnessd) may cross it, and only on the
+> accept signal. The promote step writes `deliverable_state`/`write_targets` on the binding via the
+> single writer (`executor.transition` — no second mutation path), so the delivery is journaled in the
+> WAL like any other state change. The intake→L2 stages (KICKOFF through FINAL-ACCEPTANCE) ride EXISTING
+> increments — the chokepoint spawn (10/14) and L1 writing `client-brief/` WITHIN its own jail (a node
+> below the L1-root) — plus the new intent-spec delivery-destination field; only this promotion step is
+> NEW harness code. Project teardown/reclaim of the `/runtime/` tree after delivery is a DEFERRED
+> follow-on (register D7), NOT part of this increment. Cross-reference `../design/INTAKE-TO-DELIVERY.md`
+> (the end-to-end arc) + the deliverable binding block (§3.2, `deliverable_state, write_targets,
+> evidence_refs, acceptance_ref`). **Done-test:** on a FAKE accepted project (synthesized
+> `/runtime/proj/{project}/` tree + an intent-spec carrying a temp-dir destination + an L1 final-accept
+> signal), `promote` lands the deliverable AT the captured destination and the binding shows
+> `deliverable_state=delivered` with `delivery_destination` recording the target (a failed promote sets
+> `deliverable_state=delivery-failed` + escalates; `write_targets` stays the in-jail source surface) — and the write is
+> attributable to harnessd (the single writer + the control-plane copy), NOT to any agent (no agent ever
+> writes outside its `/runtime/` jail; assert no jailed-agent write touched the destination). **Reject
+> path:** with NO accept signal (or a reject), `promote` is a no-op — the destination is untouched and
+> `/runtime/` is left intact (promotion is gated, never speculative). Git-remote destination variant:
+> push lands the deliverable at the captured remote (or is dry-run-asserted to issue exactly that push),
+> same gate. No real model usage.
+
 **Minimal ③ wake placement — the two halves, and which is harnessd vs agent:**
 - **harnessd side (the send-keys nudge + its trigger):** `inbox_has_unacked` (tail `<node>/.inbox.jsonl`,
   decide WHEN to wake) + `wake_keystroke` (the pointer payload) + `prod_precondition`/`confirm_prod_worked`

@@ -83,8 +83,8 @@ the keystroke layer, the ledger, or the fencing.
   escalation answer-round-trip + the sign-off (read-only; ③ never writes them).
 - `gate_crossed_at` — the human sign-off gate state (② flips, ① enforces, **③ surfaces** the human
   verdict that triggers the flip).
-- `deliverable_state` (`planned|active|waiting|completed|blocked|cancelled`) — the workboard half
-  the sign-off package reads/reflects.
+- `deliverable_state` (`planned|active|waiting|completed|blocked|cancelled|delivered|delivery-failed`) — the workboard half
+  the sign-off package reads/reflects (`delivered`/`delivery-failed` are the post-promotion terminal states, INTAKE-TO-DELIVERY §3).
 - `owner_token` + `lease_epoch` + `generation` + `session_uuid` + lifecycle `state` — **read by the
   SENDER from the live binding immediately before a wake** for the sender-side fence (token-freshness
   AND incarnation-match AND not-collapsing, §3.2 precond-2). The wake message itself carries **no**
@@ -431,7 +431,7 @@ boolean** — it is a set of typed dispositions plus a PASS edge:
   what triggers freeze (the `candidate` → `frozen` transition that occurs **only** on the PASS edge).
   **`candidate`/`frozen` is the plan-artifact's OWN state (`PLAN-ALIGNMENT-GATE.md` vocabulary), NOT
   an ① binding field** — none of ①'s enums (`deliverable_state` `planned|active|waiting|completed|
-  blocked|cancelled`, lifecycle `state`, the `gate_crossed_at` flag) contain `candidate`/`frozen`. ③
+  blocked|cancelled|delivered|delivery-failed`, lifecycle `state`, the `gate_crossed_at` flag) contain `candidate`/`frozen`. ③
   surfaces only the **verdict that triggers** the freeze; the freeze itself is owned by the gate/plan
   layer — the same way ③ disclaims owning the deliverable-ledger. Any change touching an MNF or a
   user-confirmed `delegated` default **re-enters the HUMAN gate specifically** — so the

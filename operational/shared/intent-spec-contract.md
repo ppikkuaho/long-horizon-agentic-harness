@@ -62,6 +62,17 @@ Each requirement carries the **same per-element trace-block** every downstream l
 
 The plain-language playback L1 reads to the user, mapping each claim to its IDs, and a **confirmation status** field. Load-bearing confirmations (the MNF decomposition, any safe-failure direction, every `[L1-derived]` requirement) are called out as the items that remain `pending`/L1-derived assumptions until the user confirms them.
 
+### 8. Delivery destination
+
+The single resolvable destination where the finished product is delivered, captured **at intake** alongside the rest of the brief. Two fields:
+
+| Field | Contract |
+|-------|----------|
+| `Destination` | A single resolvable target — a user-path (e.g. `~/Projects/foo`) or a git remote — outside the runtime tree. Exactly one. |
+| `Kind` | Exactly one of `filesystem-path` / `git-remote`. Drives how the control plane promotes (copy-out vs push). |
+
+This is the captured target for control-plane promotion at final-accept — never an agent-writable path (agents are jailed to the `/runtime/` node subtree; the destination lies outside every jail). Observable: present and non-empty for any project intended to ship. A project the user wants to keep in place with no external delivery MUST mark this **explicitly** as `in-place / no external delivery` — an absent destination is a return-contract violation, not an implied no-op.
+
 ---
 
 ## What this contract enables downstream (why each field exists)
@@ -71,6 +82,7 @@ The plain-language playback L1 reads to the user, mapping each claim to its IDs,
 - **Per-area fluency** → M58 intake-calibrated render-depth: the gate shows fluent areas the technical claim and delegated areas the plain-language implication.
 - **MNF decomposition + negative tests** → Check 2 (presence of failure-path test) and Check 4b (adequacy of the test's described mechanism).
 - **ID→span map + `[L1-derived]` flags** → Check 0 atomization completeness can audit the prose→ID translation instead of treating it as axiomatic.
+- **Delivery destination** → the captured target the control plane promotes the finished product to on L1 final-accept — the one gated cross-jail write out of `/runtime/` (see `design/INTAKE-TO-DELIVERY.md`).
 
 ---
 
@@ -82,4 +94,4 @@ The plain-language playback L1 reads to the user, mapping each claim to its IDs,
 
 ---
 
-*Created: 2026-06-02 — canonical intent-spec contract. Formalizes the artifact whose reference instance is `dry-run/intent-spec.md`; retires "SDD" at the intake boundary in favor of "the intent-spec." Consumed by `operational/L1/intake-session-template.md` (output contract) and the plan-alignment gate (Checks 0/1/2/4b).*
+*Created: 2026-06-02 — canonical intent-spec contract. Formalizes the artifact whose reference instance is `dry-run/intent-spec.md`; retires "SDD" at the intake boundary in favor of "the intent-spec." Consumed by `operational/L1/intake-session-template.md` (output contract), the plan-alignment gate (Checks 0/1/2/4b), and `design/INTAKE-TO-DELIVERY.md` (delivery-destination → control-plane promotion).*

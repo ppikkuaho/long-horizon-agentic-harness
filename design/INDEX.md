@@ -25,6 +25,7 @@
 - **`SCALE.md`** ④ — admission gate, per-runtime ceilings, OAuth-subscription usage model (mostly deferred-with-triggers).
 - **`SECURITY.md`** — containment floor (cross-cutting): the `sandbox-exec` write/read-jail, secret protection, skip-perms-in-jail posture, fleet HALT. Wires into the spawn chokepoint (the seatbelt is the pane launch command). Decisions locked 2026-06-05 (Option A).
 - **`ROLE-RESOLUTION.md`** — how a role is resolved at boot (cross-cutting): the H40 split — one shared minimal `--system-prompt-file` (constant) vs role-as-read-in-place-documents (the per-seat load-manifest), refs resolving under the read-allow graph (no flatten), `role_file` → `system_prompt_file` + `role_variant`. Reconciles §4 + Decision B; rides the spawn chokepoint. Created 2026-06-05.
+- **`INTAKE-TO-DELIVERY.md`** — the end-to-end application arc (cross-cutting): user request → L1 intake/intent-spec → project genesis → L2 spawn → execution → L1 final-accept → **control-plane promotion** of the product out of the gitignored `/runtime/` to the intake-captured destination (the ONE sanctioned cross-write-jail action, gated on accept — never an agent write). Rides the substrate; the new build code is IMPL-PLAN Increment 17. Closes register V3. Created 2026-06-05.
 
 *Internally consistent post cross-cluster reconciliation (2026-06-05). The recovered `research/` files below are the SUSPECT adaptation source, NOT these specs.*
 
