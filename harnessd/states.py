@@ -141,3 +141,115 @@ def is_legal(from_state: str, to_state: str) -> bool:
     any binding write.
     """
     return to_state in ALLOWED_TRANSITIONS.get(from_state, frozenset())
+
+
+# ---------------------------------------------------------------------------
+# TERMINAL_VOCAB — the §3.6 terminal-vocabulary mapping table (the ONE normative
+# translation among the three deliberately-distinct layers, DAEMON §3.6 /
+# IMPLEMENTATION-PLAN §2.3). Each row translates:
+#
+#     agent-emitted tag  ->  terminal_signal (binding)  ->  run-ledger event
+#                        ->  lifecycle state  ->  collapsed?
+#
+# Two load-bearing rules this table encodes (DAEMON §3.6 "Two rules"):
+#
+#   1. ESCALATED is ASYMMETRIC. The terminal_signal is SET (``ESCALATED``) but
+#      the lifecycle ``state`` STAYS ``running`` and the node is NOT collapsed.
+#      Collapse fires on ``state ∈ {done, failed, dead}``, NEVER on
+#      ``terminal_signal != null`` (IMPLEMENTATION-PLAN §2.3 line 126-127).
+#
+#   2. The spelling split is DELIBERATE: the binding value is SCREAMING
+#      (``DIED_INFRA``), the run-ledger event is snake (``died_infrastructure``),
+#      the lifecycle state is lowercase (``failed``). The three layers are three
+#      DISTINCT strings; do not "unify" them by renaming — translate through here.
+#
+# Shape: a dict keyed by the unique run-ledger ``event`` (unique across all eight
+# rows), each value a row exposing its four mapped layers. ``state=None`` encodes
+# §3.6's "(unchanged — stale actor only)" cell for FENCED (the live owner's state
+# is untouched). ``collapsed=None`` encodes the died_* rows whose collapse is
+# routed by cluster ②'s recovery policy ("per ② recovery policy"), not fixed here.
+# ---------------------------------------------------------------------------
+
+from typing import NamedTuple, Optional
+
+
+class TerminalVocabRow(NamedTuple):
+    """One §3.6 row: the translation among the four (+agent-tag) layers.
+
+    ``agent_tag``      — the comms-protocol tag the agent emits (None = daemon-stamped).
+    ``terminal_signal``— the SCREAMING binding-layer value (None = no binding stamp).
+    ``event``          — the snake-cased run-ledger event name (the unique row key).
+    ``state``          — the lowercase lifecycle state the row resolves to
+                         (None = "(unchanged)": the live binding state is untouched).
+    ``collapsed``      — whether the node collapses (None = routed by ② policy).
+    """
+
+    agent_tag: Optional[str]
+    terminal_signal: Optional[str]
+    event: str
+    state: Optional[str]
+    collapsed: Optional[bool]
+
+
+TERMINAL_VOCAB: dict[str, TerminalVocabRow] = {
+    # --- agent-emitted-tag rows (the strict comms-protocol 3-set) ---
+    "signal_DONE": TerminalVocabRow(
+        agent_tag="DONE",
+        terminal_signal="DONE",
+        event="signal_DONE",
+        state="done",
+        collapsed=True,  # parent reads report.md
+    ),
+    "signal_FAILED": TerminalVocabRow(
+        agent_tag="FAILED",
+        terminal_signal="FAILED",
+        event="signal_FAILED",
+        state="failed",
+        collapsed=True,  # parent respawns/escalates
+    ),
+    "signal_ESCALATED": TerminalVocabRow(
+        agent_tag="ESCALATED",
+        terminal_signal="ESCALATED",
+        event="signal_ESCALATED",
+        state="running",  # ASYMMETRIC: signal set, but state STAYS running
+        collapsed=False,  # keeps context, waits for the answer round-trip
+    ),
+    # --- daemon-stamped death classes (F-017: infra vs methodology are DISTINCT) ---
+    "died_infrastructure": TerminalVocabRow(
+        agent_tag=None,
+        terminal_signal="DIED_INFRA",  # SCREAMING binding value
+        event="died_infrastructure",  # snake run-ledger event
+        state="failed",  # lowercase lifecycle state
+        collapsed=None,  # per ② recovery policy
+    ),
+    "died_methodology": TerminalVocabRow(
+        agent_tag=None,
+        terminal_signal="DIED_METHODOLOGY",
+        event="died_methodology",
+        state="failed",
+        collapsed=None,  # per ② recovery policy
+    ),
+    # --- daemon-stamped FENCED (non-destructive de-auth; live owner unaffected) ---
+    "stale_return_ignored": TerminalVocabRow(
+        agent_tag=None,
+        terminal_signal="FENCED",
+        event="stale_return_ignored",
+        state=None,  # "(unchanged — stale actor only)"
+        collapsed=False,  # live owner unaffected
+    ),
+    # --- daemon-stamped coordinator rows (§5.4) ---
+    "coordinator_died": TerminalVocabRow(
+        agent_tag=None,
+        terminal_signal=None,
+        event="coordinator_died",
+        state="dead",
+        collapsed=False,  # recovered-as-orphan, NOT collapsed
+    ),
+    "coordinator_completed": TerminalVocabRow(
+        agent_tag=None,
+        terminal_signal="DONE",
+        event="coordinator_completed",
+        state="done",
+        collapsed=True,
+    ),
+}
