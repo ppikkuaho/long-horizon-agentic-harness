@@ -1056,6 +1056,9 @@ no API key.
 > silently-SPLIT record whose declared prefix happens to still equal the surviving byte count. So the
 > rule is: prefix-length = primary torn signal; crc32 = the split-record backstop (not merely optional
 > belt-and-suspenders). No `len` field in the record.
+> **RESOLVED 2026-06-05 (user-delegated → recommendation adopted):** crc32 backstop. `build_wal_record`
+> always emits `crc32(payload)`; `load_wal` treats `crc32(payload) != record['crc32']` as a torn signal
+> alongside the length-prefix mismatch. Built in Increment 2.
 
 > **FORK-TERMINAL-MIRROR (DAEMON §10) — terminal-signal mirroring.** Mirror terminal-signal WAL rows
 > into the project `log.md` too, or keep them strictly in the run-ledger? **Recommendation: strictly
@@ -1070,6 +1073,9 @@ no API key.
 > per-node watermark; its allocation must be crash-safe. **Recommendation:** `next_seq() = last WAL
 > seq + 1 on load` (derive from the WAL itself; no separate persisted counter to desync). The
 > `/runtime/.../next-seq` file is optional cache, not the source of truth.
+> **RESOLVED 2026-06-05 (user-delegated → recommendation adopted):** derive from WAL. `next_seq()` =
+> last WAL `seq` + 1 computed on load; the WAL is the single source of truth; no authoritative
+> persisted counter. Built in Increment 2.
 
 > **FORK-W (WATCHDOG §8) — suspicion-window numbers.** `W(state)` numbers are KNOWN-OPEN. **v1 ships
 > placeholder constants** (e.g. `W_working=120s`, `W_waiting_on_child=600s`, `W_writing_final=60s`)
