@@ -66,17 +66,18 @@ The pattern, stated once: **distilled brief loaded + raw intent referenced + rat
 
 ---
 
-## 4. Patch Claude Code's Base System Prompt (Intent)
+## 4. Replace Claude Code's Base Framing — One Shared Minimal System Prompt (H40)
 
 Claude Code ships with a base system prompt that frames the model as a *coding assistant* — helpful, deferential, eager to write code. For agents in this system that occupy non-coding seats (L1 System Orchestrator, L2 Project Architect, a reviewer, an intent-guardian), that baked-in coding-assistant identity actively **fights the role framing** we layer on top. An L1 that has been told it is the System Orchestrator with full portfolio authority still has a substrate pulling it toward "how can I help you with your code today?"
 
-**Intent (H40): patch Claude Code's base system prompt so its default coding-assistant identity does not fight role framing.** This is captured here as a committed intention, not yet an implemented mechanism. Notes on shape:
+**Resolution (H40, resolved): don't fight the base framing — replace it.** Every agent, every level, boots with **one shared minimal system prompt** delivered via `--system-prompt-file <shared-prompt>`. That flag *replaces* Claude Code's base coding-assistant block (base block 2) while keeping the default tool set and staying OAuth/interactive-safe — so the SWE-assistant framing is simply gone, not papered over. There is **no per-level system prompt** and **no binary patch**: the shared prompt is deliberately bare (harness posture + tool norms, SWE/craft framing stripped), and it is the same file for L1 through L5.
 
-- The work is version-sensitive and belongs in the patch registry under `dev/patches/claude-code/` (see the root `CLAUDE.md` patch-registry guidance). Do not hand-edit; register the patch.
-- Delivery is via the patched Claude wrapper / runtime injection layer, the same path other Claude-Code customizations use.
-- **This applies only to Claude (Opus) seats.** GPT-5.5 seats run under the Codex harness with no Claude base prompt, so they need no equivalent patch — their analogous framing concern (literalness, escalate-don't-decide) is handled in the brief, per `runtime-and-model-map.md`.
+**The role arrives as documents, not as system-prompt text.** The shared prompt's opening line points the agent at its own node — *"your role, scope, and current task are delivered as documents in your workspace; read those first."* Who the agent is (`soul.md` pointer → `role.md` → `config.md` → any handbook) and what it is doing (the brief + frozen `acceptance.md`) are **files the agent reads at boot from its station node**, not strings baked into the prompt. This is why the per-level `role.md`/`config.md`/brief carry the behavioral load (§1–§2): under this model they are not just the *content* of the definition, they are the *delivery mechanism*.
 
-Until the patch lands, role definitions should compensate explicitly — leading with a strong positive identity statement that overrides the assistant default (as `operational/L1/role.md` already does: "This is not a support role… You have full operational authority over a portfolio").
+- Delivery is `--system-prompt-file` on the pinned Claude Code binary — explicitly **not** `--append-system-prompt` (which keeps the SWE block), **not** `--agents`, **not** `--bare` (which would strip the tools and break OAuth). The adapter's boot flags live in `runtime-and-model-map.md`.
+- **This applies to Claude (Opus) seats.** GPT-5.5 seats run under the Codex harness with no Claude base prompt to replace — their analogous framing concern (literalness, escalate-don't-decide) is handled in the brief, per `runtime-and-model-map.md`. The role-as-documents half applies to both: a Codex L5 also reads its role + brief from its node.
+
+Because the SWE framing is removed at the source, role definitions no longer have to *compensate* for an assistant default fighting them — but a strong positive identity statement (as `operational/L1/role.md` opens: "This is not a support role… You have full operational authority over a portfolio") remains good practice, now as the *primary* framing rather than a counterweight.
 
 ---
 
@@ -115,7 +116,7 @@ This pairs with two gate properties that enforce the same value structurally: th
 - **Define positively** → ownership first, boundaries second; make the lane attractive (realization-not-redesign).
 - **Briefs** → thin-but-decision-complete. Too-thin is the dangerous failure (executor fills gaps with training defaults → silent drift). Pair with the frozen acceptance artifact; escalate-don't-decide on ambiguity.
 - **Pointer-not-payload** → distilled brief loaded, raw intent referenced, rationale recoverable via ADRs.
-- **CC base-prompt patch (H40, intent)** → coding-assistant default must stop fighting role framing; via `dev/patches/claude-code/`; Opus seats only.
+- **Base framing (H40, resolved)** → don't patch, replace: one shared minimal `--system-prompt-file` strips the coding-assistant block for every level; the role arrives as documents the agent reads from its node, not as system-prompt text. Opus seats; a Codex L5 also reads its role + brief from its node.
 - **LLM-design principles** → held softly; mechanisms transfer, prescriptions re-express.
 - **Human decisions** → neutral tradeoff framing: balanced options + recommendation-from-their-values + no pressure. Loaded form banned; abdication also banned.
 
@@ -123,4 +124,5 @@ This pairs with two gate properties that enforce the same value structurally: th
 
 *Operational reference — loaded at boot for definition-authoring levels (L1–L4).*
 *Created: 2026-06-02. Sources: H39/H40/H41/L46/M54/M57.*
+*Updated: 2026-06-05 — §4 reframed from "patch the base prompt (future intent)" to the resolved H40 model: one shared minimal `--system-prompt-file` replaces the base coding-assistant block; the role is delivered as documents the agent reads from its node.*
 *Siblings: `runtime-and-model-map.md`, `DESIGN-PRINCIPLES.md`, `PLAN-ALIGNMENT-GATE.md`, `QUALITY-GATE.md`, `WORKSPACE-SCHEMA.md`.*
