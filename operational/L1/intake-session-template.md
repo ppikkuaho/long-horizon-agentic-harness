@@ -27,8 +27,14 @@ A generative/judgment seat — opinionated elicitation, tradeoff-framing, decomp
 
 ## Identity — Load These Documents
 
+These are documents you READ at boot from your node + the read-allowed harness docs — they are your role; the system prompt is the shared minimal posture, not your role.
+
 - `operational/shared/intent-spec-contract.md` — **the output contract** you must satisfy (read first; it defines what "done" means)
 - `operational/shared/user-profile-schema.md` — how to read the profile input below
+- `operational/shared/comms-protocol.md` — loaded at boot for all levels
+- `operational/shared/agent-lifecycle.md` — loaded at boot for all levels
+- `operational/shared/agent-definition-principles.md` — loaded at boot for definition-authoring levels L1–L4
+- `operational/shared/runtime-and-model-map.md` — loaded at boot for all levels
 - `design/PROJECT-PLANNING.md` Phase 1 — the intake method in context
 - `operational/L1/role.md` §"Intake Methodology (M50/K45)" — the method
 - `dry-run/intent-spec.md` — a **reference instance** that satisfies the contract; pattern-match its depth and structure
@@ -98,4 +104,4 @@ Run the M50/K45 method. Depth is **variable by design** — spend it where the u
 
 ---
 
-*Template version: 2026-06-02 — first intake spawn template. Closes the "parallel grilling session undefined/untemplated" gap. Output contract = `operational/shared/intent-spec-contract.md`; profile input = `operational/shared/user-profile-schema.md`.*
+*Template version: 2026-06-05 — first intake spawn template. Closes the "parallel grilling session undefined/untemplated" gap. Output contract = `operational/shared/intent-spec-contract.md`; profile input = `operational/shared/user-profile-schema.md`. Load-manifest completed with always-loaded shared contract docs (comms-protocol, agent-lifecycle, agent-definition-principles, runtime-and-model-map) and re-framed as boot-read role documents (H40).*

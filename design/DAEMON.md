@@ -85,8 +85,9 @@ that makes deferral safe*), v1 includes:
 4. the **single-writer executor** (CAS-guarded transition chokepoint, lock-serialized, atomic,
    validate-before-commit) + the **ledger write-race/atomicity model**,
 5. **reconcile-on-restart + continuous reconciliation**,
-6. the **single spawn chokepoint** (`--system-prompt-file` boot, claim-before-spawn / F-024 fix,
-   thin per-runtime adapter),
+6. the **single spawn chokepoint** (boot via `--system-prompt-file operational/shared/system-prompt.md`
+   — the ONE shared minimal prompt; the role is delivered as documents the agent reads — claim-before-spawn
+   / F-024 fix, thin per-runtime adapter),
 7. **genesis / first-boot**,
 8. **fencing** (`lease_epoch` + `owner_token` + CAS on transition **and** spawn).
 
@@ -356,8 +357,14 @@ occupy one node via different suffixes. (FORK note below.)
 
   # --- verifiable spawn fact (H40 / runtime-and-model-map) ---
   model_used: "opus-4.8 / claude-code"  # ACTUAL model+runtime that ran (config=intent, this=fact)
-  role_file: "L5/role.md"               # the --system-prompt-file passed at spawn
-  role_file_hash: "sha256:…"            # detect role-file drift (fencing surface, open Q)
+  system_prompt_file: "operational/shared/system-prompt.md"  # CONSTANT — the ONE shared minimal prompt
+                                        #   passed as --system-prompt-file at EVERY spawn, identical L1–L5
+                                        #   (H40, agent-definition-principles §4). May be a runtime-global
+                                        #   rather than per-row; at minimum it is NO LONGER a per-level path.
+  role_variant: "L5#exec"               # PER-binding — selects WHICH load-manifest/bundle + per-level role
+                                        #   docs the chokepoint assembles into the brief (e.g. "L4",
+                                        #   "L5+#review"). This is the field that varies by seat.
+  role_bundle_hash: "sha256:…"          # detect role-bundle drift (fencing surface, open Q)
 ```
 
 **Two-surface split (kept from the recovered model).** `liveness_state` + `condition` (lease/health)
@@ -891,7 +898,11 @@ spawn(node_address, expected_state, expected_generation, expected_owner_token, l
 
     # --- ADMISSION SEAT (cluster ④ wedges here, between claim-accepted and actor-open) ---
 
-    # STEP 2 — ADAPTER: read level config, assemble runtime-NEUTRAL brief, pick runtime adapter
+    # STEP 2 — ADAPTER: read level config, assemble the runtime-NEUTRAL brief INCLUDING its
+    #   load-manifest ("Identity — Load These Documents": the per-level role docs + always-loaded
+    #   shared contract docs + referenced design docs the child READS at boot, per role_variant),
+    #   pick runtime adapter; the boot call passes --system-prompt-file system_prompt_file (the
+    #   CONSTANT shared minimal prompt — §6.2). The role rides the brief/manifest, NOT this flag.
     # STEP 3 — confirm model+runtime pinned (E32) BEFORE the child runs; on failure → escalate, RELEASE claim
     # STEP 4 — open the tmux actor (§6.2); record session_uuid + model_used into the binding (one writer)
     # STEP 5 — transition claimed → spawning → running as the actor confirms boot
@@ -920,15 +931,26 @@ matched pair so ④'s gate is a balanced counter, not an increment-only ratchet 
 
 ### 6.2 In-role boot — the H40 recipe (Claude-Code adapter)
 
-The Claude-Code adapter boots the **pinned** binary with `--system-prompt-file <level-role>.md`
-(H40 rank-1, 5/5 in-role, survived a 40-agent blind re-score). Concrete invocation:
+The Claude-Code adapter boots the **pinned** binary with
+`--system-prompt-file operational/shared/system-prompt.md` (H40 rank-1, 5/5 in-role, survived a
+40-agent blind re-score). The flag delivers the **ONE shared minimal prompt — identical for L1–L5**,
+NOT a per-level file and NOT `role.md` (H40 resolved, agent-definition-principles §4). **The role is
+NOT in the prompt:** it is delivered as **documents the agent reads at boot** — the node's spawn brief
++ its load-manifest ("Identity — Load These Documents") plus the read-allowed harness docs (the
+per-level `operational/L{n}/{soul,role,config}.md`, the always-loaded shared contract docs, and
+referenced `design/*.md`), which the agent reads IN PLACE at their harness-root paths (no
+inline-flatten). The role-bundle delivery is specified in `design/ROLE-RESOLUTION.md`. Concrete
+invocation:
 
 - **Binary:** `.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe`, version pinned
   `2.1.152`. The chokepoint **verifies the binary version/hash at spawn** (do not trust
   `DISABLE_AUTOUPDATER` alone — PINNED-CC.md notes it was not found in the binary strings; the real
   pin is the npm version + isolated prefix).
-- **Flag:** `--system-prompt-file <level-role>.md` (REPLACES base block 2, keeps the identity line,
-  keeps the 24-tool set, works interactively, OAuth-compatible). **Do NOT** use
+- **Flag:** `--system-prompt-file operational/shared/system-prompt.md` (REPLACES base block 2, keeps
+  the identity line, keeps the 24-tool set, works interactively, OAuth-compatible). The file is the
+  shared minimal prompt, the same for every level; the per-seat differentiation rides the brief +
+  load-manifest, not this flag (selected by the binding's `role_variant`, §3.2). The file itself must
+  be **read-allowed** to the CC process so it can be read at boot. **Do NOT** use
   `--append-system-prompt` (keeps full framing), `--agents`/`--agent` (does not inject persona),
   or `--bare` (reads auth strictly from `ANTHROPIC_API_KEY`, errors `Invalid API key` on an OAuth
   subscription token — a latent foot-gun guarded below).
@@ -1010,8 +1032,8 @@ The resume path:
    incarnation (new messages, parent answers to an `ESCALATED`, reconcile findings), pointing at the
    durable work node the fresh instance re-reads (`status.md`, `log.md`, `report.md`, frozen
    acceptance — `agent-lifecycle.md`'s stateless-respawn recovery).
-3. **Boot via §6.2** with the level role file, recording the **new** `session_uuid` into the binding
-   via the single writer.
+3. **Boot via §6.2** with the shared minimal prompt + the (delta) brief and its load-manifest,
+   recording the **new** `session_uuid` into the binding via the single writer.
 
 **The gate firewall (LOCKED correctness invariant, runtime-decisions §2.8): NEVER `--resume` a
 session across a quality-gate boundary.** A session that has crossed a gate (e.g. an L5 whose work
@@ -1052,7 +1074,9 @@ LOCKED sequence (runtime-decisions §4 + gap-review #1 resolution):
        dead → resume L1.
 6. If no live, non-terminal L1 binding exists:
      - SPAWN L1 as root via the single spawn chokepoint (§6), in role
-       (--system-prompt-file L1/role.md), claim-before-spawn at address (the L1 root address).
+       (--system-prompt-file operational/shared/system-prompt.md — the shared minimal prompt — with
+       L1's load-manifest in the brief; role_variant = L1), claim-before-spawn at address (the L1
+       root address).
      - REGISTER L1 as the root node in the binding ledger (parent_address = null; it is the only
        node with no parent — every other node has a declared parent by the supervision-tree
        invariant).
@@ -1183,17 +1207,17 @@ chokepoint defined above — so adding it later is a one-site change, not a re-p
 - **run-ledger vs project `log.md`:** are terminal-signal entries mirrored into `log.md`, or kept
   strictly in the daemon run-ledger? Recommendation leans "strictly in the run-ledger; `log.md`
   stays agent-written project history" — but the mirror decision is left open.
-- **`role_file_hash` as a fencing surface:** whether a role-file change mid-flight should be
-  detectable/fence-triggering is recorded as a binding field (`role_file_hash`) but the policy is
+- **`role_bundle_hash` as a fencing surface:** whether a role-bundle change mid-flight should be
+  detectable/fence-triggering is recorded as a binding field (`role_bundle_hash`) but the policy is
   open.
 - **launchd token lifecycle:** token *health* is now a named genesis precondition and `auth_expired`
   is a distinct spawn-failure class (§6.3/§7). What remains open is the **refresh mechanism** for a
   long-lived always-on daemon (token-file vs `_FILE_DESCRIPTOR`, whether an unattended automatic
   refresh path exists or expiry must always escalate to the user) — unaddressed in the source
   material, flagged for the credential design.
-- **`--system-prompt-file` re-verification on version bump:** H40 lists the re-checks (flag exists,
-  still REPLACES, still interactive, still OAuth). Whether genesis runs this as a self-check is
-  unresolved.
+- **`--system-prompt-file` re-verification on version bump:** H40 lists the re-checks for the shared
+  `operational/shared/system-prompt.md` boot (flag exists, still REPLACES base block 2, still
+  interactive, still OAuth). Whether genesis runs this as a self-check is unresolved.
 - **Codex adapter fill** (§6.3) — owed.
 
 ---

@@ -333,7 +333,7 @@ the pane IS the canonical actor**, in priority order:
    DAEMON.md §3.2).
 2. **`owner_token` epoch** — the pane's last `watchdog-checkpoint` carried the current `lease_epoch`
    (not a stale one).
-3. **`role_file_hash`** — the running role file matches the binding (drift check; DAEMON.md §3.2 open
+3. **`role_bundle_hash`** — the running role bundle matches the binding (drift check; DAEMON.md §3.2 open
    surface).
 
 If the identity test is **inconclusive** (no uuid match, ambiguous epoch) → do **not** adopt →

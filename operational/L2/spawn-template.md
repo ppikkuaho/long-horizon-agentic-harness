@@ -6,9 +6,15 @@ Filled by L1 when spawning an L2 for a project. Everything the L2 needs to boot 
 
 ## Identity — Load These Documents
 
+These are documents you READ at boot from your node + the read-allowed harness docs — they are your role; the system prompt is the shared minimal posture, not your role.
+
 - `operational/L2/soul.md`
 - `operational/L2/role.md`
 - `operational/L2/config.md`
+- `operational/shared/comms-protocol.md` (loaded at boot for all levels)
+- `operational/shared/agent-lifecycle.md` (loaded at boot for all levels)
+- `operational/shared/agent-definition-principles.md` (loaded at boot for definition-authoring levels L1–L4)
+- `operational/shared/runtime-and-model-map.md` (loaded at boot for all levels)
 - `design/PROJECT-PLANNING.md` (planning process reference)
 - `design/DECOMPOSITION-METHODOLOGY.md` (decomposition method)
 
@@ -124,4 +130,4 @@ This set is the handoff contract for planning-L3s and the anti-drift anchor for 
 
 ---
 
-*Template version: 2026-06-02. Updates: flat identity paths fixed, {{RUNTIME}} block added, visibility scope added, ADR output contract added, inbox refs replaced with bus+docs, PROJECT-PLANNING.md path corrected.*
+*Template version: 2026-06-05. Updates: flat identity paths fixed, {{RUNTIME}} block added, visibility scope added, ADR output contract added, inbox refs replaced with bus+docs, PROJECT-PLANNING.md path corrected; load-manifest completed with always-loaded shared contract docs and re-framed as boot-read role documents (H40 — the system prompt is the shared minimal posture, not the role).*

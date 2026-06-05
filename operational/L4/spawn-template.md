@@ -6,9 +6,16 @@ Filled by L3 when spawning an L4 for a workstream. Everything the L4 needs to bo
 
 ## Identity — Load These Documents
 
+These are documents you READ at boot from your node + the read-allowed harness docs — they are your role; the system prompt is the shared minimal posture, not your role.
+
 - `operational/L4/soul.md`
 - `operational/L4/role.md`
 - `operational/L4/config.md`
+- `operational/shared/comms-protocol.md` (loaded at boot for all levels)
+- `operational/shared/agent-lifecycle.md` (loaded at boot for all levels)
+- `operational/shared/agent-definition-principles.md` (loaded at boot for definition-authoring levels L1–L4)
+- `operational/shared/runtime-and-model-map.md` (loaded at boot for all levels)
+- `operational/shared/git-protocol.md` (loaded at boot for code-producing levels — L4, L5, and sometimes L3)
 
 ## Runtime
 
@@ -103,4 +110,4 @@ You spawn into: `L3/{{AREA_NAME}}/L4/{{WORKSTREAM_NAME}}/L5/{task}/`
 
 ---
 
-*Template version: 2026-06-02 — {{RUNTIME}} block added; flat identity-doc paths fixed (operational/L4/); L4-tester lateral (M51); L5/L5+ spawn pattern (M52); cross-runtime brief (E32); visibility scope (F34); bus-not-messages; plan-phase output contract; trace-block emission step (tasks + acceptance tests; per PLAN-ALIGNMENT-GATE.md).*
+*Template version: 2026-06-05 — {{RUNTIME}} block added; flat identity-doc paths fixed (operational/L4/); L4-tester lateral (M51); L5/L5+ spawn pattern (M52); cross-runtime brief (E32); visibility scope (F34); bus-not-messages; plan-phase output contract; trace-block emission step (tasks + acceptance tests; per PLAN-ALIGNMENT-GATE.md); load-manifest completed with always-loaded shared contract docs (comms-protocol, agent-lifecycle, agent-definition-principles, runtime-and-model-map, git-protocol) and re-framed as boot-read role documents (H40).*

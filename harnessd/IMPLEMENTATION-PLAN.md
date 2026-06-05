@@ -13,7 +13,10 @@ count present, ceilings deferred). **Everything else is DEFERRED** — and named
 below so no increment silently widens scope.
 
 **Done-when for the whole skeleton (the Phase-5 gate):** the daemon boots; spawns L1 in-role via
-`--system-prompt-file`; the ledger reconciles on restart; one agent is spawned → detected →
+`--system-prompt-file operational/shared/system-prompt.md` (the ONE shared minimal prompt, identical
+L1–L5) with the L1 role delivered as documents in the brief's load-manifest, NOT baked into the prompt
+(H40-resolved — see `../operational/shared/agent-definition-principles.md` §4 and
+`../operational/shared/system-prompt.md`); the ledger reconciles on restart; one agent is spawned → detected →
 signed-off → collapsed through the single writer with fencing active; AND a `kill -9` of the daemon
 followed by relaunch recovers state from the ledger (binding-ledger + WAL, including a torn tail).
 
@@ -51,16 +54,16 @@ GENERALIZE / NEW" tags the origin relative to the recovered code.
 | `harnessd/reconcile.py` | The tmux↔ledger sweep. `replay_wal()` (deterministic WAL re-apply with generation pre-image check), `reconcile_on_restart()` (boot-once: replay then sweep), `reconcile_tick()` (continuous, on the watchdog timer; edge-triggered). Computes divergence, applies the two unambiguous resolutions (adopt / leaf-necro), escalates the rest. Calls executor for every mutation — never raw. | DAEMON §5.1-5.3 | NEW (recovered code has no reconcile — trusts the manifest) |
 | `harnessd/spawn/chokepoint.py` | The ONE spawn path. `claim_and_spawn` / `resume` / `release_claim` / `collapse`. STEP0 pause-check → STEP1 CAS-claim (= ④ in_flight CLAIM-increment) → STEP2 adapter+neutral-brief → STEP3 pin-confirm → STEP4 open tmux + record session_uuid/model_used → STEP5 claimed→spawning→running. NOT a writer — calls `executor.transition()` for every state change. On any post-claim failure, CAS-releases the claim (claimed→planned, bump epoch). | DAEMON §6.1, §6.4 | NEW (recovered `launch_recovery` L84-102 is a generic Popen recovery launcher, not tmux/in-role) |
 | `harnessd/spawn/adapters/base.py` | The `RuntimeAdapter` port (hexagonal). Abstract `pin_and_open(brief, level_config, tmux_target, env) -> SpawnResult`; injects ONLY the 3 runtime-specific things (tool manifest, harness invocation, output format) over the runtime-NEUTRAL contract. Spawn-failure classification: `auth_expired \| model_unavailable \| override_rejected \| runtime_down`. | DAEMON §6.3; runtime-and-model-map E31/E32 | NEW |
-| `harnessd/spawn/adapters/claude_code.py` | The Claude-Code adapter (fully specified by H40). Boots the pinned binary in detached tmux with `--system-prompt-file <level-role>.md`, the exact 4-var isolation env, OAuth via file/FD. Verifies binary version/hash. ENFORCES OAuth-only (refuses `--bare`, refuses any `ANTHROPIC_API_KEY`). | DAEMON §6.2; H40-FINDINGS; PINNED-CC | NEW |
+| `harnessd/spawn/adapters/claude_code.py` | The Claude-Code adapter (fully specified by H40). Boots the pinned binary in detached tmux with `--system-prompt-file operational/shared/system-prompt.md` (the CONSTANT shared minimal prompt, identical L1–L5 — NOT a per-level role file), the exact 4-var isolation env, OAuth via file/FD. The role is delivered as documents the agent reads (the brief's load-manifest + read-allowed harness docs), never as system-prompt content. Verifies binary version/hash. ENFORCES OAuth-only (refuses `--bare`, refuses any `ANTHROPIC_API_KEY`). | DAEMON §6.2; H40-FINDINGS; PINNED-CC | NEW |
 | `harnessd/spawn/adapters/codex.py` | The Codex adapter PORT — UNDERSPECIFIED/owed. v1 ships a stub that raises a deterministic "adapter port to be supplied", NOT a silent fallback. Keeps no-silent-fallback + OAuth-only true by construction until the owed Codex audit lands. | DAEMON §6.3 (open) | NEW (stub) |
 | `harnessd/spawn/tmux.py` | Thin tmux wrapper: `create_detached`, `capture_pane`, `list_targets` (pane_pid + pane_dead for reconcile/detector), `kill` (only via executor-stamping path). Deterministic first-boot trust (pre-seeded `CLAUDE_CONFIG_DIR` trust state / non-interactive permission mode) — NOT a send-keys race against the trust dialog. | DAEMON §6.2 | NEW |
 | `harnessd/spawn/oauth_guard.py` | The OAuth-only enforcer (the test target). SPLIT guard: `assert_no_api_key(env, argv)` (runtime-AGNOSTIC negative invariant — always on, Claude+Codex) + `assert_pane_env_isolated(pane_argv, server_env)` (closes the tmux-server env-leak) composed in `assert_oauth_only(env, argv, pane_argv, server_env)`; plus the CLAUDE-SPECIFIC positive `check_credential_health(env)` (token present + unexpired). Raises `ApiKeyForbidden` / `AuthExpired`. `auth_expired` is a DISTINCT class so a token lapse reads as "refresh the token", not a fleet-wide model-outage storm. | DAEMON §7, §8; H40 | NEW |
 | `harnessd/spawn/brief.py` | Assembles the runtime-NEUTRAL task contract (identity/address, spec pointer, frozen acceptance ref, interface contracts, constraints, workspace location, reporting expectations) and the DELTA brief for resume (what changed since prior incarnation, pointing at the durable work node). | DAEMON §6.3, §6.4 | NEW |
 | `harnessd/necro.py` | Basic necro: delta-brief assembly seam for `--resume`. Does NOT own a second copy of the gate-firewall — the NEVER-RESUME-ACROSS-THE-GATE check lives in EXACTLY ONE place (`chokepoint.resume`, the only path that can issue `--resume`); `necro.resume_brief` calls that single check rather than re-implementing a `raise`. Built + tested as part of Increment 10 (no separate increment). | DAEMON §6.4; runtime-decisions §2 item 8 | NEW |
-| `harnessd/genesis.py` | First-boot sequence. `run_genesis`: acquire `.harnessd.lock` → write runtime.json → `preconditions()` (OAuth health + pinned-binary hash, fail-loud) → `reconcile_on_restart` → if no live non-terminal L1 binding: `spawn.claim_and_spawn(L1-root, --system-prompt-file L1/role.md, parent=null)` else RESUME (no double-spawn, F35). | DAEMON §7 | NEW |
+| `harnessd/genesis.py` | First-boot sequence. `run_genesis`: acquire `.harnessd.lock` → write runtime.json → `preconditions()` (OAuth health + pinned-binary hash, fail-loud) → `reconcile_on_restart` → if no live non-terminal L1 binding: `spawn.claim_and_spawn(L1-root, role_variant='L1', parent=null)` — boots with the shared `--system-prompt-file operational/shared/system-prompt.md` + the L1 load-manifest assembled into the brief — else RESUME (no double-spawn, F35). | DAEMON §7 | NEW |
 | `harnessd/daemon.py` | The harnessd resident loop + PID/lock/runtime.json. Acquires `.harnessd.lock` (single-instance), runs genesis, then `reconcile_tick` on a timer; writes the lock-free status sidecar (the ONE atomicity carve-out). launchd-managed. | DAEMON §2.3, §5.2 | NEW (poll cadence SHAPE from recovered `main` `--watch` L406-427) |
 | `harnessd/harnessctl.py` | CLI client — NOT a writer. Sends requests to the resident daemon over a local socket/FIFO; the daemon performs the mutation inside the one lock. Read-only commands (show/next/validate/reconcile-inspect) may take the shared lock directly. | DAEMON §4.3 | GENERALIZE (`build_parser` L1613-1696 subcommand structure → node-addressed) |
-| `harnessd/config.py` | Reads config-time seats the rest of the code must NOT hardcode: `LevelConfig` per level (model/runtime/role_file/tool_manifest), the per-state suspicion windows `W(state)` (placeholder constants in v1, see FORK-W), the pinned-binary version/hash. Commissioning tunes these without a code change. | WATCHDOG §3.3, §8; runtime-and-model-map E31 | NEW |
+| `harnessd/config.py` | Reads config-time seats the rest of the code must NOT hardcode: `LevelConfig` per level (model/runtime/`role_variant`/tool_manifest) plus the CONSTANT `system_prompt_file = operational/shared/system-prompt.md` (the one shared `--system-prompt-file`, identical L1–L5 — a runtime-global, not a per-level path, per CANON §4), the per-state suspicion windows `W(state)` (placeholder constants in v1, see FORK-W), the pinned-binary version/hash. Commissioning tunes these without a code change. | WATCHDOG §3.3, §8; runtime-and-model-map E31 | NEW |
 
 **Module dependency direction (lower depends on nothing above-but-itself; arrows = "calls"):**
 `store, clock, states, config` (leaf primitives) ← `ledger, fencing, validate` ← `executor` ←
@@ -345,11 +348,16 @@ class RuntimeAdapter(ABC):
 
 # adapters/claude_code.py — concrete:
 #   verify_binary(version="2.1.152", hash=...); check_credential_health(env); oauth_guard.assert_oauth_only(env, argv, pane_argv, tmux.server_env())
-#   argv = [CC, "--system-prompt-file", level_config.role_file]   # NEVER --append-system-prompt/--agents/--bare
+#   argv = [CC, "--system-prompt-file", system_prompt_file]   # CONSTANT operational/shared/system-prompt.md (the ONE shared
+#                                                             #   minimal prompt, identical L1–L5); the per-level role NEVER
+#                                                             #   goes in argv. NEVER --append-system-prompt/--agents/--bare
 #   env  = {CLAUDE_CONFIG_DIR=$HARNESS/.cc-pinned/config, CLAUDE_CODE_OAUTH_TOKEN=<file/FD>,
 #           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, DISABLE_AUTOUPDATER=1}
+#   # the ROLE is NOT in argv — brief.assemble_neutral has already written the load-manifest ("Identity — Load
+#   #   These Documents" + frozen acceptance.md) into the node; the agent READS its role docs in place from the
+#   #   harness root (read-allow graph, F34). The adapter assembles which manifest/role docs by role_variant.
 #   tmux.create_detached(name="harness:"+collapse(address)); deterministic trust; capture pane;
-#   record model_used="opus-4.8 / claude-code", role_file, role_file_hash
+#   record model_used="opus-4.8 / claude-code", role_variant, system_prompt_file, system_prompt_file_hash
 
 # tmux.py
 def create_detached(session_name, argv, env) -> str            # pane_id
@@ -391,7 +399,8 @@ def delta_brief(node_address, prior_incarnation, work_node, changes) -> DeltaBri
 ```python
 def run_genesis(executor, tmux, config) -> None
     # acquire .harnessd.lock -> write runtime.json -> oauth_guard.check_credential_health + pinned-binary hash (fail-loud)
-    # -> reconcile_on_restart -> if no live non-terminal L1 binding: spawn.claim_and_spawn(L1-root, role_file=L1/role.md, parent=null)
+    # -> reconcile_on_restart -> if no live non-terminal L1 binding: spawn.claim_and_spawn(L1-root, role_variant='L1', parent=null)
+    #    (boots with the shared system_prompt_file + the L1 load-manifest delivered in the brief; role-as-documents)
     #    else RESUME (no double-spawn, F35)
 
 def boot(runtime) -> None                                       # daemon: lock, runtime.json, genesis
@@ -408,7 +417,7 @@ def resume_brief(node_address) -> tuple[ResumeArgs, DeltaBrief]
 @dataclass(frozen=True)
 class TransitionResult: ok: bool; errors: list[str]; warnings: list[str]; binding: dict | None
 @dataclass(frozen=True)
-class SpawnResult: ok: bool; session_uuid: str | None; model_used: str; role_file: str; role_file_hash: str; tmux_target: str; failure_class: str | None
+class SpawnResult: ok: bool; session_uuid: str | None; model_used: str; role_variant: str; system_prompt_file: str; system_prompt_file_hash: str; tmux_target: str; failure_class: str | None
 @dataclass(frozen=True)
 class Liveness: state: str; last_progress_at: str | None
 @dataclass(frozen=True)
@@ -482,7 +491,12 @@ DAEMON §3.2):
   evidence_refs, acceptance_ref`.
 - **Terminal-signal (NEW):** `terminal_signal (DONE|FAILED|ESCALATED|DIED_INFRA|DIED_METHODOLOGY|
   FENCED), terminal_signal_at, terminal_note, signal_artifact_seen_at`.
-- **Spawn fact (H40):** `model_used, role_file, role_file_hash`.
+- **Spawn fact (H40):** `model_used, role_variant (the per-seat selector — e.g. L1, L5#exec, L5+#review — that
+  the chokepoint resolves to a load-manifest/role-doc bundle), system_prompt_file (CONSTANT
+  operational/shared/system-prompt.md — what is passed as --system-prompt-file; identical for every binding,
+  a runtime-global rather than a per-row path, but at minimum NO LONGER the per-level role path),
+  system_prompt_file_hash (detect drift of the shared prompt)`. The role docs themselves are READ-documents the
+  agent loads in place (the brief's load-manifest + read-allow graph, F34) — they are NOT system-prompt content.
 
 **WAL record (`run-ledger.jsonl` payload):** `{ts, seq (monotonic global = ordering AND per-node
 watermark), node_address, event, actor:'harnessd', crc32, from_state, to_state,
@@ -581,9 +595,14 @@ stays usage-free. This matches H40's "one real boot, capture-via-proxy" discipli
   PASSES on the pinned env; the Codex stub's own contract asserts `OPENAI_API_KEY` absent. The
   pane-env-leak case is the real-tmux test in Increment 9 (§7). (Full detail in §7.)
 - **adapter argv/env assembly (dry-run, no real boot):** `ClaudeCodeAdapter` builds
-  `argv = [..., '--system-prompt-file', role_file]` and NEVER includes
+  `argv = [..., '--system-prompt-file', system_prompt_file]` where `system_prompt_file` is the CONSTANT
+  shared path `operational/shared/system-prompt.md` (assert it is the shared prompt, NOT a per-level role
+  path, and is IDENTICAL across role_variants L1…L5) and NEVER includes
   `--append-system-prompt/--agents/--agent/--bare`; env is exactly the 4-var isolation set; session
-  name == `harness:`+collapse(address). Mock tmux + mock subprocess; assert no real `claude.exe` exec.
+  name == `harness:`+collapse(address). **Role-as-documents:** assert the per-seat role arrives as the
+  delivered brief/load-manifest the adapter assembled from `role_variant` (the manifest names the role
+  docs to read), NOT as system-prompt content — the argv carries no role text. Mock tmux + mock subprocess;
+  assert no real `claude.exe` exec.
 - **claim-before-spawn / F-024 (mock):** force `executor.claim` to ABORT (concurrent claim won) and
   assert NO tmux actor opened (`tmux.create_detached` asserted not-called) and `SpawnResult=ClaimLost`.
   Happy path asserts claim succeeds BEFORE `create_detached` (ordering).
@@ -602,7 +621,9 @@ stays usage-free. This matches H40's "one real boot, capture-via-proxy" discipli
 ### 4.2 Integration tests (climb toward the kill-9 done_when)
 
 - **Integration A — boot + reconcile** (DONE_WHEN clauses 1-2): start daemon on empty `/runtime`,
-  assert L1 spawned in-role with `--system-prompt-file`, binding registered (parent_address=null).
+  assert L1 spawned in-role with `--system-prompt-file operational/shared/system-prompt.md` (the shared
+  constant) AND the L1 role delivered as the brief's load-manifest (role-as-documents, not prompt content),
+  binding registered (parent_address=null, role_variant='L1').
   Pre-seed a binding-ledger with an owned-but-dead node, restart, assert reconcile marks it
   FAILED/necro and reconstructs liveness_state/condition from the LEDGER (not memory) on the first
   sweep. Uses a fake-tmux + dry-run adapter — no usage.
@@ -611,8 +632,9 @@ stays usage-free. This matches H40's "one real boot, capture-via-proxy" discipli
   `detector.liveness` runs the thin REAL impl against a **dummy long-lived pane** (a tiny local script
   that writes a JSONL and exits — real tmux server, fake CLI as the pane process, NO model call). Drives
   the REAL `ClaudeCodeAdapter` argv/env assembly but mocks `tmux.create_detached` (asserts the
-  fully-assembled real argv/env incl. `--system-prompt-file`, 4-var set, from-empty isolation, no API
-  key). Test writes `.signal.json DONE` (live owner_token); assert executor collapses and the WAL
+  fully-assembled real argv/env incl. `--system-prompt-file operational/shared/system-prompt.md` (shared
+  constant), 4-var set, from-empty isolation, no API key — and that the role arrived via the delivered
+  brief/load-manifest, not in the argv). Test writes `.signal.json DONE` (live owner_token); assert executor collapses and the WAL
   records the full arc. **Fencing by behavior:** mid-arc, present a STALE owner_token after an epoch
   advance → assert `stale_return_ignored` journaled + live binding UNCHANGED while the current token
   commits (so "fencing active" is an observed rejection, not a presence claim).
@@ -623,10 +645,11 @@ stays usage-free. This matches H40's "one real boot, capture-via-proxy" discipli
   resumed L1 carries a NEW session_uuid + BUMPED lease_epoch; `create_detached` call-count for L1 ==
   expected (no double-spawn, F35). State recovered from binding-ledger.yaml + run-ledger.
 - **Integration gate — ONE real in-role boot** (`@pytest.mark.real_boot`, the only usage-burning
-  test): genesis spawns L1 via the real `ClaudeCodeAdapter` (`--system-prompt-file L1/role.md`, real
-  `CLAUDE_CODE_OAUTH_TOKEN`); assert in-role boot, session_uuid recorded, model_used written, and that
-  it reaches a single journaled sign-off then stops. Bounds usage to a single subscription-window
-  touch.
+  test): genesis spawns L1 via the real `ClaudeCodeAdapter` (`--system-prompt-file
+  operational/shared/system-prompt.md` — the shared constant — with the L1 role delivered as the brief's
+  load-manifest, real `CLAUDE_CODE_OAUTH_TOKEN`); assert in-role boot (the agent reads its L1 role docs
+  in place per the manifest), session_uuid recorded, model_used written, and that it reaches a single
+  journaled sign-off then stops. Bounds usage to a single subscription-window touch.
 
 **tmux/send-keys/capture-pane** are exercised against a real local tmux server with a **fake CLI** as
 the pane process — real tmux mechanics, zero model usage.
@@ -711,11 +734,15 @@ shape 6/7 were written against.
 > **Increment 9 — tmux wrapper + Claude-Code adapter (dry-run-first).** `tmux.create_detached`
 > (from-empty `env -i` pane isolation)/`capture_pane`/`list_targets`/`kill`/`server_env`;
 > `ClaudeCodeAdapter.pin_and_open` (verify_binary, `oauth_guard.assert_oauth_only(env, argv, pane_argv,
-> server_env)`, argv/env assembly, deterministic trust, record model_used/role_file_hash +
+> server_env)`, argv/env assembly, deterministic trust, record model_used/role_variant/system_prompt_file_hash +
 > `transcript_path` derivation from session_uuid); Codex stub raises "adapter port to be supplied" AND
-> asserts `OPENAI_API_KEY` absent. **Done-test:** (a) argv = `[..., '--system-prompt-file', role_file]`,
-> never `--bare/--append-system-prompt/--agents`; env is exactly the 4-var set; session name ==
-> `harness:`+collapse(address); Codex stub raises; mock subprocess asserts no real exec. (b) **tmux
+> asserts `OPENAI_API_KEY` absent. **Done-test:** (a) argv = `[..., '--system-prompt-file', system_prompt_file]`
+> where `system_prompt_file` is the CONSTANT shared `operational/shared/system-prompt.md` (assert it is the
+> shared prompt, identical across role_variants — NOT a per-level role path), never
+> `--bare/--append-system-prompt/--agents`; env is exactly the 4-var set; session name ==
+> `harness:`+collapse(address); the per-seat role arrives as the delivered brief/load-manifest assembled
+> from `role_variant` (role-as-documents), NOT as argv/prompt content; Codex stub raises; mock subprocess
+> asserts no real exec. (b) **tmux
 > pane-env leak (real tmux server, NO model call) — the OAuth-only blocking test:** start a tmux server
 > WITH `ANTHROPIC_API_KEY` set in the SERVER env, spawn a pane, assert capture-pane `printenv
 > ANTHROPIC_API_KEY` is EMPTY (the `env -i` from-empty isolation works); and `assert_pane_env_isolated`
@@ -733,6 +760,15 @@ shape 6/7 were written against.
 > `--resume` argv with gate_crossed_at != null); **STEP4 writes a non-null `transcript_path` into the
 > binding** (the spawn↔detector contract producer — pairs with Increment 6's transcript-absent test).
 > All mock/dry-run.
+>
+> **Role-bundle / reference-resolution note (role-as-documents, H40):** `brief.assemble_neutral` writes
+> the per-spawn load-manifest ("Identity — Load These Documents") into the node — selected by
+> `role_variant` — listing the role docs the agent READS in place (the per-level
+> `operational/L{n}/{soul,role,config}.md` + level extras, the always-loaded `operational/shared/*.md`
+> contract docs, referenced `design/*.md`), each a path relative to the HARNESS ROOT resolved under
+> read-allow/write-jail (F34 / SECURITY §1.4). The role is NEVER flattened into the system prompt. The
+> manifest schema + this reference-resolution rule are specified in `../design/ROLE-RESOLUTION.md` (repo-root
+> `design/`); this increment consumes that spec — it does not re-derive it.
 
 > **Increment 11 — watchdog (terminal-signal collapse + leaf path + ③ wake + coordinator-death probe).**
 > `detector_signals.read_terminal_signal` (fenced .signal.json reader — the PRODUCER for INCLUDE-item
@@ -749,7 +785,9 @@ shape 6/7 were written against.
 > preconditions → reconcile_on_restart → spawn-or-resume L1), `daemon.boot/poll_loop`,
 > `reconcile.reconcile_tick` (continuous edge-triggered sweep on the timer), the launchd plist, the
 > lock-free status sidecar. **Done-test:** Integration A (boot+reconcile on a fake adapter) — L1
-> spawned in-role (dry-run), owned-but-dead node necro'd, liveness reconstructed from ledger; **PLUS
+> spawned in-role (dry-run) with the shared `--system-prompt-file operational/shared/system-prompt.md` +
+> the L1 load-manifest in the brief (role-as-documents), owned-but-dead node necro'd, liveness
+> reconstructed from ledger; **PLUS
 > reconcile_tick edge-trigger:** one mid-run liveness CHANGE produces exactly one WAL row, and N
 > steady-healthy polls produce ZERO rows (the continuous path is not shipped untested).
 
@@ -762,8 +800,9 @@ shape 6/7 were written against.
 > Wires increments 5/6/7/10/11 end-to-end with the thin REAL detector against a fake-CLI pane. Drives
 > the REAL `ClaudeCodeAdapter` argv/env assembly path but STOPS at the tmux boundary (mock
 > `tmux.create_detached`, assert it is called with the fully-assembled real argv/env incl.
-> `--system-prompt-file` + the 4-var set + from-empty pane isolation, NO API key) — so "spawned
-> in-role" is exercised by the real assembly code here, not only at the usage-burning gate.
+> `--system-prompt-file operational/shared/system-prompt.md` (the shared constant) + the 4-var set +
+> from-empty pane isolation, NO API key, AND the role delivered via the brief's load-manifest not the
+> argv) — so "spawned in-role" is exercised by the real assembly code here, not only at the usage-burning gate.
 > **Done-test:** DONE_WHEN clause 3 — one node through the single writer with .signal DONE → collapse →
 > full WAL arc; **fencing is asserted by BEHAVIOR, not presence:** mid-arc, advance the node's epoch
 > (simulated re-adopt), replay a transition presenting the OLD owner_token → assert the executor
@@ -899,8 +938,10 @@ an OpenAI API-key path sneaks in later. So:
    assembled: tmux panes inherit from the tmux SERVER environment, so a clean 4-var dict can pass a
    naive check while the pane still inherits a stray key. The guard therefore asserts both (a) the pane
    is launched from-empty (`env -i …`, no server inheritance) and (b) no API key sits in the tmux
-   SERVER env. The assembled argv is `[CC, '--system-prompt-file', role_file]` — NEVER `--bare`, NEVER
-   `--append-system-prompt`/`--agents`. The assembled env is exactly `{CLAUDE_CONFIG_DIR,
+   SERVER env. The assembled argv is `[CC, '--system-prompt-file', system_prompt_file]` — where
+   `system_prompt_file` is the CONSTANT `operational/shared/system-prompt.md` (the one shared minimal
+   prompt, identical L1–L5; the role is delivered separately as documents, not in the argv) — NEVER
+   `--bare`, NEVER `--append-system-prompt`/`--agents`. The assembled env is exactly `{CLAUDE_CONFIG_DIR,
    CLAUDE_CODE_OAUTH_TOKEN (file/FD), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, DISABLE_AUTOUPDATER=1}`.
 3. **Codex by construction** — the v1 Codex adapter is a stub that RAISES "adapter port to be
    supplied" rather than silently falling back to an OpenAI API key or a substitute model. Its own

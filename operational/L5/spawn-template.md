@@ -6,10 +6,16 @@ Filled by L4 when spawning an L5 for a task. Everything the L5 needs to boot and
 
 ## Identity — Load These Documents
 
+These are documents you READ at boot from your node + the read-allowed harness docs — they are your role; the system prompt is the shared minimal posture, not your role.
+
 - `operational/L5/soul.md` — one-line pointer (soul docs deprioritized; see `operational/shared/agent-definition-principles.md`)
 - `operational/L5/role.md` — responsibilities, boundaries, the L5/L5+ pair, escalate-don't-decide
 - `operational/L5/config.md` — self-monitoring, spec-faithfulness as #1 check
 - `operational/L5/swe-handbook.md` — SWE craft practices reference
+- `operational/shared/comms-protocol.md` — loaded at boot for all levels
+- `operational/shared/agent-lifecycle.md` — loaded at boot for all levels
+- `operational/shared/runtime-and-model-map.md` — loaded at boot for all levels
+- `operational/shared/git-protocol.md` — loaded at boot for code-producing levels (L4, L5, and sometimes L3)
 
 ## Runtime
 
@@ -138,4 +144,4 @@ Build to the spec. Let the review do its job.
 
 ---
 
-*Template version: 2026-06-02 — Fixed flat identity paths (L5-SOUL.md → operational/L5/soul.md, etc.). Fixed swe-handbook path (agentic-design/swe-practices-handbook.md → operational/L5/swe-handbook.md). Added {{RUNTIME}} block. Added frozen acceptance.md as primary anchor. Added escalate-don't-decide instruction. Added L5+ review section. Removed inbox/comms/ refs. Report references implemented requirement IDs (per PLAN-ALIGNMENT-GATE.md).*
+*Template version: 2026-06-05 — Fixed flat identity paths (L5-SOUL.md → operational/L5/soul.md, etc.). Fixed swe-handbook path (agentic-design/swe-practices-handbook.md → operational/L5/swe-handbook.md). Added {{RUNTIME}} block. Added frozen acceptance.md as primary anchor. Added escalate-don't-decide instruction. Added L5+ review section. Removed inbox/comms/ refs. Report references implemented requirement IDs (per PLAN-ALIGNMENT-GATE.md). Load-manifest completed with always-loaded shared contract docs (comms-protocol, agent-lifecycle, runtime-and-model-map) plus git-protocol; no agent-definition-principles (L5 is not definition-authoring); re-framed as boot-read role documents (H40).*

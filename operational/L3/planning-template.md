@@ -134,7 +134,7 @@ The planning-L3 / execution-L3 split fires only when a module's design is substa
 
 ---
 
-*Identity: `operational/L3/soul.md`, `operational/L3/role.md`, `operational/L3/config.md`. Model: Opus 4.8 — see `operational/shared/runtime-and-model-map.md`.*
+*Identity — documents you READ at boot from your node + the read-allowed harness docs (these are your role; the system prompt is the shared minimal posture, not your role): `operational/L3/soul.md`, `operational/L3/role.md`, `operational/L3/config.md`, plus the always-loaded shared contract docs `operational/shared/comms-protocol.md`, `operational/shared/agent-lifecycle.md`, `operational/shared/agent-definition-principles.md`, `operational/shared/runtime-and-model-map.md`. Model: Opus 4.8 — see `operational/shared/runtime-and-model-map.md`.*
 
 *Created: 2026-03-27*
-*Updated: 2026-06-02 — Interface renegotiation step added (C21/M49); collapse/handoff made explicit; inbox refs replaced with bus + docs; flat path fixes; threshold note (M53).*
+*Updated: 2026-06-05 — Interface renegotiation step added (C21/M49); collapse/handoff made explicit; inbox refs replaced with bus + docs; flat path fixes; threshold note (M53); identity footer completed with always-loaded shared contract docs and re-framed as boot-read role documents (H40 — the system prompt is the shared minimal posture, not the role).*
