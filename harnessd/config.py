@@ -1,0 +1,191 @@
+"""Config-time seats the rest of the harness must NOT hardcode.
+
+Authoritative sources:
+  - IMPLEMENTATION-PLAN §1 module table (`harnessd/config.py` row): `LevelConfig`
+    per level (model / runtime / role_variant / tool_manifest), the CONSTANT
+    `system_prompt_file = operational/shared/system-prompt.md`, the per-state
+    suspicion windows `W(state)` (placeholder constants in v1, FORK-W), and the
+    pinned-binary version/hash.
+  - DAEMON §3.2 (the H40 spawn fact): `system_prompt_file` is the ONE shared
+    minimal prompt passed as `--system-prompt-file` at EVERY spawn, byte-identical
+    L1–L5 (a runtime-global, NOT a per-level role path). `role_variant` is the
+    PER-binding selector that varies by seat.
+  - operational/shared/runtime-and-model-map.md (E31/E32 assignment table): the
+    per-level model + runtime config snapshot.
+  - FORK-W (WATCHDOG §8): v1 placeholder windows W_working=120s,
+    W_waiting_on_child=600s, W_writing_final=60s.
+  - PINNED-CC.md: pinned Claude Code version 2.1.152.
+
+"Commissioning tunes these without a code change" — they are config seats, not
+inline constants buried at the spawn site.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+# ---------------------------------------------------------------------------
+# CONSTANT shared system prompt (DAEMON §3.2 H40 spawn fact; ROLE-RESOLUTION §1).
+#
+# The ONE shared minimal `--system-prompt-file`, byte-identical for L1–L5 — a
+# runtime-global, NOT a per-level role path. The per-seat selection of role docs
+# is carried by `role_variant`, never by this path.
+# ---------------------------------------------------------------------------
+
+# NOTE (resolution contract, for Increment 9 / the Claude-Code adapter): this is
+# relative-to-HARNESS-ROOT. The daemon is launchd-managed (§2.2) with a CWD that
+# is NOT guaranteed to be the repo root, so the adapter MUST join this against the
+# resolved HARNESS_ROOT (the same root used for CLAUDE_CONFIG_DIR=$HARNESS/.cc-pinned/config)
+# before passing it as `--system-prompt-file`; never pass it raw to a launchd-CWD process.
+SYSTEM_PROMPT_FILE: str = "operational/shared/system-prompt.md"
+
+
+# ---------------------------------------------------------------------------
+# Pinned-binary seat (PINNED-CC.md). version is fixed at 2.1.152; the hash is a
+# v1 placeholder (the binary is gitignored / not yet captured) but the SEAT must
+# exist so the chokepoint's verify_binary(version=..., hash=...) has somewhere to
+# read from (IMPLEMENTATION-PLAN §2.11 / §1 config row).
+# ---------------------------------------------------------------------------
+
+PINNED_BINARY_VERSION: str = "2.1.152"
+# v1 placeholder — the pinned binary hash is not yet captured (the install is
+# gitignored, PINNED-CC §"What's pinned"). Commissioning fills this in; the seat
+# exists now so nothing downstream hardcodes the pinned hash at the spawn site.
+PINNED_BINARY_HASH: str | None = None  # TODO(FORK / commissioning): capture sha256 of the pinned claude binary.
+
+
+@dataclass(frozen=True)
+class PinnedBinary:
+    """The pinned-binary descriptor (PINNED-CC). `verify_binary` reads version+hash."""
+
+    version: str = PINNED_BINARY_VERSION
+    hash: str | None = PINNED_BINARY_HASH
+
+
+PINNED_BINARY: PinnedBinary = PinnedBinary()
+
+
+# ---------------------------------------------------------------------------
+# W(state) suspicion-window placeholder constants (FORK-W / WATCHDOG §3.3, §8).
+#
+# A renewal is overdue when `now - last_progress_at > W(state)`. The numbers are
+# KNOWN-OPEN; v1 ships placeholders as config seats (NOT hardcoded inline) so
+# commissioning can tune them without a code change.
+# ---------------------------------------------------------------------------
+
+# SUSPICION_WINDOWS is the SINGLE SOURCE (state -> seconds). The W_* module
+# constants below are DERIVED from it, so a window added/tuned at commissioning is
+# a one-line edit here, not two hand-synced places (the key set + a constant).
+SUSPICION_WINDOWS: dict[str, int] = {
+    "working": 120,           # seconds — actively producing output
+    "waiting_on_child": 600,  # seconds — parent parked on a child (tolerates longer)
+    "writing_final": 60,      # seconds — wrapping up the final report
+}
+
+W_working: int = SUSPICION_WINDOWS["working"]
+W_waiting_on_child: int = SUSPICION_WINDOWS["waiting_on_child"]
+W_writing_final: int = SUSPICION_WINDOWS["writing_final"]
+
+
+def W(state: str) -> int:
+    """Return the suspicion window (seconds) for a given runtime state.
+
+    Placeholder values per FORK-W; commissioning tunes them. Raises KeyError for
+    an unknown state so a typo at a call site fails loud rather than silently
+    returning a wrong window.
+    """
+    return SUSPICION_WINDOWS[state]
+
+
+# ---------------------------------------------------------------------------
+# LevelConfig — the per-level seat carrying the four config-time dimensions the
+# spawn machinery reads (model / runtime / role_variant / tool_manifest) plus the
+# CONSTANT shared system_prompt_file (carried here for convenience; identical
+# across all levels) and a reference to the pinned binary.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class LevelConfig:
+    """Config-time seat for one level (L1..L5).
+
+    Per runtime-and-model-map E31: model + runtime is a per-level, config-time,
+    swappable dimension — an agent never picks its own. `role_variant` is the
+    per-seat selector the chokepoint resolves to a role/load-manifest bundle.
+    `system_prompt_file` is the runtime-global CONSTANT, identical across levels.
+    """
+
+    level: str
+    model: str
+    runtime: str
+    role_variant: str
+    tool_manifest: tuple[str, ...]
+    # The shared `--system-prompt-file` — CONSTANT, identical across L1..L5.
+    system_prompt_file: str = SYSTEM_PROMPT_FILE
+    pinned_binary: PinnedBinary = field(default_factory=lambda: PINNED_BINARY)
+
+    @classmethod
+    def for_level(cls, level: str) -> "LevelConfig":
+        """Resolve the LevelConfig for an L1..L5 token (the factory accessor)."""
+        try:
+            return LEVEL_CONFIGS[level]
+        except KeyError as exc:
+            raise KeyError(f"unknown level {level!r}; known levels: {sorted(LEVEL_CONFIGS)}") from exc
+
+
+# ---------------------------------------------------------------------------
+# The per-level registry (runtime-and-model-map E32 assignment table).
+#
+# L1–L4: Opus 4.8 on the Claude Code runtime (generative / architecture / planning
+# seats). L5: GPT-5.5 on the Codex runtime (spec-anchored execution). The
+# tool_manifest is the only runtime-specific dimension (the adapter injects it);
+# v1 carries a coarse placeholder manifest per runtime, tuned at commissioning.
+# ---------------------------------------------------------------------------
+
+# Coarse v1 placeholder tool surfaces, keyed by runtime. The real per-seat
+# manifest is assembled by the chokepoint from the role_variant (ROLE-RESOLUTION
+# §4); these are config seats so nothing downstream hardcodes a tool list.
+_CLAUDE_CODE_TOOLS: tuple[str, ...] = ("read", "write", "edit", "bash", "task")
+_CODEX_TOOLS: tuple[str, ...] = ("read", "write", "edit", "bash")
+
+LEVEL_CONFIGS: dict[str, LevelConfig] = {
+    "L1": LevelConfig(
+        level="L1",
+        model="opus-4.8",
+        runtime="claude-code",
+        role_variant="L1",
+        tool_manifest=_CLAUDE_CODE_TOOLS,
+    ),
+    "L2": LevelConfig(
+        level="L2",
+        model="opus-4.8",
+        runtime="claude-code",
+        role_variant="L2",
+        tool_manifest=_CLAUDE_CODE_TOOLS,
+    ),
+    "L3": LevelConfig(
+        level="L3",
+        model="opus-4.8",
+        runtime="claude-code",
+        role_variant="L3",
+        tool_manifest=_CLAUDE_CODE_TOOLS,
+    ),
+    "L4": LevelConfig(
+        level="L4",
+        model="opus-4.8",
+        runtime="claude-code",
+        role_variant="L4",
+        tool_manifest=_CLAUDE_CODE_TOOLS,
+    ),
+    "L5": LevelConfig(
+        level="L5",
+        model="gpt-5.5",
+        runtime="codex",
+        role_variant="L5#exec",
+        tool_manifest=_CODEX_TOOLS,
+    ),
+}
+
+
+def get_level_config(level: str) -> LevelConfig:
+    """Module-level accessor: resolve the LevelConfig for an L1..L5 token."""
+    return LevelConfig.for_level(level)
