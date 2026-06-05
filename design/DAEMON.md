@@ -317,9 +317,17 @@ occupy one node via different suffixes. (FORK note below.)
   # --- detector/lease fields READ BY cluster ② (carried, not interpreted here) ---
   condition: healthy                  # never_checked|healthy|inactive|stale_suspect
                                       #   |recovery_required|recovery_in_progress|terminal|invalid
+                                      #   (terminal = the confirmed-failed lease value, WATCHDOG §3.1 —
+                                      #    no separate failed_confirmed enum; condition IS the surface)
   suspect_since: null
-  recovery_attempts: 0
-  stale_grace_checks: 2
+  stale_check_count: 0                # consecutive-stale-poll GRACE counter (name matches recovered
+                                      #   watchdog.py); reset on ANY renewal. ② keys the grace gate off it.
+  recovery_attempts: 0                # recovery-CYCLE counter; reset ONLY on confirmed-healthy-after-recovery.
+                                      #   DISTINCT from stale_check_count — never overload one onto the other (WATCHDOG §3.5).
+  recovery_attempt_ceiling: 3         # respawn bound for recovery_attempts (per-node config, set at spawn
+                                      #   like W); recovery ESCALATES past it instead of looping (WATCHDOG §3.4 step 8).
+  gate_crossed_at: null               # resume-firewall flag (§6.4): set when this node crosses a quality-gate
+                                      #   boundary. ② maintains it; ① reads it to REFUSE --resume (fail-closed).
   auto_resume_command: null           # cluster-② SEAT; carried, fired only with --run-recovery
   last_evidence: { source: reconcile_sweep, heartbeat_at: ..., progress_at: ...,
                    semantic_event_at: null }   # semantic_event_at: ② writes (semantic detector); null in v1
@@ -384,6 +392,8 @@ running ──block──▶ blocked ──unblock──▶ running
 running ──DONE──▶ done
 running ──FAILED/DIED──▶ failed
 {any non-terminal} ──reconcile-finds-dead──▶ dead     (reconcile-driven, not actor-driven)
+running ──re-adopt(claim, expected_state=running)──▶ claimed   (RESUME a live address; §6.4 — fences the prior incarnation via lease_epoch bump)
+dead    ──re-adopt(claim, expected_state=dead)──▶ claimed       (RESUME/necro a dead address; §6.4 / §5)
 done | failed | dead = terminal
 ```
 
@@ -392,7 +402,13 @@ recovered legality gate, reused verbatim in mechanism). **The rollback edges (`c
 `spawning → planned`, `spawning → failed`) are first-class members of the table** — without them
 the §4.2 legality gate would reject the very claim-release the spawn chokepoint (§6.1) depends on,
 leaking an un-reclaimable `claimed` slot (a worse F-024 than the duplicate it prevents). Every edge
-the spawn chokepoint can traverse on failure is enumerated here so the gate permits it.
+the spawn chokepoint can traverse on failure is enumerated here so the gate permits it. **The re-adopt
+edges (`running → claimed`, `dead → claimed`) are likewise first-class:** RESUME/necro (§6.4; WATCHDOG
+ADOPT) is a `claim` variant whose CAS precondition is `expected_state ∈ {running, dead}` — NOT the
+fresh-claim's `expected_state=planned`. The `claim` primitive therefore takes an `expected_state`
+parameter (`planned` fresh | `running` resume-live | `dead` necro), CAS-guarded against whichever it is
+given. Without these edges the legality gate would abort every adopt/resume on its precondition —
+un-buildable as WATCHDOG §3/§5 require.
 
 ### 3.4 Merge of binding + deliverable (closes the two-registry split)
 
@@ -942,10 +958,12 @@ it lives in the chokepoint cluster ① owns.
 
 The resume path:
 
-1. **Re-adopt the address** through `claim` (§6.1): same CAS-guarded `claimed`-state claim on the
-   **existing** node-address, **bumping `lease_epoch` and re-minting `owner_token`** (the prior
-   incarnation, if it returns, is now fenced — §8). Resume is therefore claim-before-spawn too; it
-   never double-spawns a live address (the §5.1 ADOPT-vs-resume split decides which).
+1. **Re-adopt the address** through `claim` (§6.1) — the **re-adopt variant**: a CAS-guarded claim
+   with `expected_state ∈ {running, dead}` (the §3.3 re-adopt edges), NOT the fresh-claim's
+   `expected_state=planned`, on the **existing** node-address, **bumping `lease_epoch` and re-minting
+   `owner_token`** (the prior incarnation, if it returns, is now fenced — §8). Resume is therefore
+   claim-before-spawn too; it never double-spawns a live address (the §5.1 ADOPT-vs-resume split
+   decides which).
 2. **Assemble a delta brief** — not the full original brief: what changed since the prior
    incarnation (new messages, parent answers to an `ESCALATED`, reconcile findings), pointing at the
    durable work node the fresh instance re-reads (`status.md`, `log.md`, `report.md`, frozen
