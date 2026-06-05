@@ -496,25 +496,37 @@ explicitly}`. A trace-checker enforces the invariant (every spawned child's `mod
 configured, **else** a corresponding L1 spawn-failure escalation + user alert must exist) — **③'s
 push channel is what makes that invariant satisfiable.**
 
-> **FORK — for user review (the v1 push transport floor).** The docs fix the *principle*
-> (no-silent-degradation) and the *payload*, but name **no concrete push transport** (Hue / ntfy /
-> OS-notify / email appear only in the cluster prompt, not the source docs). At least one working
-> push path must exist in v1 for the no-silent-degradation requirement to hold.
-> - **Option A (RECOMMENDED): `ntfy` (or an equivalent HTTP push-to-phone) as the v1 floor**, with
->   the alert as a structured payload (the E32 sentence + decision set + the one-spine address). It
->   is a single outbound HTTP POST from the harness app, no inbound listener, no extra daemon, works
->   while the user is away from the machine, and degrades to the pull-inbox if it fails. The push is
->   itself **best-effort** — the durable escalation already lives in the journal + work-node doc, so
->   a missed push is recovered by the pull-inbox (the channel obeys the same truth-in-files model).
-> - **Option B: a desktop OS-notification (macOS notification) as the floor.** Pro: zero external
->   dependency. Con: useless when the user is away from the machine — weak against the
->   parked-TUI-isn't-the-only-path requirement.
-> - **Option C: Hue light signal as the floor.** Pro: ambient, non-intrusive. Con: carries no
->   payload (a color is not a decision set) — it can only *summon* the user to the pull-inbox, so it
->   is a complement, not a sufficient floor on its own.
-> - **Recommendation: A as the v1 floor (a payload-carrying push that reaches the user off-machine),
->   with B/C available as additional ambient complements.** All are best-effort over the durable
->   journal; the push never carries the only copy of the fact.
+> **The push transport is a pluggable, user-authorized contact-method registry — NOT a baked-in
+> default.** The docs fix the *principle* (no-silent-degradation) and the *payload*, but the concrete
+> push transports are a **registry the user explicitly populates and authorizes**. Candidate methods
+> (ntfy / HTTP-push-to-phone, Hue, email, SMS) are **NONE active until the user authorizes them** —
+> pushing to a user's phone, email, or SMS is an outward-facing action the harness does not take on
+> its own initiative. Defining + authorizing the concrete methods is an **explicit user-owned step**;
+> the harness only ever uses authorized channels and **always degrades to the pull-inbox** when no
+> push path is authorized or a push fails. The no-silent-degradation requirement is satisfied by the
+> durable pull-inbox floor; an authorized push is an *added* off-machine reach, not the only copy of
+> the fact.
+> - **`ntfy` (or an equivalent HTTP push-to-phone) — RECOMMENDED option, not a default.** When the
+>   user authorizes it, the alert ships as a structured payload (the E32 sentence + decision set + the
+>   one-spine address). It is a single outbound HTTP POST from the harness app, no inbound listener,
+>   no extra daemon, works while the user is away from the machine, and degrades to the pull-inbox if
+>   it fails. The push is itself **best-effort** — the durable escalation already lives in the journal
+>   + work-node doc, so a missed push is recovered by the pull-inbox (the channel obeys the same
+>   truth-in-files model). Recommended for the off-machine, payload-carrying slot — but still inert
+>   until the user explicitly authorizes it.
+> - **Email / SMS — registry candidates, also off-machine, also inert until authorized.** Same
+>   outward-facing posture as ntfy: payload-carrying and reaching the user away from the machine, but
+>   only ever used once the user has registered and authorized the concrete address/number.
+> - **Desktop OS-notification (macOS notification).** Pro: zero external dependency, no outward-facing
+>   authorization burden (local-only). Con: useless when the user is away from the machine — weak
+>   against the parked-TUI-isn't-the-only-path requirement, so a poor sole reach.
+> - **Hue light signal.** Pro: ambient, non-intrusive. Con: carries no payload (a color is not a
+>   decision set) — it can only *summon* the user to the pull-inbox, so it is a complement, never a
+>   sufficient channel on its own.
+> - **Net:** the registry is user-owned and starts empty of outward-facing methods; ntfy is the
+>   recommended off-machine option, with email/SMS as further candidates and OS-notify/Hue as ambient
+>   complements. All are best-effort over the durable pull-inbox; no push ever carries the only copy
+>   of the fact, and none fires until the user has authorized it.
 
 ### 5.3 Channel (c) — the human control surface
 
@@ -522,15 +534,13 @@ Three primitives, all resting on ①'s single-writer path, hosted by the harness
 as **data-layer ops addressable by node** (the rendering altitude is the deferred GUI pass's call).
 
 1. **Pause-subtree** — a **flag** the spawner/watchdog **respect** (not a kill). ③ specifies it as a
-   binding/control field keyed on the one-spine address prefix. ③ defines the data op (the field +
-   that it is checked before spawn/prod under the flagged prefix). **The enforcing READERS are owed
-   from ①/② — they are not yet seated** (DAEMON §9's "Seats Provided to ③" lists only terminal-signal
-   journaling + human-kill + the answer slot, **not** a pause flag the chokepoint reads; WATCHDOG
-   never mentions pause). ③ flags two owed read-points exactly the way `gate_crossed_at` and the
-   re-adopt edge were owed before they landed (§10.2): (a) a pre-step in ①'s spawn chokepoint
-   (the §6.1 claim-slot pre-step is the natural site — check the flagged prefix before claiming) and
-   (b) a check in ②'s recovery loop (hold off prodding/respawning under the flagged prefix). **Until
-   both land, pause-subtree is a written flag with no enforcing reader.**
+   binding/control field keyed on the one-spine address prefix; ① now carries it as `paused_at`
+   (DAEMON §3.2), set/cleared only via the single-writer executor. **Both enforcing READERS are now
+   seated** (the reconciliation pass): (a) ①'s spawn chokepoint refuses to launch under a paused
+   subtree at the §6.1 STEP 0 pre-step (node-or-ancestor prefix check), surfaced in DAEMON §9's
+   "Seats Provided to ③"; and (b) ②'s recovery loop skips prodding/respawning (and does not mark
+   FAILED) for a node under the flagged prefix (WATCHDOG §3.4 step 0). Pause-subtree is enforced, not
+   a flag with no reader.
 2. **Human-kill** — routed **THROUGH the single-writer executor's stamping path, NEVER raw tmux** (a
    raw `tmux kill` desyncs the ledger). It is a CAS-guarded `transition` presenting
    `expected_owner_token` + `expected_generation` (DAEMON §4.1). ②'s **reap policy still applies on
@@ -725,9 +735,13 @@ What ③ *does* expose for ④'s eventual use:
 1. **§2.1 — the bus transport.** Per-node append-only inbox file + tail (RECOMMENDED) vs socket/Redis
    pub-sub. Recommendation: the inbox file — it is the only option that preserves truth-in-files /
    pointer-not-payload / best-effort and self-heals on respawn.
-2. **§5.2 — the v1 out-of-band push transport floor.** `ntfy`/HTTP-push-to-phone (RECOMMENDED) vs
-   macOS OS-notification vs Hue. Recommendation: a payload-carrying push that reaches the user
-   off-machine, with OS-notify/Hue as ambient complements; all best-effort over the durable journal.
+2. **§5.2 — the out-of-band push transport registry (user-owned).** The push transports are a
+   **pluggable contact-method registry the user explicitly populates and authorizes** — candidate
+   methods (ntfy/HTTP-push, Hue, email, SMS) are **NONE active until the user authorizes them**, since
+   pushing to a phone/email/SMS is an outward-facing action. ntfy is the **RECOMMENDED** off-machine
+   option (not a baked-in default); OS-notify/Hue are ambient complements. Defining + authorizing the
+   concrete methods is an explicit user-owned step; the harness uses only authorized channels and
+   always degrades to the durable pull-inbox.
 
 (The `gate_crossed_at` field name itself is a fork **already owned by ② / WATCHDOG §9** — ③ binds to
 its RECOMMENDED Option A, it is not re-opened here.)
@@ -739,27 +753,17 @@ its RECOMMENDED Option A, it is not re-opened here.)
 - **The re-adopt edge** (§4.2): `claim` admits `expected_state ∈ {running, dead}`. **CONFIRMED
   present** — DAEMON §3.3 lists the `running → claimed` / `dead → claimed` re-adopt edges as
   first-class legality-table members and states `claim` takes an `expected_state` parameter; §6.4
-  step 1 re-adopts with `expected_state ∈ {running, dead}`. Branch B type-checks. (Regression note:
-  the binding must hold across later ① revisions. WATCHDOG §10/§12 still carry this as an
-  owed/blocking dependency against an earlier DAEMON revision — a ② stale-note to reconcile; see the
-  feedback hand-back below.)
+  step 1 re-adopts with `expected_state ∈ {running, dead}`. Branch B type-checks; the WATCHDOG §10/§12
+  notes have been reconciled to match (no longer owed).
 - **`gate_crossed_at` in the §3.2 schema** (§5.4): **CONFIRMED present** — DAEMON §3.2 line 329
   declares `gate_crossed_at: null` (`② maintains it; ① reads it to REFUSE --resume`). The
-  human-sign-off PASS flip is wireable. (WATCHDOG §9/§12 still frame it as a fork/owed addition — a ②
-  stale-note; see the feedback hand-back.)
+  human-sign-off PASS flip is wireable.
+- **The pause-subtree read-points** (§5.3 primitive 1): **CONFIRMED present** (the reconciliation
+  pass) — DAEMON §3.2 carries `paused_at`, §6.1 STEP 0 refuses to launch under a paused subtree
+  (node-or-ancestor prefix check) and §9 lists it; WATCHDOG §3.4 step 0 skips recovery for a paused
+  node. Pause-subtree is enforced, not a flag with no reader.
 
 ### 10.2 STILL OWED from ① / ② (not buildable until the seat lands)
-
-- **The pause-subtree read-points** (§5.3 primitive 1): ③ defines the **flag** (a binding/control
-  field keyed on the one-spine prefix) but the *enforcing readers* are not yet seated in ①/②. DAEMON
-  §9 "Seats Provided to ③" enumerates only terminal-signal journaling + human-kill-through-executor +
-  the answer slot — **not** a pause flag the spawn chokepoint reads; WATCHDOG never mentions pause.
-  ③'s pause-subtree therefore needs **two read-points owed from the DAEMON/WATCHDOG authors**: (a) a
-  pre-step in ①'s spawn chokepoint (the §6.1 claim-slot pre-step is the natural site — check the
-  flagged prefix before claiming) and (b) a check in ②'s recovery loop (hold off prodding/respawning
-  under the flagged prefix). **Until both land, pause-subtree is a written flag with no enforcing
-  reader.** This is owed exactly the way the re-adopt edge and `gate_crossed_at` were before they
-  landed — see the feedback hand-back.
 - **The Codex/L5 pane wake** (§3.4): the `send-keys` wake is measured only for the Claude-Code pane
   (H40); the Codex adapter's prompt-string + capture surface is owed (DAEMON §6.3). The Codex pane
   inherits the same neutral wake contract via an adapter-supplied capture surface.

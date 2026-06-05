@@ -299,6 +299,13 @@ occupy one node via different suffixes. (FORK note below.)
   generation: 7                       # per-node CAS counter (NOT global ledger length — see §4.2)
   last_applied_seq: 412               # run-ledger seq of the last WAL event committed to THIS node
                                       #   (the replay watermark — written in the same atomic-replace; §4.4)
+  paused_at: null                     # ISO-UTC timestamp; null = not paused (TRANSPORTS §5.3). A subtree
+                                      #   is paused if THIS node OR any ancestor (address-prefix) has it set.
+                                      #   Set/cleared ONLY by the human control surface (③), routed through
+                                      #   the single-writer executor — never raw. Two enforcing read-points:
+                                      #   ①'s §6.1 claim-slot pre-step (refuse to launch a child under a
+                                      #   paused subtree) and ②'s recovery loop (skip prod/respawn for a
+                                      #   paused subtree). Carried here; honored at those read-points.
 
   # --- lifecycle state (GENERIC per-node, NOT the reviewer-loop vocabulary) ---
   state: running                      # planned|claimed|spawning|running|blocked|done|failed|dead
@@ -322,6 +329,8 @@ occupy one node via different suffixes. (FORK note below.)
   suspect_since: null
   stale_check_count: 0                # consecutive-stale-poll GRACE counter (name matches recovered
                                       #   watchdog.py); reset on ANY renewal. ② keys the grace gate off it.
+  stale_grace_checks: 2               # the grace THRESHOLD (config, default 2): ② escalates to recovery
+                                      #   when stale_check_count >= stale_grace_checks (WATCHDOG §3.5; watchdog.py L211).
   recovery_attempts: 0                # recovery-CYCLE counter; reset ONLY on confirmed-healthy-after-recovery.
                                       #   DISTINCT from stale_check_count — never overload one onto the other (WATCHDOG §3.5).
   recovery_attempt_ceiling: 3         # respawn bound for recovery_attempts (per-node config, set at spawn
@@ -562,6 +571,16 @@ Two rules a builder must encode:
   `DIED_INFRA` (a value); the run-ledger uses snake `died_infrastructure` (an event name); the
   lifecycle uses lowercase `dead`/`failed` (a state). They are three layers, and this table is the
   exact translation — do not "unify" them by renaming; translate through here.
+
+> **in_flight release-DECREMENT rides the terminal transaction (④'s count, ①'s hook).** The
+> single-writer terminal write — the executor write that stamps `terminal_signal` on a
+> `done`/`failed`/`dead` collapse, AND the §5.4 necro / §5.1 reconcile-finds-dead path — carries
+> cluster ④'s symmetric in_flight **release-decrement**. It rides the **existing** single-writer
+> terminal write (no new writer, no second mutator): same atomic-replace, crash-safe via
+> `last_applied_seq`, exactly symmetric to the §6.1 claim-INCREMENT seat. ④ owns the slot COUNT; ①
+> only acknowledges and provides this reserved decrement hook so ④'s admission gate is a balanced
+> counter, not an increment-only ratchet. (The `ESCALATED` row is **not** a release — it stays
+> `running`, holds its slot, and waits for the answer round-trip.)
 
 ---
 
@@ -818,6 +837,11 @@ escalated.** Edge-triggered: only state/condition *changes* append to the run-le
   A coordinator is idle-actionable **only when its whole subtree is also quiet** (per-node
   live-descendant roll-up — visibility the daemon computes by prefix scan; this roll-up is why
   `liveness_state` must keep `waiting` distinct from `idle`, §3.2).
+  **in_flight release-DECREMENT seat (④).** Every necro/collapse here is a single-writer terminal
+  write (stamps `died_*`/`FAILED` + appends the run-ledger row), so it is also the point that carries
+  cluster ④'s in_flight **release-decrement** — symmetric to the §6.1 claim-increment, riding the
+  existing terminal write (no new writer; crash-safe via `last_applied_seq`; §3.6). The leaf-reap and
+  the coordinator-died necro both release the slot the §6.1 claim reserved.
 - **2-week resurrection GC (separate infra, NOT the daemon).** Collapse-on-finish (G37) holds a
   node's state resurrectable for 2 weeks keyed by its stable address; a separate lifecycle reaper
   GCs it after the window. **The daemon does not host this.** Do not conflate the evidence-based
@@ -850,7 +874,16 @@ claimed state that must succeed before the actor opens:**
 
 ```
 spawn(node_address, expected_state, expected_generation, expected_owner_token, level_config):
+    # STEP 0 — PAUSE-SUBTREE READ-POINT (③'s human-control primitive; ① seats the enforcement here).
+    #   Refuse to launch a child under a paused subtree: address-prefix check — if THIS node OR any
+    #   ancestor binding has paused_at != null, ABORT before claiming. A paused subtree admits no new
+    #   children. (Set/cleared only by the human control surface via the single writer — §3.2 / ③ §5.3.)
+    if any(b.paused_at is not None for b in ancestors_inclusive(node_address)):  return  # paused — no spawn
+
     # STEP 1 — CLAIM (CAS-guarded transition, §4.2). Atomic. Fails if a concurrent/stale claim won.
+    #   This claim seat also reserves the in_flight CLAIM-INCREMENT for cluster ④ (④ owns the slot
+    #   COUNT; ① provides the seat — no new writer). Symmetric to the terminal release-DECREMENT
+    #   (§3.6 / §5.4) so ④'s admission gate can't be an increment-only ratchet.
     claim = transition(node_address, expected_state=planned, target_state=claimed,
                        expected_generation, expected_owner_token,
                        new_lease_epoch = old+1, new_owner_token = mint(...))   # §8
@@ -870,6 +903,15 @@ cannot pin the configured model/runtime (E32), or the actor fails to open, the c
 **releases the claim** (transition `claimed → planned`, bump epoch) — a FAILED claim is rolled back
 atomically so the slot is reclaimable. (open Q resolved: crash-atomicity of a failed claim = the
 release is itself a CAS-guarded transition, replayable via the WAL.)
+
+**Two seats this pre-step provides.** (1) **Pause-subtree (③):** STEP 0 is the enforcing read-point
+for the human-control pause primitive (③ §5.3) — the chokepoint **refuses** to launch a child under a
+paused subtree (address-prefix check over the node + its ancestors). ① only seats the read-point; ③'s
+human control surface sets/clears `paused_at` through the single writer (§3.2). (2) **in_flight
+CLAIM-increment (④):** STEP 1's accepted claim is the seat where cluster ④'s in_flight slot count is
+**incremented**. ④ owns the COUNT; ① provides the seat (no new writer). This increment is symmetric to
+the **release-DECREMENT** carried on the terminal transaction (§3.6 / §5.4) — the two seats are a
+matched pair so ④'s gate is a balanced counter, not an increment-only ratchet that leaks slots.
 
 > **Adapted: NEW (the headline fix).** The recovered code had **no spawn command at all** and only
 > `transition` was CAS-guarded. Claim-before-spawn is net-new: it extends the *same* CAS
@@ -1115,12 +1157,24 @@ chokepoint defined above — so adding it later is a one-site change, not a re-p
 - the human control surface attaches to the harness app (genesis path) and routes human-kill
   **through the executor's stamping path** (never raw tmux), and the answer-escalation slot rides
   the `terminal_signal = ESCALATED` + `terminal_note` carried in the binding.
+- the **pause-subtree read-point**: ③'s human control surface sets/clears the `paused_at` binding
+  field (§3.2) — set/cleared **only** through the single-writer executor, never raw — and ① **seats
+  the enforcement** at the §6.1 claim-slot pre-step (STEP 0), which refuses to launch a child under a
+  paused subtree (the node OR any ancestor by address-prefix). The companion read-point in ②'s
+  recovery loop (skip prod/respawn for a paused subtree) is the other half; both are required or
+  `paused_at` is a flag no one honors.
 
 **To cluster ④ (Scale-as-resource):**
 - the **claim-slot pre-step** in the spawn chokepoint (§6.1): admission control wedges between
   claim-accepted and actor-open **without re-opening the CAS**. Per-runtime ceilings / 429-backoff /
   resource envelope all gate that same single spawn path. The claim-then-admit-then-open ordering is
   defined now precisely so ④ has a clean insertion point.
+- the **in_flight increment/decrement seat pair** for ④'s slot count (④ owns the COUNT; ① provides
+  the SEATS, no new writer). The §6.1 accepted-claim is the **claim-INCREMENT** seat; the
+  single-writer **terminal transaction** (the §3.6 `done`/`failed`/`dead` collapse write, AND the
+  §5.4 necro / §5.1 reconcile-finds-dead path) carries the symmetric **release-DECREMENT** — it rides
+  the existing terminal write, crash-safe via `last_applied_seq`. The pair is matched on purpose so
+  ④'s admission gate is a balanced counter, not an increment-only ratchet that leaks slots.
 
 ---
 

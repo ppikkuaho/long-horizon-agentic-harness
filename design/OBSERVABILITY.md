@@ -91,6 +91,8 @@ Git commits also carry session_id in trailers, connecting code changes to the ag
 
 When a node completes its unit of work (acceptance accepted, forwarded upward), it **collapses** to free context — statelessness is the backstop, persistence is an optimization (G38). But a collapsed node is not immediately reaped. For **2 weeks** its full state — frozen brief, frozen acceptance artifact (D26), report, transcript, edit-manifest slice, and trace-blocks — is held resurrectable in the work node, keyed by its stable address (which survives collapse, F35).
 
+**"Resurrected" ≠ "recovered" (distinct layers).** *Resurrected* is this audit-layer concept: bringing a **collapsed** node back within the 2-week window for replay/interrogation/re-run, post-collapse and after its work is done. It is NOT WATCHDOG's live-run **recovered** outcome (renew / adopt / respawn a stale-or-dead lease back to healthy during an in-flight run, see WATCHDOG.md). Keep the two words for the two distinct things: recovered = live-run lease recovery; resurrected = post-collapse audit re-spawn.
+
 This window exists to serve the audit and improvement layer, not the run:
 
 - **Read-only replay** — the default. The narrative timeline, diagram replay, and drift metrics for that node are reconstructable from the held state without re-spawning anything. This is what the user and optimizer-L1 do most of the time: look back at how a now-collapsed node worked.

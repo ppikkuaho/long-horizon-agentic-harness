@@ -63,12 +63,12 @@ this doc binds to those exact names and writes them **through the executor**, ne
 | ② needs | ① seat (exact name) | DAEMON.md |
 |---|---|---|
 | Write the liveness verdict | `liveness_state` (`working\|waiting\|idle\|dead`), `last_progress_at`, `last_heartbeat_at` | §3.2 |
-| Carry the lease condition | `condition`, `suspect_since`, `stale_check_count` (schema addition requested of ① — see §3.5), `recovery_attempts`, `stale_grace_checks`, `last_evidence` | §3.2 |
+| Carry the lease condition | `condition`, `suspect_since`, `stale_check_count`, `stale_grace_checks`, `recovery_attempts`, `recovery_attempt_ceiling`, `last_evidence` (all PRESENT in DAEMON §3.2) | §3.2 |
 | Read/write a state change | `transition` (CAS) and `watchdog-checkpoint` executor commands | §4.2, §4.5 |
 | Read the sign-off | `terminal_signal`, `terminal_signal_at`, `terminal_note`, `signal_artifact_seen_at` | §3.2, §3.5 |
 | Branch recovery on death class | run-ledger events `coordinator_died`, `died_infrastructure`, `died_methodology`, `stale_return_ignored` | §3.5, §3.6 |
 | Carry the auto-resume interlock | `auto_resume_command` (carried) + `allow_recovery` (`--run-recovery`) | §9 |
-| Gate the resume firewall | `gate_crossed_at` (② flips, ① enforces) — *schema addition requested of ① (see §9 FORK); §6.4/§9 carry it as a concept, not yet in the §3.2 yaml* | §6.4, §9 |
+| Gate the resume firewall | `gate_crossed_at` (② flips, ① enforces) — *PRESENT in DAEMON.md §3.2 binding schema (no longer a pending addition); §6.4/§9 enforce on it* | §3.2, §6.4, §9 |
 | Gate coordinator idle | the live-descendant roll-up (prefix scan over the one-spine key) | §5.4 |
 | Fence on adopt/respawn | `lease_epoch` + composite `owner_token` rotated by `claim`/`transition` | §8 |
 | Run the sweep | the per-node read-tmux-vs-ledger reconcile pass (② plugs `liveness(node)` in) | §5.2 |
@@ -297,6 +297,13 @@ Adapted from `watchdog-design-01.md` L72–83, with the tmux substitutions from 
 executor commands:
 
 ```
+0. PAUSE-SUBTREE GATE (read-point, checked first): if the node has paused_at set OR any ancestor
+   (address-prefix) does, the subtree is PAUSED — SKIP all recovery actions (no prod, no respawn, do
+   NOT mark FAILED). A paused idle node is intentional human-held quiet, not a stall: do not open
+   suspicion, do not escalate. paused_at is set/cleared ONLY by the human control surface, routed
+   through the single-writer executor (TRANSPORTS §5.3); ② only READS it. This is one of the two
+   enforcing read-points for the pause-subtree primitive (the other is DAEMON's §6.1 claim-slot
+   pre-step, which refuses to launch a child under a paused subtree).
 1. Renewal overdue (now − last_progress_at > W(state)).
 2. OPEN SUSPICION (same-state, NOT a kill): watchdog-checkpoint sets condition=stale_suspect,
    suspect_since=now, appends stale_suspect_opened. Increment stale_check_count (the grace counter, §3.5).
@@ -352,9 +359,9 @@ binds to both, and does **not** collapse them onto one field:
   `recovery_in_progress` (`watchdog.py` L211 gate). **Reset rule:** ② zeroes `stale_check_count` on
   **any renewal** (§3.4 step 4 — a liveness read showing forward progress); resumed activity resets
   the grace ladder so the node is not penalized for a prior transient quiet. *(This is the field the
-  recovered impl plumbs at L309–310; DAEMON.md §3.2 carries `recovery_attempts` + `stale_grace_checks`
-  but NOT this per-poll counter — so `stale_check_count` is the **one carried-field schema addition**
-  ② requests of the DAEMON author for the lease machine, alongside `gate_crossed_at`, §12.)*
+  recovered impl plumbs at L309–310; DAEMON.md §3.2 now carries BOTH `stale_check_count` (the per-poll
+  counter) AND `stale_grace_checks` (the threshold), alongside `recovery_attempts` — all PRESENT, no
+  longer owed (`gate_crossed_at` likewise now PRESENT in §3.2 — see §12).)*
 - **`recovery_attempts` — the recovery-CYCLE budget (how many times the recovery path LAUNCHED).**
   This increments **only when recovery is actually launched** (`watchdog.py` L219/L244 — inside the
   recovery branch, not per stale poll), i.e. once per adopt/respawn attempt in §3.4 steps 7–8. It is
@@ -779,18 +786,17 @@ enumerable list keyed to concrete journal signals**, not an open-ended clause:
 to stop happens anyway). The asymmetry is deliberate: bias the detector toward over-firing. Once set,
 the firewall is armed; ① reads it on every resume attempt.
 
-> **FORK — for user review (the exact field name).** DAEMON.md §6.4/§9 pins the concept but writes
-> the field name as "`gate_crossed_at` / equivalent" — it is **not** enumerated in the §3.2 binding
-> yaml block (it appears as a concept at DAEMON.md ~§6.4/§9, not in the schema). ② must **pin the
-> exact key** when it specifies gate detection.
+> **RESOLVED (was a FORK on the exact field name).** DAEMON.md §3.2 now **enumerates
+> `gate_crossed_at`** in the binding yaml schema (it is no longer merely a §6.4/§9 concept). The
+> exact key is pinned; the recommendation below records *why* this is the right name (Option A).
 > - **Option A (RECOMMENDED): pin the name as `gate_crossed_at`** (ISO-8601-UTC timestamp, null until
 >   the node crosses a gate). A timestamp (not a bool) so the firewall can also tell *which* resume
 >   attempts post-date the crossing, and so the audit log gets a `when`. ② writes it through
 >   `watchdog-checkpoint`; ① reads it.
 > - **Option B: a richer `gate_crossed: {at, gate_id, kind}` sub-record.** Pro: names *which* gate.
 >   Con: more than the firewall needs in v1 (the firewall only needs "has any gate been crossed").
-> - **Recommendation: A** — a single `gate_crossed_at` timestamp field, **to be added to the §3.2
->   binding schema by the DAEMON author** (the one schema addition this doc requests of ①). ②
+> - **Recommendation: A** — a single `gate_crossed_at` timestamp field, **now PRESENT in the §3.2
+>   binding schema** (the DAEMON author landed exactly this name; no longer a pending request). ②
 >   maintains it; ① enforces on it.
 
 ---
@@ -805,12 +811,13 @@ through ①'s `claim` / `transition` executor commands, which **bump `lease_epoc
 
 - **On ADOPT (§3.4 step 7 / §5.2):** re-adopt the existing address through ①'s `claim` → `new_lease_epoch =
   old + 1`, `new_owner_token = mint(address:subagent-id:session-uuid:lease_epoch)` (the composite
-  self-fencing format, DAEMON.md §8). Append `lease_recovered`. **(Blocking dependency on ① — see the
-  re-adopt-edge open seam, §12.)** ①'s `claim` is currently hardwired to `transition(expected_state=
-  planned, …)` (DAEMON.md §6.1) and the §3.3 legality table has **no** `running → claimed` or
-  `dead → claimed` edge — but an adopt targets a node that is `running` (live actor) or `dead` (orphan),
-  never `planned`. As written the executor would abort the adopt-claim on its `expected_state`
-  precondition. ② does **not** silently assume this type-checks; it is owed from the DAEMON author.
+  self-fencing format, DAEMON.md §8). Append `lease_recovered`. **(SATISFIED in ① — the re-adopt edge
+  is PRESENT, no longer owed.)** An adopt targets a node that is `running` (live actor) or `dead`
+  (orphan), never `planned`. DAEMON.md §3.3 now lists the `running → claimed` and `dead → claimed`
+  re-adopt edges in its legality table, and `claim` now takes an `expected_state` parameter (DAEMON.md
+  §3.3) so the adopt-claim can present `expected_state ∈ {running, dead}` rather than the hardwired
+  `planned`. The executor will therefore accept the adopt-claim; ② calls `claim` with the matching
+  `expected_state`. No longer a blocking dependency.
 - **On RESPAWN (§3.4 step 8 / §5.2 / §7):** the **resume chokepoint** (DAEMON.md §6.4) re-adopts the
   address through `claim` (bump epoch, re-mint token), assembles a delta brief, boots via the spawn
   path. **Resume = spawn-variant; ② does NOT build a separate resume path** (DAEMON.md §6.4). Append
@@ -872,14 +879,16 @@ goes through the same chokepoint, so ④'s ceilings/backoff gate ②'s respawns 
   `condition` value — no enum extension).
 - **`stale_check_count` carried field** (§3.5): the consecutive-stale-poll counter the recovered impl
   carries (`watchdog.py` L132/L206–207) and the grace gate keys off, distinct from `recovery_attempts`
-  (recovery-cycle budget). DAEMON.md §3.2 carries `recovery_attempts` + `stale_grace_checks` but not
-  this per-poll counter — a **schema addition requested of the DAEMON author** (one line, parallel to
-  `gate_crossed_at`). Do not overload `recovery_attempts`.
+  (recovery-cycle budget). **PRESENT** — DAEMON.md §3.2 now carries BOTH `stale_check_count` (the
+  counter) AND `stale_grace_checks` (the threshold), alongside `recovery_attempts`. No longer owed. Do
+  not overload `recovery_attempts`.
 - **`recovery_attempt_ceiling`** (§3.5): the per-node bound on step-8 respawns (set at spawn like W,
   §8); KNOWN-OPEN default. Without it, step 8's RESPAWN-or-ESCALATE has no stated respawn bound — the
   loop hazard the counter-split closes.
-- **`gate_crossed_at` exact field name** (§9 FORK): recommended `gate_crossed_at` (ISO-UTC) — a
-  schema addition this doc requests of the DAEMON author (with `stale_check_count`, above).
+- **`gate_crossed_at` exact field name** (§9 FORK): PRESENT — DAEMON.md §3.2 now declares
+  `gate_crossed_at` (ISO-UTC) in the binding schema. The recommended Option-A name is the one the
+  DAEMON author landed; no longer a pending schema addition. ② maintains it (flips through the
+  executor); ① reads/enforces it (§9).
 - **W / W2 numeric values** (§8): KNOWN-OPEN; settled empirically in commissioning. The only numeric
   defaults inheritable from the recovered impl are `poll_interval_s = 60` and `stale_grace_checks =
   2` — neither a window value.
@@ -890,17 +899,22 @@ goes through the same chokepoint, so ④'s ceilings/backoff gate ②'s respawns 
   (§6/§8).
 - **Codex pane-warmth** (§2.4, §8): ASSUMED-not-verified; a named commissioning gate — first-run
   measurement owed, or promote the Codex session-log probe to v1.
-- **Re-adopt edge owed from ① (blocking dependency, §10).** ADOPT/RESUME re-adopt an **existing**
-  address (`running` live actor or `dead` orphan), but ①'s `claim` is `transition(expected_state=
-  planned, …)` (DAEMON.md §6.1) and the §3.3 legality table has no `running → claimed` / `dead →
-  claimed` edge. DAEMON.md §6.4 step 1 carries the **same** latent gap ("re-adopt the address through
-  `claim`"). ① must admit either a `claim` variant whose `expected_state ∈ {running, dead, blocked}`
-  or a dedicated re-adopt edge in the §3.3 table; the `planned → claimed` claim cannot express
-  re-adoption of a live/dead address. Owed from the DAEMON author — ② does not assert it type-checks.
-- **`resurrected` vs `recovered` audit transition** (OBSERVABILITY.md §23 lists `collapsed` /
-  `resurrected`): ②'s adopt/respawn-from-ledger should emit a transition the audit log can name —
-  reconcile with §23's vocabulary (recommend reusing `resurrected` for a ledger-recovery of an
-  orphaned coordinator) or extend it explicitly. Recorded, not resolved.
+- **Re-adopt edge — SATISFIED in ① (§10).** ADOPT/RESUME re-adopt an **existing** address (`running`
+  live actor or `dead` orphan). This is no longer owed: DAEMON.md §3.3 now lists the `running →
+  claimed` and `dead → claimed` re-adopt edges in its legality table, and `claim` now takes an
+  `expected_state` parameter (DAEMON.md §3.3) so the re-adopt call presents `expected_state ∈ {running,
+  dead}` instead of the hardwired `planned`. The §6.4 step-1 resume re-adoption rides the same edge.
+  ② calls `claim` with the matching `expected_state`; the executor accepts it. Resolved.
+- **`resurrected` vs `recovered` — RESOLVED (distinct concepts, do not conflate).** These are two
+  different layers and keep two different words. **`recovered`** is ②'s **LIVE-RUN lease-recovery
+  outcome** — the renew / adopt / respawn-from-ledger of a stale-or-dead lease back to a healthy
+  running node (§3.4 / §5.2); it happens in the live control plane. **`resurrected`** is the
+  OBSERVABILITY **audit concept**: bringing a COLLAPSED node back within the **2-week window** for
+  replay/interrogation (post-collapse, observability layer — OBSERVABILITY.md §23's `collapsed` /
+  `resurrected` transitions). ②'s adopt/respawn-from-ledger is a *recovery*, NOT a resurrection — it
+  acts on a still-live-run node, not a collapsed one past its terminal. The two must not be unified by
+  renaming. Aligning the audit-log vocabulary (what transition ②'s recovery emits into the audit
+  stream, and how it relates to `resurrected`) is **owned by OBSERVABILITY**, not resolved here.
 
 ---
 
