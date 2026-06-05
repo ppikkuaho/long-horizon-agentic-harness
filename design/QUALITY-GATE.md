@@ -26,7 +26,7 @@ Each gate reviews at its own altitude. The composition gets richer and the granu
 
 ## Reviewer ≠ Producer at Every Boundary (D23 / P4)
 
-The independent reviewer at each boundary is **structurally separate** from the producing level — not spawned by it, not part of its hierarchy, not sharing its authoring lineage. Each level boundary has a persistent coordinator agent that sits parallel to the level. In the GUI, this is a parallel room next to the level's room; work flows from the producing level through the review room before going upward. Addressed on the same spine via a role-variant suffix (e.g. `proj/payments/gateway#review` vs `…#exec`, per `F35`).
+The independent reviewer at each boundary is **structurally separate** from the producing level — not spawned by it, not part of its hierarchy, not sharing its authoring lineage. Review is a **per-level function, not a department or parallel room**: it is a role-variant **`#review` seat co-located at the node**, addressed on the same spine via a suffix (e.g. `proj/payments/gateway#review` vs `…#exec`, per `F35`). The function has two instantiations — **per-unit L5+ review** (an independent Opus reviewer seat per task) and **whole-set L4-level review** (after all the L5 units in a workstream finish). It is not a standing coordinator that sits alongside the level; it is review work integrated at each boundary, spun up against the node the producing seat is acting on.
 
 The reviewer at this boundary is:
 

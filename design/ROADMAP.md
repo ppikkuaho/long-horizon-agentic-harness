@@ -1,5 +1,7 @@
 # AI Architecture — Roadmap
 
+> **HISTORICAL ROADMAP — superseded where it conflicts with `design/INDEX.md` and the live 2026-06-04 notes** (`working-notes/runtime-decisions-and-commissioning-2026-06-04.md`, `working-notes/arch-gap-review-2026-06-04.md`). Kept for history. Several entries below carry drift that the live canon has since resolved — most notably: the **"Review Department" framing is dissolved** (code review is now an integrated per-level **review function** — a per-task `#review` seat, not a parallel department/org-unit); **L3 is the "Module Designer," not a "Program Manager"**; the liveness model is **working / waiting / idle / dead**, not **Active / Parked / Waiting / Blocked**; and **"Internal Affairs" is renamed the "Improvement Workspace."** Per-entry `> **Superseded:**` banners flag the specific drifted rows. Do not treat any superseded row as current spec.
+
 Horizon-organized map of all outstanding design work. This is navigation, not a backlog — each item is a one-liner with a pointer to where the full thinking lives. Detail stays in place.
 
 *Last triaged: 2026-03-26*
@@ -7,6 +9,8 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 ---
 
 ## V1 — Required for the system to work
+
+> **Superseded (framing):** the "Review Department / full parallel function" framing is dissolved — code review is an **L5-class review function integrated at each level** (a per-task `#review` seat: per-unit L5+ review + whole-set L4-level review), not a standalone department. "L3 Program Manager" is now **L3 Module Designer**. The 5-level naming is System Orchestrator L1 / Project Architect L2 / Module Designer L3 / Workstream Coordinator L4 / Task Executor L5 (+ L5+ reviewer). The other decisions in this line still hold.
 
 > Key decisions 2026-03-25/26: Life-OS and L1-L4 are separate systems. Review Department is a full parallel function. Cognitive config not loaded for agents (drift risk). Conversational mode = terminal switching. Acceptance tests written by L3, not L4. Review Department must interact with running products. Every post-V1 feature earns its place through observed need. 5-level hierarchy (L3 Program Manager added between L2 and old L3). Old L3 → L4, old L4 → L5.
 
@@ -17,11 +21,11 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 | 4 | User profile document | NOTES.md (TODO: User Profile Document) |
 | 6 | ~~Connect generative skeleton to architecture — L2's planning approach~~ *(resolved/evolved)* | Evolved from generative skeleton to professional services planning process. See PROJECT-PLANNING.md. |
 | 7 | Benchmarking — how to measure if the system works better than flat dispatch | ARCHITECTURE.md §Open Design Work (#18) |
-| 19 | Review Department — full parallel organizational function design *(deferred to post-V1)* | Conceptual brief exists (QUALITY-GATE.md); full design pass needed: agent identity, role, operational config, interfaces, lifecycle, coordinator + reviewer agent types. See NOTES.md. Still important, but not vital to starting work on the system — some things will be spotted faster once the system is running. |
-| 25 | Review Department interacts with running products | Browser automation / Playwright MCP required for Review Department. Evaluates by using, not just reading code. Without this, review is theater. See NOTES.md (Anthropic harness design insights). |
-| 26 | L5 enforcement stack | Four layers: SWE handbook (spawn) → enriched briefs from L4 (acceptance tests + structural guidance) → automated tools mandatory (linter/formatter/type checker) → Review Department (downstream). See NOTES.md. |
+| 19 | ~~Review Department — full parallel organizational function design~~ **(SUPERSEDED)** | **Superseded:** there is no review *department* / parallel org-function. Code review is an **L5-class review function integrated at each level** — an independent Opus `#review` seat co-located at the node: per-unit **L5+** review (one reviewer seat per task) + whole-set **L4-level** review after all L5s in a workstream finish. The correct underlying principle stands (reviewer is structurally independent of the producer, clean context, judged at altitude); only the "department/parallel function" framing is killed. See QUALITY-GATE.md and `operational/shared/comms-protocol.md`. |
+| 25 | Review function interacts with running products *(was "Review Department")* | **Superseded framing:** read "Review Department" as the per-level **review function** (`#review` seats), not a department. Browser automation / Playwright MCP lets the reviewer evaluate by using, not just reading code. Without this, review is theater. See NOTES.md (Anthropic harness design insights). |
+| 26 | L5 enforcement stack | Four layers: SWE handbook (spawn) → enriched briefs from L4 (acceptance tests + structural guidance) → automated tools mandatory (linter/formatter/type checker) → the **review function** (downstream `#review` seat — *not* a "Review Department"). See NOTES.md. |
 | 27 | Tool manifest per task type | For L5 (was L4). All code: file editing, terminal, git, LSP, test runner, linter, formatter, type checker. Frontend adds: browser, dev server. Backend adds: curl, database CLI. Provided at spawn. See L4-CONFIG.md. |
-| 28 | Internal Affairs — development home base | IMPROVEMENT-WORKSPACE.md created 2026-03-25. May extend for V1. |
+| 28 | Improvement Workspace — development home base *(was "Internal Affairs")* | **Renamed:** "Internal Affairs" → "Improvement Workspace." IMPROVEMENT-WORKSPACE.md created 2026-03-25. May extend for V1. |
 | 29 | 5-level architecture restructuring — redesign ARCHITECTURE.md, all soul/role/config docs, COMMUNICATION.md, WORKSPACE-SCHEMA.md, QUALITY-GATE.md, OBSERVABILITY.md, GUI-DESIGN.md, DESIGN-PRINCIPLES.md for 5 levels | See NOTES.md (5-Level Architecture Redesign). |
 | 30 | ~~L3 Module Designer — soul, role, config for new level~~ | Created. See operational/L3/. |
 | 31 | Planning/execution phase split — planning L3 templates, plan file format, Phase A/B process | See NOTES.md. |
@@ -48,7 +52,7 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 
 | # | Item | Detail location |
 |---|------|-----------------|
-| 1 | Multiple L1 design — personal/life L1, Internal Affairs L1 | ARCHITECTURE.md §6 |
+| 1 | Multiple L1 design — personal/life L1, Improvement-Workspace optimizer-L1 *(was "Internal Affairs L1")* | **Renamed/future:** "Internal Affairs L1" → the optimizer-L1 capability that may run out of the **Improvement Workspace** (a separate, future, not-V1 concept). ARCHITECTURE.md §6 |
 | 2 | Sibling communication — lateral agent communication across projects | NOTES.md (Future Exploration: Sibling Communication) |
 | 3 | Lateral depth / within-level decomposition — cognitive director pattern | NOTES.md (Design Note: Lateral Depth) |
 | 4 | LLM self-managed context — active context window management | NOTES.md (Research Direction: LLM Self-Managed Context) |
@@ -85,17 +89,17 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 | User intentionality assumption — operational config | Resolved 2026-03-25. Soul documents plant this seed sufficiently. No additional config needed. |
 | Preference extraction integration — behavioral specs into level configs | Resolved 2026-03-25. Preferences extracted in Life-OS context. Not applicable to L1-L5. Reference material only. |
 | Escalation/leadership skills for agent managers | Resolved 2026-03-25. Workspace write + inbox message + config guidance. Not a separate skill. |
-| Internal Affairs — development home base | IMPROVEMENT-WORKSPACE.md created 2026-03-25. |
+| Improvement Workspace — development home base *(was "Internal Affairs")* | IMPROVEMENT-WORKSPACE.md created 2026-03-25. |
 | L3-CONFIG.md — operational config for L3 | First draft created 2026-03-25. |
 | Invocation protocol + spawn mechanism | ARCHITECTURE.md §4 |
 | Concurrency mechanics — instance caps, tracking, throttling | ARCHITECTURE.md §5 |
 | Agent lifecycle — persistence, message routing, context management | ARCHITECTURE.md §5 |
 | Timeout and failure design — values, cascading prevention, circuit breakers | ARCHITECTURE.md §5 |
-| Agent state transitions — Active/Parked/Waiting | ARCHITECTURE.md §5, NOTES.md (Agent Awareness) |
+| ~~Agent state transitions — Active/Parked/Waiting~~ **(SUPERSEDED)** | **Superseded:** the liveness states are now **working / waiting / idle / dead** (detection is deterministic for spawn/collapse/comms transitions but inferred-with-bounded-confidence for working/idle from floor signals — transcript-JSONL growth, tmux pane activity, node mtime, process CPU). The Active/Parked/Waiting/Blocked model and the self-waking-Parked / blocking-command-wrapper machinery are retired. See the live 2026-06-04 notes and `operational/shared/agent-lifecycle.md`. ARCHITECTURE.md §5, NOTES.md (Agent Awareness) |
 | Git integration — branch strategy, PR-as-review, merge conflict protocol | GIT-INTEGRATION.md |
 | GUI — user-facing spatial interface over agent infrastructure | GUI-DESIGN.md |
 | Audit trace / observability — narrative timeline, traceability chain, visualization | OBSERVABILITY.md |
-| Quality gate system — review departments at each level boundary | QUALITY-GATE.md |
+| Quality gate system — the per-level **review function** at each level boundary *(was "review departments")* | **Superseded framing:** "review departments" → the integrated per-level review function (`#review` seats), not parallel departments. QUALITY-GATE.md |
 | Citation ledger + incident log — persistent quality tracking | QUALITY-GATE.md |
 | Pre-submission checklist — quality at the source for each level | QUALITY-GATE.md |
 | Communication protocol — inbox, DM, reporting, escalation | COMMUNICATION.md |

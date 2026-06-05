@@ -49,7 +49,7 @@ So the mapping is: **task = L5, workstream = L4, area merge-gate = L3, trunk = t
 
 Independent review at each level is **in for V1** (D30) — it is the *normal* merge path at every level boundary, not a post-V1 toggle. There is no "direct merge" mode that bypasses it.
 
-- A persistent review-coordinator seat sits **parallel** to each level boundary (P4: independent of the producing hierarchy). Code review at each boundary is **L5-class work** — independent reviewer seats, clean context, judging at altitude (D23/D24). See `QUALITY-GATE.md` for the dimension presets and the per-level gate mechanics.
+- Review is a **per-level function, not a standing coordinator parallel to the level**: an independent `#review` seat co-located at each node (P4: independent of the producing hierarchy), spun up against the same branch the producer acts on. Code review at each boundary is **L5-class work** — independent reviewer seats, clean context, judging at altitude (D23/D24). See `QUALITY-GATE.md` for the dimension presets and the per-level gate mechanics.
 - **CI is the automated floor *beneath* the independent review function, not a substitute for it** (D28). CI must be green before a unit is eligible to enter the gate; the independent reviewer then does the judgment work CI cannot (architectural fit, interface-contract fidelity, drift against spec). Green CI alone never authorizes a merge.
 - The two review surfaces are distinct and both run in V1: **CI floor** (automated, deterministic, per-commit) and the **independent review gate** (judgment, at the level boundary, before merge).
 

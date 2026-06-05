@@ -1,0 +1,55 @@
+export CLAUDE_CONFIG_DIR='/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/config' ANTHROPIC_BASE_URL='http://127.0.0.1:8110' CLAUDE_CODE_OAUTH_TOKEN="$(cat '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/con
+fig/.oauth_token')" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1
+cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/authtest' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
+peeta@Mac h40-in-role-boot % export CLAUDE_CONFIG_DIR='/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/config' ANTHROPIC_BASE_URL='http://127.0.0.1:8110' CLAUDE_CODE_OAUTH_TOKEN="$(cat '/Users/peeta/Documents/l1-l5
+-agent-harness/.cc-pinned/config/.oauth_token')" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1
+cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/authtest' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
+peeta@Mac h40-in-role-boot % cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/authtest' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/
+bin/claude.exe'
+╭─── Claude Code v2.1.152 ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                          │
+│                    Welcome back!                   │ Run /init to create a CLAUDE.md file with instructions for Claude │
+│                                                    │ ───────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                        │
+│                      ▝▜█████▛▘                     │ Check the Claude Code changelog for updates                       │
+│                        ▘▘ ▝▝                       │                                                                   │
+│                                                    │                                                                   │
+│               Sonnet 4.6 · Claude API              │                                                                   │
+│  ~/…/research/h40-in-role-boot/workspaces/authtest │                                                                   │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ 2+2? Reply with only the number.
+
+⏺ 4
+
+✻ Worked for 2s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts                                                                                                     tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tracking
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

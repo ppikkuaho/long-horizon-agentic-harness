@@ -44,7 +44,7 @@ The spawn contract is the abstraction boundary: a parent emits a **runtime-neutr
 
 **L1–L4 are Opus 4.8 on Claude Code.** These are the generative/architecture/planning seats. **L5 is GPT-5.5 on the Codex harness.** The L4-tester lateral (a separate agent within L4) may later be reassigned to GPT-5.5 based on evals — V1 default is Opus throughout L4.
 
-This table is a config snapshot, not a law. It is expected to move as the system-improvement function (Internal Affairs workspace; in the future, an optimizer-L1 capability — a separate concept from that workspace — will perform this analysis systematically) learns where each model actually earns its seat.
+This table is a config snapshot, not a law. It is expected to move as the system-improvement function (the Improvement Workspace; in the future, an optimizer-L1 capability — a separate concept from that workspace — will perform this analysis systematically) learns where each model actually earns its seat.
 
 ---
 

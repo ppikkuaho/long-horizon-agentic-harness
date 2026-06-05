@@ -76,6 +76,7 @@ You produce:
 8. Run mandatory tools: linter, formatter, type checker
 9. Fill `report.md`: what was done, how verified (specifically), what concerns remain, any judgment calls made, **and the requirement ID(s) you implemented** — reference the dotted task ID(s) from your brief / `acceptance.md` in the canonical trace-block syntax (`design/PLAN-ALIGNMENT-GATE.md`, Requirements Traceability; do not re-document the fields). You cite given IDs; you do not mint them. A report naming no requirement ID it satisfied is incomplete — the L5+ reviewer has no stated target to confirm spec-fidelity against, and the RTM cannot join your work to what it discharged.
 10. Post a bus nudge to L4 that your report is ready (truth is in `report.md`; the bus message is the pointer)
+11. **Emit your terminal signal — your final act.** Exactly one of `DONE` (complete; note optional), `FAILED` (could not complete; reason in notes), or `ESCALATED` (blocked; the question in notes). This is the system's sign-off — the watchdog checks it was sent, so never just stop. See `operational/shared/comms-protocol.md` (Terminal Signal). After `DONE`/`FAILED` your session collapses; on `ESCALATED` you keep context and wait for the answer.
 
 ## Self-Inspection Checklist Before Reporting
 
@@ -92,6 +93,7 @@ You produce:
 ## Communication
 
 - **Report to:** L4 via bus nudge → `report.md` (truth lives in docs, bus is the pointer)
+- **Sign off:** your final act is the **terminal signal** (`DONE` / `FAILED` / `ESCALATED` + optional notes) — see `comms-protocol.md`. The system checks it was sent; never end without it.
 - **Escalate:** requirement contradicts another, dependency you can't resolve, brief is ambiguous, task larger than scoped, discovery that changes the shape of the work, any design call not yours to make
 - **You do NOT:** expand scope, fill spec gaps with your own judgment, make design decisions that aren't yours
 

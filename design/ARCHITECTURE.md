@@ -153,7 +153,7 @@ Model and runtime are assigned **per-level, at config time, and are swappable** 
 
 ### Communication and Visibility
 
-**Transport is the bus; truth is the docs (F33).** The old filesystem-inbox model is superseded. Real-time coordination flows over the **bus** (Life-OS bus / live-session messaging); durable truth lives in **docs** in the work nodes. A message is a **pointer or a nudge** ("report.md updated", "blocked — see node X"), not the payload. Because the truth is in the docs, message delivery is **best-effort** — a dropped nudge costs a little latency, not correctness, since any level can re-read the durable artifact. This decouples transport reliability from system correctness.
+**Transport is the bus; truth is the docs (F33).** The old filesystem-inbox model is superseded. Real-time coordination flows over the harness's **own bus** (the Life-OS bus is a reference to *study*, not a transport to reuse as-is); durable truth lives in **docs** in the work nodes. A message is a **pointer or a nudge** ("report.md updated", "blocked — see node X"), not the payload. Because the truth is in the docs, message delivery is **best-effort** — a dropped nudge costs a little latency, not correctness, since any level can re-read the durable artifact. This decouples transport reliability from system correctness. **Transport-spec stub:** own-bus, truth-in-files / pointer-not-payload / best-effort delivery, with the *fact-of-being-sent* of a terminal signal journaled (so sign-off is durable even when the nudge itself is dropped).
 
 **Visibility is need-to-know, not broad project-wide read (F34).** The earlier "L1–L3 read the whole project" model is replaced by a **visibility graph** derived directly from the address path (F35):
 
@@ -402,9 +402,9 @@ L2 chooses the right strategy per project. Some work is highly parallel (indepen
 
 ### Failure and Timeout
 
-If a delegated task produces no result within an expected timeframe, the spawning level sends a status inquiry. If the inquiry also fails, it escalates upward (principle 14). This is the dead-man's switch -- the only proactive check in an otherwise event-driven system.
+Liveness is judged by the **sign-off-or-fail watchdog**, not a wall-clock timeout. An agent ends by emitting its **terminal signal** (DONE / FAILED / ESCALATED — the journaled sign-off); liveness is inferred from **evidence of progress, not elapsed time**. When an agent goes idle without having emitted a terminal signal, the watchdog **prods it (bounded)**, then records **FAILED** and escalates upward (principle 14). This is the only proactive check in an otherwise event-driven system. Full mechanics are already implemented — see `operational/shared/comms-protocol.md` (terminal signals, journaling) and `operational/shared/agent-lifecycle.md` (watchdog, prod-then-FAIL); this document does not recreate them.
 
-Specific timeout values are empirical — they depend on task type, not level. A research task legitimately takes longer than a code fix. The spawning level sets expected timeframes per task, not per level.
+Thresholds are empirical — they depend on task type, not level. A research task legitimately takes longer than a code fix. The spawning level sets expectations per task, not per level.
 
 **Failure recovery:** A stuck or crashed session is recoverable by design. Artifacts capture work in progress (principle 2). The parent level can collapse the failed session and spawn a fresh one that reads the workspace to pick up where the previous one left off. No special recovery protocol needed — the stateless design makes respawning the default recovery mechanism.
 
@@ -431,7 +431,7 @@ The analogy: a watchmaker peering at the gears. Observation and participation wi
 The current design covers the project-work L1. Separate L1s are anticipated for:
 
 - **Personal/life domains** -- Different function, different structure. Therapy, health, life admin operate differently than project work.
-- **Internal Affairs** -- System observation, process improvement, meta-analysis. Its "projects" are the system itself.
+- **Improvement Workspace** -- System observation, process improvement, meta-analysis. Its "projects" are the system itself. (A separate, future optimizer-L1 capability may someday run out of this workspace — not V1.)
 
 These are separate design tasks. They may not need the same L1-L5 structure -- their cognitive requirements may call for different shapes entirely.
 
@@ -500,7 +500,7 @@ These fill in once the architecture is set. Highly iterative.
 ### Product / UX (separate workstream, downstream of architecture)
 
 16. **User interface / navigation** -- How the user moves between levels, observes, participates. Terminal works to start.
-17. **Multiple L1 design** -- Personal/life L1, Internal Affairs L1. May need different structures.
+17. **Multiple L1 design** -- Personal/life L1, Improvement Workspace L1. May need different structures.
 18. **Benchmarking** -- How to measure whether the system works better than flat dispatch.
 
 ---

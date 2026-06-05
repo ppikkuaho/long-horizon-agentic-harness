@@ -1,4 +1,4 @@
-# Internal Affairs — System Improvement Workspace
+# Improvement Workspace — System Improvement
 
 A workspace where system observations land, patterns get logged, and improvement proposals get drafted. The place to bring recurring failures, friction signals, and ideas for making the system better. Not an agent — a shared accumulation layer that any session can write to and any future improvement capability can read from.
 
@@ -6,7 +6,7 @@ A workspace where system observations land, patterns get logged, and improvement
 
 ## Purpose
 
-The system generates experience but has no native place to accumulate it. Individual sessions end, context compacts, and observations disappear. Internal Affairs is the answer to that problem: a persistent workspace that captures what the system is learning about itself.
+The system generates experience but has no native place to accumulate it. Individual sessions end, context compacts, and observations disappear. The Improvement Workspace is the answer to that problem: a persistent workspace that captures what the system is learning about itself.
 
 Four things happen here:
 
@@ -15,14 +15,14 @@ Four things happen here:
 3. **Outcomes get tracked** — what was tried, what changed, what the result was
 4. **Patterns get surfaced** — recurring signals that individually look like noise but collectively point at something real
 
-This workspace is an input to system evolution, not a decision-maker. Decisions happen through the normal design process (ROADMAP.md, design sessions, explicit changes to soul/role/config docs). Internal Affairs feeds that process with grounded evidence.
+This workspace is an input to system evolution, not a decision-maker. Decisions happen through the normal design process (ROADMAP.md, design sessions, explicit changes to soul/role/config docs). The Improvement Workspace feeds that process with grounded evidence.
 
 ---
 
 ## Workspace Structure
 
 ```
-design/internal-affairs/
+design/improvement-workspace/
   observations/          # Raw session observations — friction, failures, surprises
   proposals/             # Structured improvement proposals (see schema below)
   outcomes/              # Outcome records for proposals that were acted on
@@ -183,7 +183,7 @@ Methodology, research, preferences, and patterns.
 
 An automated improvement capability — an optimizer that runs analyses against this workspace, surfaces proposal candidates, and validates outcome patterns — is a plausible future direction. If built, it would operate out of this workspace: reading observations, drafting proposals, and writing outcome records using the same formats.
 
-That capability is not V1 scope. It is also not the same thing as this workspace. Internal Affairs exists and is useful as a passive accumulation layer regardless of whether an optimizer ever runs on top of it.
+That capability is not V1 scope. It is also not the same thing as this workspace. The Improvement Workspace exists and is useful as a passive accumulation layer regardless of whether an optimizer ever runs on top of it.
 
 ---
 
@@ -202,18 +202,18 @@ Current development priorities (triaged 2026-03-24):
 | ~~8~~ | ~~Conversational mode~~ | **Resolved.** Each agent is a terminal session. User lists instances via status board, opens the terminal they want. No special conversational mode protocol needed — the interaction surface is the terminal itself. |
 | 10 | User intentionality assumption | Operational config |
 | 11 | Preference extraction integration | Integration needed |
-| ~~13~~ | ~~Escalation/leadership skills~~ | **Resolved.** Subordinate writes block description to workspace → sends high-urgency inbox message to parent → goes idle. Parent behavior (interrogate process, parallel approaches, different tools, correct course, escalate further) documented in operational configs as typical responses. Not a separate skill. Iterate from experience. |
+| ~~13~~ | ~~Escalation/leadership skills~~ | **Resolved.** Subordinate writes block description to its workspace → posts a pointer/nudge to the parent over the bus → emits its terminal signal and goes idle (the truth lives in the workspace doc; the bus nudge is best-effort — see `comms-protocol.md`). Parent behavior (interrogate process, parallel approaches, different tools, correct course, escalate further) documented in operational configs as typical responses. Not a separate skill. Iterate from experience. |
 | RV | Independent review function — full design per level | Conceptual brief exists; full design needed |
-| IA | Internal Affairs — system improvement workspace | This document |
+| IA | Improvement Workspace — system improvement workspace | This document |
 
 **Deferred:** Time awareness (#5), L1 pre-work research team (#14), discussive L1 branch (#15), seeds-not-instructions formalization (#16), design principles skill (#17), CULTURE.md (#18), multi-account orchestration (#12).
 
 **Key decisions this session:**
 - Life-OS and L1-L5 are separate systems — not integrating
 - Independent review function is baked into each level's process, not a parallel organizational entity
-- Internal Affairs is a system improvement workspace — observations, proposals, outcomes
+- The Improvement Workspace is a system improvement workspace — observations, proposals, outcomes
 - Conversational mode is just terminal switching — no special protocol needed
-- Escalation is workspace write + inbox message + config guidance — no separate skill needed
+- Escalation is workspace write + bus nudge + config guidance — no separate skill needed
 - 5-level hierarchy confirmed — L3 Module Designer added between L2 and old L3 (2026-03-26)
 
 ---

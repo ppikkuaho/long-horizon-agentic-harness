@@ -178,7 +178,7 @@ The system is fundamentally asynchronous. When a level delegates downward, it fi
 
 This is not a preference — it's a reliability constraint driven by the LLM execution model. A foregrounded subagent that gets stuck without a preset timeout hangs the spawner, freezing everything above it. Backgrounded execution eliminates this risk. The system remains responsive at every level regardless of what's happening below.
 
-The timeout-based health check is the safety net: if no result returns within an expected timeframe (e.g., 24 hours for a delegated task), the spawning level sends a status inquiry. If that also fails, it escalates upward. This is the dead-man's switch — the only proactive behavior in an otherwise event-driven system.
+The **sign-off-or-fail watchdog** is the safety net, and it keys on *evidence of progress, not wall-clock elapsed time*. An agent ends by emitting its **terminal signal** (DONE / FAILED / ESCALATED — the journaled sign-off). Liveness is inferred from floor signals (transcript growth, pane activity, node-file mtime, process CPU); when a node goes idle without having emitted a terminal signal, the watchdog prods it (bounded), and on continued non-response records it FAILED and escalates upward. This is the one proactive behavior in an otherwise event-driven system. It is already specified — see `agent-lifecycle.md` and `comms-protocol.md`; do not recreate it here.
 
 **Implication:** Default to backgrounded, async execution at every level. Only use synchronous (foregrounded) execution when you specifically need the response before continuing, or to conserve tokens on a known-fast operation. This determines the concurrency model: L1 can manage multiple projects simultaneously because it's never blocked waiting on any of them. A stuck L4 doesn't freeze the chain.
 
@@ -200,7 +200,7 @@ The architecture anticipates its own improvement. Every level's processes — me
 
 This is distinct from principle 8 (separated problem spaces), which says problems are diagnosable. This principle says the *solutions* are swappable. Each level's configuration is hot-swappable: you can change its rubrics, its playbooks, its documentation practices, and redeploy without affecting other levels. This is critical because the system will be highly iterative in its early stages — getting each level right requires rapid experimentation.
 
-This is the infrastructure that enables system improvement processes (such as an Internal Affairs function) to be effective. Without it, improvement requires surgery; with it, improvement is configuration.
+This is the infrastructure that enables system improvement processes (such as the Improvement Workspace) to be effective. Without it, improvement requires surgery; with it, improvement is configuration.
 
 **Implication:** Design each level's behavior as explicit configuration, not implicit convention. Prompts, skills, rubrics, documentation schemas — all externalized, all independently versionable. The cost of changing a level's behavior should be low enough that experimentation is cheap.
 
@@ -310,7 +310,7 @@ The inter-level contract and documentation questions that this section once list
 
 - **Inter-level contracts (L1→L2 … L4→L5)** are settled around the **one hierarchical-path spine** and the **pointer-not-payload brief**: each delegating level emits a distilled brief (spec + constraints + interface + ADRs, with raw upstream intent referenced, not carried), and each level returns a compressed report. The L2 output is ADR-style (component map + interface contracts + ADRs + per-module constraint specs); the Plan-phase output contract requires spec + frozen acceptance tests + gate rubric before the level below executes. Escalation flows up the spine. See WORKSPACE-SCHEMA.md, COMMUNICATION.md, PLAN-ALIGNMENT-GATE.md, and the operational L1–L5 docs.
 - **Documentation schemas per level** are owned by WORKSPACE-SCHEMA.md (the node layout: `brief.md`, `acceptance.md` frozen and read-only to the executor, `report.md`, ADRs, design/plan docs) rather than by this principles doc.
-- **Multiple L1s / Internal Affairs:** the Internal Affairs workspace is the system-improvement function with a god-view (principles 5 and 11); see IMPROVEMENT-WORKSPACE.md. An optimizer-L1 capability (a future agent that may operate out of that workspace) is a separate, future concept not yet defined for V1.
+- **Multiple L1s / Improvement Workspace:** the Improvement Workspace is the system-improvement function with a god-view (principles 5 and 11); see IMPROVEMENT-WORKSPACE.md. An optimizer-L1 capability (a future agent that may operate out of that workspace) is a separate, future concept not yet defined for V1.
 
 ## Open Questions
 

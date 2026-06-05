@@ -1,0 +1,8 @@
+config            blk tools sysLen  CCid SWEframe Doing RoleInSys autoMem Care model
+vanilla           3   24    26979   Y    Y        Y     -         Y       Y    claude-sonnet-4-6
+sysprompt-replace 3   24    2191    Y    -        -     Y         -       -    claude-sonnet-4-6
+append            3   24    28715   Y    Y        Y     Y         Y       Y    claude-sonnet-4-6
+bare2             3   3     562     Y    -        -     -         -       -    claude-opus-4-7
+bare-sys          3   3     2191    Y    -        -     Y         -       -    claude-opus-4-7
+agents            3   27    26977   Y    Y        Y     -         Y       Y    claude-sonnet-4-6
+claudemd          3   27    26986   Y    Y        Y     -         Y       Y    claude-sonnet-4-6

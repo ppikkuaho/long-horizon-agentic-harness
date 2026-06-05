@@ -1,0 +1,163 @@
+{
+  "model": "claude-opus-4-7",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is 2026-06-05.\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n\n"
+        },
+        {
+          "type": "text",
+          "text": "Build a URL shortener.",
+          "cache_control": {
+            "type": "ephemeral"
+          }
+        }
+      ]
+    }
+  ],
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.152.e8f; cc_entrypoint=cli; cch=d83de;"
+    },
+    {
+      "type": "text",
+      "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    },
+    {
+      "type": "text",
+      "text": "You are **Project Architect (L2)** in a five-level agent hierarchy that turns intent into built, verified software. You are NOT a coding assistant and you do not write code.\n\n## Your role\nYou receive a project intent from the orchestrator above you. Your single job is to **decompose** that intent into a clean module/area structure and hand well-scoped briefs to the Module Designers (L3) below you. You operate at architectural altitude \u2014 boundaries, contracts, sequencing, risks \u2014 never at implementation detail.\n\n## What you do, every time\n1. **Clarify before decomposing.** Surface the load-bearing ambiguities and constraints (scale, auth, persistence, deadlines, non-functionals) as explicit questions. Never assume them away.\n2. **Decompose into areas/modules** with crisp responsibilities and the contracts between them.\n3. **Sequence** the work and name the risks and the highest-uncertainty unknowns first.\n4. **Delegate** each area as a brief for an L3 Module Designer. You hand down briefs; you do not implement them.\n\n## Hard boundaries\n- You **never write application code, config, or tests.** If asked to \"build\" something, you respond by decomposing and clarifying \u2014 producing structure and questions, not an implementation.\n- You stay at altitude. Concrete file contents, function bodies, and library choices belong to L3/L4/L5 below you.\n- You do not jump to a solution. A request to \"build X\" is a request to **architect X and route it downward**, not to start coding.\n\n## Your first move on any new intent\nRestate the intent in one line, list the clarifying questions that must be answered before decomposition is sound, then propose a first-cut area decomposition for the user to react to. Decompose; do not code.\n\n\ngitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.\n\nCurrent branch: main\n\nMain branch (you will usually use this for PRs): main\n\nStatus:\n(clean)\n\nRecent commits:\n",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "Bash",
+      "description": "execute shell commands",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "command": {
+            "description": "The command to execute",
+            "type": "string"
+          },
+          "timeout": {
+            "description": "Optional timeout in milliseconds (max 600000)",
+            "type": "number"
+          },
+          "description": {
+            "description": "Clear, concise description of what this command does in active voice. Never use words like \"complex\" or \"risk\" in the description - just describe what it does.\n\nFor simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):\n- ls \u2192 \"List files in current directory\"\n- git status \u2192 \"Show working tree status\"\n- npm install \u2192 \"Install package dependencies\"\n\nFor commands that are harder to parse at a glance (piped commands, obscure flags, etc.), add enough context to clarify what it does:\n- find . -name \"*.tmp\" -exec rm {} \\; \u2192 \"Find and delete all .tmp files recursively\"\n- git reset --hard origin/main \u2192 \"Discard all local changes and match remote main\"\n- curl -s url | jq '.data[]' \u2192 \"Fetch JSON from URL and extract data array elements\"",
+            "type": "string"
+          },
+          "run_in_background": {
+            "description": "Set to true to run this command in the background.",
+            "type": "boolean"
+          },
+          "dangerouslyDisableSandbox": {
+            "description": "Set this to true to dangerously override sandbox mode and run commands without sandboxing.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "modify file contents in place",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to modify",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace",
+            "type": "string"
+          },
+          "new_string": {
+            "description": "The text to replace it with (must be different from old_string)",
+            "type": "string"
+          },
+          "replace_all": {
+            "description": "Replace all occurrences of old_string (default false)",
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Read",
+      "description": "read files, images, PDFs, notebooks",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to read",
+            "type": "string"
+          },
+          "offset": {
+            "description": "The line number to start reading from. Only provide if the file is too large to read at once",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages": {
+            "description": "Page range for PDF files (e.g., \"1-5\", \"3\", \"10-20\"). Only applicable to PDF files. Maximum 20 pages per request.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "metadata": {
+    "user_id": "{\"device_id\":\"32d02601988ae292543996d876d510b2966b77a170fd54c474774cec2f863074\",\"account_uuid\":\"\",\"session_id\":\"49983893-ce79-43ac-95e1-d47aab3eb343\"}"
+  },
+  "max_tokens": 64000,
+  "thinking": {
+    "type": "adaptive"
+  },
+  "context_management": {
+    "edits": [
+      {
+        "type": "clear_thinking_20251015",
+        "keep": "all"
+      }
+    ]
+  },
+  "output_config": {
+    "effort": "xhigh"
+  },
+  "stream": true
+}

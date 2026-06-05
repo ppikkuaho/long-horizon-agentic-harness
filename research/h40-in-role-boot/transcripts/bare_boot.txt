@@ -1,0 +1,55 @@
+export CLAUDE_CONFIG_DIR='/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/config' ANTHROPIC_BASE_URL='http://127.0.0.1:8103' CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-h40dummytokenh40dummytokenh40dummytokenh40dummytoke
+n00' CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1 ANTHROPIC_API_KEY='sk-ant-dummy-h40'
+cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/bare' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe' --bare
+peeta@Mac h40-in-role-boot % export CLAUDE_CONFIG_DIR='/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/config' ANTHROPIC_BASE_URL='http://127.0.0.1:8103' CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-h40dummytokenh40dummyt
+okenh40dummytokenh40dummytoken00' CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1 ANTHROPIC_API_KEY='sk-ant-dummy-h40'
+cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/bare' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe' --bare
+peeta@Mac h40-in-role-boot % cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/bare' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/
+claude.exe' --bare
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Detected a custom API key in your environment
+
+  ANTHROPIC_API_KEY: sk-ant-...sk-ant-dummy-h40
+
+  Do you want to use this API key?
+
+    1. Yes
+  ❯ 2. No (recommended)
+
+  Enter to confirm · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

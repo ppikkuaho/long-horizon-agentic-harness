@@ -25,7 +25,7 @@ Define an agent by **what it owns and does**, in the affirmative, before definin
 
 ### Measure soul-doc impact later, via the system-improvement function
 
-Deprioritized is not disproven. Whether richer character prose measurably improves behavior is an **empirical question deferred to the system-improvement function** (the Internal Affairs workspace; see `IMPROVEMENT-WORKSPACE.md`). In the future, an optimizer-L1 capability (a separate, future concept from the workspace itself) would watch for recurring behavioral issues across runs; if a class of drift turns out to track thin identity rather than thin task definition, that is the signal to revisit soul investment — as a measured intervention, not a prior. Until that evidence exists, the default stands: spend on definitions, keep souls as pointers.
+Deprioritized is not disproven. Whether richer character prose measurably improves behavior is an **empirical question deferred to the system-improvement function** (the Improvement Workspace; see `IMPROVEMENT-WORKSPACE.md`). In the future, an optimizer-L1 capability (a separate, future concept from the workspace itself) would watch for recurring behavioral issues across runs; if a class of drift turns out to track thin identity rather than thin task definition, that is the signal to revisit soul investment — as a measured intervention, not a prior. Until that evidence exists, the default stands: spend on definitions, keep souls as pointers.
 
 ---
 
@@ -111,7 +111,7 @@ This pairs with two gate properties that enforce the same value structurally: th
 
 ## Quick Reference
 
-- **Souls** → one-line pointers, frozen, not expanded. Invest in `role.md` + `config.md` + brief. Measure soul impact later via the system-improvement function (Internal Affairs workspace; optimizer-L1 is a future capability, not yet defined).
+- **Souls** → one-line pointers, frozen, not expanded. Invest in `role.md` + `config.md` + brief. Measure soul impact later via the system-improvement function (Improvement Workspace; optimizer-L1 is a future capability, not yet defined).
 - **Define positively** → ownership first, boundaries second; make the lane attractive (realization-not-redesign).
 - **Briefs** → thin-but-decision-complete. Too-thin is the dangerous failure (executor fills gaps with training defaults → silent drift). Pair with the frozen acceptance artifact; escalate-don't-decide on ambiguity.
 - **Pointer-not-payload** → distilled brief loaded, raw intent referenced, rationale recoverable via ADRs.

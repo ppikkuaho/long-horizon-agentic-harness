@@ -58,7 +58,7 @@ One continuous scene, three zoom levels, no scene changes or cuts — only camer
 
 Rooms are the core visual unit. Each level's head agent is at the top of its room. Lateral spawns (post-V1) fill the room — room population visually encodes cognitive depth.
 
-The **review department** is a parallel room next to each level — work flows from the producing room through the review room before going up. Visually obvious gatekeeping function. (See `QUALITY-GATE.md` for the full review department process design.)
+Review is a **per-level function, not a parallel room** — an independent `#review` seat co-located at the node (per-unit L5+ review plus whole-set L4-level review). In the room, the review seat surfaces alongside the producing seat at the same node, so the gatekeeping function is visually obvious without implying a separate review department. (See `QUALITY-GATE.md` for the full per-level review process design.)
 
 ### Positional Consistency
 

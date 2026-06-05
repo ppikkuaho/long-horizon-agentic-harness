@@ -54,7 +54,7 @@ Everything else is **not readable by default**. The interface contract a sibling
 **Two god-view exceptions** (read-only, whole-portfolio):
 
 - **L1** sees the entire portfolio. It owns intent and triage; it must be able to read any node to guard fidelity and route escalations.
-- **Optimizer-L1** (Internal Affairs) sees the entire portfolio, read-only, for recurring-issue monitoring and cross-run pattern-spotting. See `IMPROVEMENT-WORKSPACE.md`.
+- **Optimizer-L1** (Improvement Workspace) — a **future, not-V1** capability — would see the entire portfolio, read-only, for recurring-issue monitoring and cross-run pattern-spotting. The Improvement Workspace exists as a passive accumulation layer today; the optimizer that reads it is a separate, later concept. See `IMPROVEMENT-WORKSPACE.md`.
 
 Both god-views are **read-only**: they observe everything, mutate nothing in the work tree.
 

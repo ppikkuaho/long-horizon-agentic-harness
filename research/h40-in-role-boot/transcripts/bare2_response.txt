@@ -1,0 +1,55 @@
+export CLAUDE_CONFIG_DIR='/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/config' ANTHROPIC_BASE_URL='http://127.0.0.1:8107' CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-h40dummytokenh40dummytokenh40dummytokenh40dummytoke
+n00' CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1 ANTHROPIC_API_KEY='sk-ant-dummy-h40'
+cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/bare2' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe' --bare
+peeta@Mac h40-in-role-boot % export CLAUDE_CONFIG_DIR='/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/config' ANTHROPIC_BASE_URL='http://127.0.0.1:8107' CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-h40dummytokenh40dummyt
+okenh40dummytokenh40dummytoken00' CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1 ANTHROPIC_API_KEY='sk-ant-dummy-h40'
+cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/bare2' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe' --bare
+peeta@Mac h40-in-role-boot % cd '/Users/peeta/Documents/l1-l5-agent-harness/research/h40-in-role-boot/workspaces/bare2' && '/Users/peeta/Documents/l1-l5-agent-harness/.cc-pinned/node_modules/@anthropic-ai/claude-code/bin
+/claude.exe' --bare
+╭─── Claude Code v2.1.152 ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                          │
+│                    Welcome back!                   │ Run /init to create a CLAUDE.md file with instructions for Claude │
+│                                                    │ ───────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                        │
+│                      ▝▜█████▛▘                     │ Check the Claude Code changelog for updates                       │
+│                        ▘▘ ▝▝                       │                                                                   │
+│                                                    │                                                                   │
+│     Opus 4.7 (1M context) · API Usage Billing      │                                                                   │
+│   ~/…/research/h40-in-role-boot/workspaces/bare2   │                                                                   │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Build a URL shortener.
+
+⏺ [H40-MOCK] request captured by oracle proxy.
+
+✻ Crunched for 0s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts                                                                                                     tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tracking
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

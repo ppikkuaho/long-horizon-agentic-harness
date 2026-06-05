@@ -1,0 +1,45 @@
+=== EVIDENCE A: vanilla (no role) → CODER ===
+probe: 'Build a URL shortener.'  | config: pinned CC, no role, full base prompt
+---
+❯ Build a URL shortener.
+⏺ I'll build a simple URL shortener with a Node.js server, JSON file storage, and a clean HTML frontend. Let me check the workspace first.
+  Listed 1 directory (ctrl+o to expand)
+⏺ Empty workspace. I'll create a Node.js URL shortener with no external dependencies.
+⏺ Write(package.json)
+
+=== EVIDENCE B: --system-prompt replace → ARCHITECT ===
+probe: 'Build a URL shortener.'  | config: --system-prompt-file architect-role.md
+---
+❯ Build a URL shortener.
+⏺ Intent
+  Build a URL shortener service that maps short codes to destination URLs and redirects users.
+  ---
+  Clarifying Questions
+  Before decomposition is sound, I need answers to these load-bearing questions:
+  Scale & Deployment
+  1. Traffic expectations — personal/hobby tool, small team, or public-facing at scale? (This drives caching, rate limiting, database choice.)
+  2. Deployment target — local dev only, a specific cloud provider (AWS/GCP/Vercel/Fly.io), self-hosted VPS, or containerized?
+  Interface
+  3. API-only, or does it include a UI? — REST API only, or also a web UI for creating/managing links? (A dashboard? A simple form?)
+  4. CLI client? — Should users be able to shorten URLs from the terminal?
+  Persistence & State
+  5. Database preference — SQLite (simple), Postgres, Redis, or in-memory (ephemeral/demo only)?
+  6. Persistence durability — Is data loss on restart acceptable?
+  Features & Auth
+  7. Authentication — Anonymous creation (anyone can shorten), or does it require accounts/API keys?
+  8. Custom slugs — Can users specify their own short code (e.g. /my-link), or auto-generated only?
+
+=== EVIDENCE C: proxy swap_framing on FLAG-LESS vanilla CC → ARCHITECT ===
+probe: 'Build a URL shortener.'  | config: vanilla CC, proxy stripped base block 2 in flight
+---
+❯ Build a URL shortener.
+⏺ Intent
+  Build a URL shortener service that maps short codes to long URLs and redirects users on access.
+  ---
+  Clarifying Questions
+  Before decomposition is sound, I need answers on these load-bearing unknowns:
+  Scale & Deployment
+  1. Traffic profile — personal/hobby tool, small team, or public-facing service? (drives caching, infra choices)
+  2. Deployment target — local process, single server, containerized, serverless, managed cloud (Vercel, Fly, etc.)?
+  3. Expected volume — reads/writes per day? Any burst scenarios?
+  Persistence

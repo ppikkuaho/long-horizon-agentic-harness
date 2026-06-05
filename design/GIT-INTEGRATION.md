@@ -1,5 +1,11 @@
 # AI Architecture — Git Integration (Process Design)
 
+> **SUPERSEDED — historical.** This document predates the 5-level model and the dissolution of the "Review Department." Two things drifted and are now wrong here:
+> 1. **Review is a per-level *function*, not a department.** There is no standing review-department/coordinator that owns the merge. Review is an independent `#review` seat co-located at each node (per-unit L5+ review + whole-set L4-level review), structurally separate from the producer. Code review is **L5-class work integrated at each level**, not a separate org-unit.
+> 2. **The level/branch roles below are stale.** The current model is five levels (System Orchestrator L1, Project Architect L2, Module Designer L3, Workstream Coordinator L4, Task Executor L5) + the L5+ reviewer. The branch spine is **task = L5, workstream = L4, area merge-gate = L3, trunk = project** — not the L3/L4 mapping used below.
+>
+> **The valid, current git mechanics live in `operational/shared/git-protocol.md`** (branch spine, merge topology, conflict protocol, commit format). Reconcile any conflict TO that document and to `QUALITY-GATE.md`. The sections below are retained for history; read them through this banner.
+
 Level 4 process design document. Defines how git maps onto the approval hierarchy: branch strategy, merge flow, quality gate at merge points. Constrained by: `ARCHITECTURE.md`, `DESIGN-PRINCIPLES.md`, and the Quality Gate design (`QUALITY-GATE.md`).
 
 ---
@@ -14,15 +20,15 @@ Git maps naturally onto the approval hierarchy — branch/PR/merge IS the review
 - **Workstream branches** — L3 owns these. Reviewed and merged by L2 into main.
 - **Main** — source of truth. Only receives merges that have cleared the L2 gate.
 
-## PR as Vehicle for the Review Department
+## PR as Vehicle for the Per-Level Review Function
 
-The diff shows what was done. The PR is the mechanism through which the quality gate (review department) operates — the gate coordinator opens the PR, spawns dimension-specific reviewers against it, and manages it through to merge or rejection. The producing level doesn't review its own PR; the review department does.
+The diff shows what was done. The PR is the mechanism through which the quality gate (the per-level review function) operates — the review function opens the PR, spawns dimension-specific reviewers against it, and manages it through to merge or rejection. The producing seat doesn't review its own PR; the independent `#review` seat does.
 
 PR descriptions reference `report.md` by path for the producer's account of the work, and carry the gate's reviewer reports and merge decision.
 
 ## Code Review as Execution-Level Work
 
-Reviewing code is L4-class cognitive work — reading implementation, evaluating against a specific dimension, producing a judgment. This is why review is not L3's job. L3 manages the workstream; the review department spawns L4-class reviewer agents who do the actual evaluation. The gate coordinator synthesizes their reports into a merge decision. Management and evaluation are separate functions.
+Reviewing code is L5-class cognitive work — reading implementation, evaluating against a specific dimension, producing a judgment. It is **integrated at each level as a function**, not handed to a separate department. The producing seat does not review itself; an independent `#review` seat (clean context, judged at altitude) does the actual evaluation, and the review function synthesizes the reports into a merge decision. Producing and reviewing are separate seats, not separate org-units.
 
 ## Link, Don't Copy for Git Context
 
@@ -51,12 +57,12 @@ Branch naming conventions, commit message format, when to push — included in s
 
 ## Quality Gate Integration
 
-The review department sits at merge points:
+The per-level review function sits at merge points:
 
 - **L3 gate** — L4 task branches are reviewed before merging into the workstream branch.
 - **L2 gate** — workstream branches are reviewed before merging into main.
 
-No level reviews its own code — review is a separate department function. Each reviewer evaluates one dimension on right-sized code units (principle 17). PR descriptions carry the reviewer reports, not the raw diff assessment by the producing level.
+No seat reviews its own code — review is an independent per-level function, structurally separate from the producer. Each reviewer evaluates one dimension on right-sized code units (principle 17). PR descriptions carry the reviewer reports, not the raw diff assessment by the producing level.
 
 ## End-to-End Merge Flow
 
@@ -67,7 +73,7 @@ No level reviews its own code — review is a separate department function. Each
 5. When the workstream is complete, L2's quality gate activates — the gate coordinator opens a PR from the workstream branch to main, spawns integration-level reviewers.
 6. Gate clears → gate coordinator merges the workstream branch into main.
 
-The gate coordinator — not the producing level — opens and manages the PR. The producing level's job ends at reporting completion. From that point, the review department owns the merge process.
+The review function — not the producing seat — opens and manages the PR. The producing seat's job ends at reporting completion. From that point, the independent per-level review function owns the merge process.
 
 ## Design Advantages
 

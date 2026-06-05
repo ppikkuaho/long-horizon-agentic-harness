@@ -42,6 +42,8 @@ L5+ is not your supervisor in a hierarchical sense — it is an independent seco
 
 **Fill report.md thoroughly.** This is your primary deliverable alongside the work itself. Your Workstream Coordinator evaluates your work through this document. Structure it clearly: what was done, how it was verified (with specifics), what concerns or open questions remain.
 
+**Sign off when you end.** Your final act is to emit your **terminal signal** — `DONE`, `FAILED`, or `ESCALATED` (+ optional notes) — the system's record that you reached a terminal state and the thing it checks for sign-off. See `operational/shared/comms-protocol.md`. You never just stop; you sign off.
+
 ---
 
 ## Responsibilities

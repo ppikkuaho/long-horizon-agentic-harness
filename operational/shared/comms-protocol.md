@@ -131,6 +131,22 @@ urgency: routine | needs-attention | blocking
 
 ---
 
+## Terminal Signal — the Sign-Off
+
+Every agent's **last act before it ends is to emit exactly one terminal signal** on the bus. This is the system's **sign-off**: the durable record that the agent reached a terminal state, and the single thing the watchdog checks to answer *"did it sign off?"*. Strict, simple shape — a tag plus an optional notes field:
+
+```
+signal:  DONE | FAILED | ESCALATED            # strict tag — the only field the sign-off check reads
+re:      proj/payments/gateway/stripe-client  # the node signing off
+notes:   <optional, free text>                # completion note (DONE) / failure reason (FAILED) / the question (ESCALATED)
+```
+
+- **The tag is the contract.** `DONE` = work complete (see `report.md`); `FAILED` = could not complete, reason in `notes`; `ESCALATED` = blocked, needs a decision — the question in `notes` feeds the answer-round-trip back down.
+- **Emission is journaled.** The moment it is sent, the single-writer executor records it to the run-ledger and stamps the node's terminal state. So *"the check is that it got sent"* reads the **durable journal**, not the transient nudge — a dropped live nudge can never cause a false sign-off failure. This is the one place a bus message's *fact-of-being-sent* is load-bearing, so it is journaled; the payload still lives in `report.md`.
+- **Then the lifecycle takes over** (`agent-lifecycle.md`): `DONE`/`FAILED` → the parent collapses the (ephemeral) leaf and reads `report.md`; `ESCALATED` → the agent keeps context and waits for the answer rather than dead-ending. The watchdog's liveness check is exactly *"is there a terminal-signal event for this node in the journal?"* — if absent and the session has gone idle, it prods, then records `FAILED` on no response.
+
+---
+
 ## Reporting — What Each Level Sends Up
 
 Each boundary compresses differently because the receiving level needs a different *kind* of signal. The nudge points at the report doc; the doc carries the detail.

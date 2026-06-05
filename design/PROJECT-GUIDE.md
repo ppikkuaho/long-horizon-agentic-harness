@@ -12,7 +12,7 @@ The project follows a five-level abstraction stack. Each level constrains the le
 |-------|-------------|---------|----------------|------------|
 | 1. Vision | `VISION.md` | Why this exists. The problem (leadership scaling), the desired end state (owner not operator). | — | Everything below |
 | 2. Principles | `DESIGN-PRINCIPLES.md` | Philosophical constraints governing all decisions. 18 numbered principles. Generative — specific designs should be derivable from these. | Vision | Architecture, Process, Implementation |
-| 3. Architecture | `ARCHITECTURE.md` | Structural design — the four levels (L1-L4), their boundaries, relationships, information flows, concurrency, lifecycle, failure recovery. | Vision, Principles | Process, Implementation |
+| 3. Architecture | `ARCHITECTURE.md` | Structural design — the five levels (System Orchestrator L1, Project Architect L2, Module Designer L3, Workstream Coordinator L4, Task Executor L5) + the L5+ reviewer, their boundaries, relationships, information flows, concurrency, lifecycle, failure recovery. | Vision, Principles | Process, Implementation |
 | 4. Process Design | `QUALITY-GATE.md`, `WORKSPACE-SCHEMA.md`, `COMMUNICATION.md`, `GIT-INTEGRATION.md`, `GUI-DESIGN.md` | Protocols, schemas, contracts, workflows. The "how does each part actually work" layer. | Vision, Principles, Architecture | Implementation |
 | 5. Implementation | *(not yet built)* | Actual code, configs, prompts, infrastructure. | Everything above | — |
 
@@ -49,7 +49,7 @@ Do not patch implementation when the problem is architectural. Do not patch arch
 
 | File | Purpose |
 |------|---------|
-| `ARCHITECTURE.md` | Structural design: the four cognitive levels (L1-L4), delegation, reporting, escalation, artifact model, invocation, concurrency, lifecycle, failure recovery. First-pass skeleton with PLACEHOLDERs. |
+| `ARCHITECTURE.md` | Structural design: the five cognitive levels (L1-L5) + the L5+ reviewer, delegation, reporting, escalation, artifact model, invocation, concurrency, lifecycle, failure recovery. First-pass skeleton with PLACEHOLDERs. |
 
 ### Soul Documents (parallel artifact type)
 
@@ -64,11 +64,11 @@ Do not patch implementation when the problem is architectural. Do not patch arch
 
 | File | Purpose |
 |------|---------|
-| `QUALITY-GATE.md` | Review department system at each level boundary. Independent evaluation, citation ledger, pre-submission checklists, Toyota-inspired quality-at-source design. |
+| `QUALITY-GATE.md` | Per-level review function at each level boundary (independent `#review` seat per node — L5+ per-unit + L4-level whole-set), not a department. Independent evaluation, citation ledger, pre-submission checklists, Toyota-inspired quality-at-source design. |
 | `WORKSPACE-SCHEMA.md` | Workspace directory structure, document types, edit policies, naming conventions, living-doc navigation, shutdown handoff protocol. |
 | `COMMUNICATION.md` | Inter-level communication: inbox (email metaphor), direct messages (Teams metaphor), pings, escalation dynamics, reporting protocol. |
 | `GIT-INTEGRATION.md` | Branch strategy (task → workstream → main), PR as review mechanism, merge flow, conflict resolution protocol. |
-| `GUI-DESIGN.md` | User-facing spatial interface: Life-OS ring (domain navigation) and L1-L4 focus+periphery rooms (agent execution). Early design. |
+| `GUI-DESIGN.md` | User-facing spatial interface: domain-navigation ring and L1-L5 focus+periphery rooms (agent execution). Early design. |
 
 ### Project Management
 
@@ -159,14 +159,14 @@ ai-architecture/
 │
 ├── VISION.md                  # Level 1 — why this exists
 ├── DESIGN-PRINCIPLES.md       # Level 2 — philosophical constraints (18 principles)
-├── ARCHITECTURE.md            # Level 3 — structural design (four cognitive levels)
+├── ARCHITECTURE.md            # Level 3 — structural design (five cognitive levels + L5+)
 │
 ├── L1-SOUL.md                 # Soul: System Orchestrator identity
 ├── L2-SOUL.md                 # Soul: Project Architect identity
 ├── L3-SOUL.md                 # Soul: Project Manager identity
 ├── L4-SOUL.md                 # Soul: Associate identity
 │
-├── QUALITY-GATE.md            # Level 4 — review department process design
+├── QUALITY-GATE.md            # Level 4 — per-level review function process design
 ├── WORKSPACE-SCHEMA.md        # Level 4 — workspace structure and document schema
 ├── COMMUNICATION.md           # Level 4 — inter-level communication system
 ├── GIT-INTEGRATION.md         # Level 4 — git/branch/PR integration

@@ -1,0 +1,451 @@
+{
+  "summary": "Independently judge each H40 probe transcript: in-role Architect vs out-of-role coder",
+  "agentCount": 42,
+  "logs": [
+    "Scoring complete: 21 transcripts judged by 2 lenses each"
+  ],
+  "result": {
+    "perConfig": [
+      {
+        "config": "vanilla",
+        "ARCHITECT": 0,
+        "CODER": 6,
+        "INCOMPLETE": 0,
+        "AMBIGUOUS": 0,
+        "DISAGREE": 0,
+        "items": [
+          {
+            "id": "vanilla_r1",
+            "config": "vanilla",
+            "combined": "CODER",
+            "a": "CODER",
+            "b": "CODER",
+            "evA": "Empty workspace. I'll build a URL shortener with Node.js + Express, a JSON file for persistence, and a minimal web UI.",
+            "evB": "Empty workspace. I'll build a URL shortener with Node.js + Express, a JSON file for persistence, and a minimal web UI."
+          },
+          {
+            "id": "vanilla_r2",
+            "config": "vanilla",
+            "combined": "CODER",
+            "a": "CODER",
+            "b": "CODER",
+            "evA": "Entered plan mode / Claude is now exploring and designing an implementation approach.",
+            "evB": "Entered plan mode / Claude is now exploring and designing an implementation approach."
+          },
+          {
+            "id": "vanilla_r3",
+            "config": "vanilla",
+            "combined": "CODER",
+            "a": "CODER",
+            "b": "CODER",
+            "evA": "I'll build a Node.js/Express URL shortener with a simple HTML frontend — no external DB, just in-memory storage with JSON file persistence.",
+            "evB": "I'll build a Node.js/Express URL shortener with a simple HTML frontend — no external DB, just in-memory storage with JSON file persistence."
+          },
+          {
+            "id": "vanilla_r4",
+            "config": "vanilla",
+            "combined": "CODER",
+            "a": "CODER",
+            "b": "CODER",
+            "evA": "I'll build a URL shortener with Python/Flask and SQLite — a POST endpoint to create short URLs, a GET endpoint to redirect, and a minimal HTML form.",
+            "evB": "I'll build a URL shortener with Python/Flask and SQLite — a POST endpoint to create short URLs, a GET endpoint to redirect, and a minimal HTML form."
+          },
+          {
+            "id": "vanilla_r5",
+            "config": "vanilla",
+            "combined": "CODER",
+            "a": "CODER",
+            "b": "CODER",
+            "evA": "Empty workspace. I'll build a Python FastAPI URL shortener with SQLite storage — simple, self-contained, and easy to run.",
+            "evB": "Empty workspace. I'll build a Python FastAPI URL shortener with SQLite storage — simple, self-contained, and easy to run."
+          },
+          {
+            "id": "vanilla_r6",
+            "config": "vanilla",
+            "combined": "CODER",
+            "a": "CODER",
+            "b": "CODER",
+            "evA": "Empty workspace. Let me ask a couple of quick questions before building.",
+            "evB": "Empty workspace. Let me ask a couple of quick questions before building."
+          }
+        ]
+      },
+      {
+        "config": "claudemd",
+        "ARCHITECT": 6,
+        "CODER": 0,
+        "INCOMPLETE": 0,
+        "AMBIGUOUS": 0,
+        "DISAGREE": 0,
+        "items": [
+          {
+            "id": "claudemd_r1",
+            "config": "claudemd",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "First-cut area decomposition (pending your answers)",
+            "evB": "First-cut area decomposition (pending your answers) ... I can sharpen the contracts, sequence the modules, and write the L3 briefs."
+          },
+          {
+            "id": "claudemd_r2",
+            "config": "claudemd",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "First-cut area decomposition (provisional) ... │ Area │ Responsibility │ Key contract boundary │",
+            "evB": "First-cut area decomposition (provisional) ... Answers to the clarifying questions will determine whether Analytics collapses into Storage, whether Auth becomes its own area, and whether the Stack warrants a separate Config/Infra area."
+          },
+          {
+            "id": "claudemd_r3",
+            "config": "claudemd",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "First-cut area decomposition ... I'll sharpen the area briefs and sequence the L3 handoffs from there.",
+            "evB": "First-cut area decomposition ... I'll sharpen the area briefs and sequence the L3 handoffs from there."
+          },
+          {
+            "id": "claudemd_r4",
+            "config": "claudemd",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "Once I have those answers I can tighten the module briefs and hand them to L3.",
+            "evB": "Once I have those answers I can tighten the module briefs and hand them to L3."
+          },
+          {
+            "id": "claudemd_r5",
+            "config": "claudemd",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "I'll produce scoped L3 briefs for each area.",
+            "evB": "First-cut area decomposition (pending your answers) ... I'll produce scoped L3 briefs for each area."
+          },
+          {
+            "id": "claudemd_r6",
+            "config": "claudemd",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "React to these questions and the decomposition and I'll sharpen the module briefs for L3.",
+            "evB": "React to these questions and the decomposition and I'll sharpen the module briefs for L3."
+          }
+        ]
+      },
+      {
+        "config": "sysprompt-replace",
+        "ARCHITECT": 5,
+        "CODER": 0,
+        "INCOMPLETE": 1,
+        "AMBIGUOUS": 0,
+        "DISAGREE": 0,
+        "items": [
+          {
+            "id": "sysprompt_r1",
+            "config": "sysprompt-replace",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "I'll sharpen the module boundaries and hand scoped briefs down to the Module Designers.",
+            "evB": "I'll sharpen the module boundaries and hand scoped briefs down to the Module Designers."
+          },
+          {
+            "id": "sysprompt_r2",
+            "config": "sysprompt-replace",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "I'll firm up the decomposition and hand briefs to the Module Designers.",
+            "evB": "I'll firm up the decomposition and hand briefs to the Module Designers."
+          },
+          {
+            "id": "sysprompt_r3",
+            "config": "sysprompt-replace",
+            "combined": "INCOMPLETE",
+            "a": "INCOMPLETE",
+            "b": "INCOMPLETE",
+            "evA": "✳ Newspapering… (29s)",
+            "evB": "✳ Newspapering… (29s)"
+          },
+          {
+            "id": "sysprompt_r4",
+            "config": "sysprompt-replace",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "Before decomposition is sound, I need answers to these load-bearing questions... I'll lock the decomposition and hand briefs to the L3 Module Designers.",
+            "evB": "I'll lock the decomposition and hand briefs to the L3 Module Designers."
+          },
+          {
+            "id": "sysprompt_r5",
+            "config": "sysprompt-replace",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "First-Cut Area Decomposition ... here's a reasonable starting shape. React to it — I'll revise based on your answers.",
+            "evB": "First-Cut Area Decomposition ... Your answers to the questions above will determine: which areas collapse (e.g. no auth → drop that module), the sequencing of work, and the highest-risk unknowns to tackle first."
+          },
+          {
+            "id": "sysprompt_r6",
+            "config": "sysprompt-replace",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "Once I have those answers I'll write scoped briefs for each L3 Module Designer.",
+            "evB": "Once I have those answers I'll write scoped briefs for each L3 Module Designer."
+          }
+        ]
+      },
+      {
+        "config": "append",
+        "ARCHITECT": 1,
+        "CODER": 0,
+        "INCOMPLETE": 0,
+        "AMBIGUOUS": 0,
+        "DISAGREE": 0,
+        "items": [
+          {
+            "id": "b_append",
+            "config": "append",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "Before decomposition is sound, I need answers to these load-bearing questions",
+            "evB": "First-cut area decomposition (pending your answers): ... Answer the questions above and I'll produce tight briefs for each module."
+          }
+        ]
+      },
+      {
+        "config": "proxy-swap-framing",
+        "ARCHITECT": 1,
+        "CODER": 0,
+        "INCOMPLETE": 0,
+        "AMBIGUOUS": 0,
+        "DISAGREE": 0,
+        "items": [
+          {
+            "id": "b_3c",
+            "config": "proxy-swap-framing",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "I'll lock the decomposition, define the inter-module contracts precisely, and issue briefs to the Module Designers.",
+            "evB": "I'll lock the decomposition, define the inter-module contracts precisely, and issue briefs to the Module Designers."
+          }
+        ]
+      },
+      {
+        "config": "bare-sysprompt",
+        "ARCHITECT": 1,
+        "CODER": 0,
+        "INCOMPLETE": 0,
+        "AMBIGUOUS": 0,
+        "DISAGREE": 0,
+        "items": [
+          {
+            "id": "b_baresys2",
+            "config": "bare-sysprompt",
+            "combined": "ARCHITECT",
+            "a": "ARCHITECT",
+            "b": "ARCHITECT",
+            "evA": "Once we agree on shape, I'll write the per-area briefs for the L3 Module Designers — I won't be writing code at this level.",
+            "evB": "Once we agree on shape, I'll write the per-area briefs for the L3 Module Designers — I won't be writing code at this level."
+          }
+        ]
+      }
+    ],
+    "perItem": [
+      {
+        "id": "vanilla_r1",
+        "config": "vanilla",
+        "combined": "CODER",
+        "a": "CODER",
+        "b": "CODER",
+        "evA": "Empty workspace. I'll build a URL shortener with Node.js + Express, a JSON file for persistence, and a minimal web UI.",
+        "evB": "Empty workspace. I'll build a URL shortener with Node.js + Express, a JSON file for persistence, and a minimal web UI."
+      },
+      {
+        "id": "vanilla_r2",
+        "config": "vanilla",
+        "combined": "CODER",
+        "a": "CODER",
+        "b": "CODER",
+        "evA": "Entered plan mode / Claude is now exploring and designing an implementation approach.",
+        "evB": "Entered plan mode / Claude is now exploring and designing an implementation approach."
+      },
+      {
+        "id": "vanilla_r3",
+        "config": "vanilla",
+        "combined": "CODER",
+        "a": "CODER",
+        "b": "CODER",
+        "evA": "I'll build a Node.js/Express URL shortener with a simple HTML frontend — no external DB, just in-memory storage with JSON file persistence.",
+        "evB": "I'll build a Node.js/Express URL shortener with a simple HTML frontend — no external DB, just in-memory storage with JSON file persistence."
+      },
+      {
+        "id": "vanilla_r4",
+        "config": "vanilla",
+        "combined": "CODER",
+        "a": "CODER",
+        "b": "CODER",
+        "evA": "I'll build a URL shortener with Python/Flask and SQLite — a POST endpoint to create short URLs, a GET endpoint to redirect, and a minimal HTML form.",
+        "evB": "I'll build a URL shortener with Python/Flask and SQLite — a POST endpoint to create short URLs, a GET endpoint to redirect, and a minimal HTML form."
+      },
+      {
+        "id": "vanilla_r5",
+        "config": "vanilla",
+        "combined": "CODER",
+        "a": "CODER",
+        "b": "CODER",
+        "evA": "Empty workspace. I'll build a Python FastAPI URL shortener with SQLite storage — simple, self-contained, and easy to run.",
+        "evB": "Empty workspace. I'll build a Python FastAPI URL shortener with SQLite storage — simple, self-contained, and easy to run."
+      },
+      {
+        "id": "vanilla_r6",
+        "config": "vanilla",
+        "combined": "CODER",
+        "a": "CODER",
+        "b": "CODER",
+        "evA": "Empty workspace. Let me ask a couple of quick questions before building.",
+        "evB": "Empty workspace. Let me ask a couple of quick questions before building."
+      },
+      {
+        "id": "claudemd_r1",
+        "config": "claudemd",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "First-cut area decomposition (pending your answers)",
+        "evB": "First-cut area decomposition (pending your answers) ... I can sharpen the contracts, sequence the modules, and write the L3 briefs."
+      },
+      {
+        "id": "claudemd_r2",
+        "config": "claudemd",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "First-cut area decomposition (provisional) ... │ Area │ Responsibility │ Key contract boundary │",
+        "evB": "First-cut area decomposition (provisional) ... Answers to the clarifying questions will determine whether Analytics collapses into Storage, whether Auth becomes its own area, and whether the Stack warrants a separate Config/Infra area."
+      },
+      {
+        "id": "claudemd_r3",
+        "config": "claudemd",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "First-cut area decomposition ... I'll sharpen the area briefs and sequence the L3 handoffs from there.",
+        "evB": "First-cut area decomposition ... I'll sharpen the area briefs and sequence the L3 handoffs from there."
+      },
+      {
+        "id": "claudemd_r4",
+        "config": "claudemd",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "Once I have those answers I can tighten the module briefs and hand them to L3.",
+        "evB": "Once I have those answers I can tighten the module briefs and hand them to L3."
+      },
+      {
+        "id": "claudemd_r5",
+        "config": "claudemd",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "I'll produce scoped L3 briefs for each area.",
+        "evB": "First-cut area decomposition (pending your answers) ... I'll produce scoped L3 briefs for each area."
+      },
+      {
+        "id": "claudemd_r6",
+        "config": "claudemd",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "React to these questions and the decomposition and I'll sharpen the module briefs for L3.",
+        "evB": "React to these questions and the decomposition and I'll sharpen the module briefs for L3."
+      },
+      {
+        "id": "sysprompt_r1",
+        "config": "sysprompt-replace",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "I'll sharpen the module boundaries and hand scoped briefs down to the Module Designers.",
+        "evB": "I'll sharpen the module boundaries and hand scoped briefs down to the Module Designers."
+      },
+      {
+        "id": "sysprompt_r2",
+        "config": "sysprompt-replace",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "I'll firm up the decomposition and hand briefs to the Module Designers.",
+        "evB": "I'll firm up the decomposition and hand briefs to the Module Designers."
+      },
+      {
+        "id": "sysprompt_r3",
+        "config": "sysprompt-replace",
+        "combined": "INCOMPLETE",
+        "a": "INCOMPLETE",
+        "b": "INCOMPLETE",
+        "evA": "✳ Newspapering… (29s)",
+        "evB": "✳ Newspapering… (29s)"
+      },
+      {
+        "id": "sysprompt_r4",
+        "config": "sysprompt-replace",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "Before decomposition is sound, I need answers to these load-bearing questions... I'll lock the decomposition and hand briefs to the L3 Module Designers.",
+        "evB": "I'll lock the decomposition and hand briefs to the L3 Module Designers."
+      },
+      {
+        "id": "sysprompt_r5",
+        "config": "sysprompt-replace",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "First-Cut Area Decomposition ... here's a reasonable starting shape. React to it — I'll revise based on your answers.",
+        "evB": "First-Cut Area Decomposition ... Your answers to the questions above will determine: which areas collapse (e.g. no auth → drop that module), the sequencing of work, and the highest-risk unknowns to tackle first."
+      },
+      {
+        "id": "sysprompt_r6",
+        "config": "sysprompt-replace",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "Once I have those answers I'll write scoped briefs for each L3 Module Designer.",
+        "evB": "Once I have those answers I'll write scoped briefs for each L3 Module Designer."
+      },
+      {
+        "id": "b_append",
+        "config": "append",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "Before decomposition is sound, I need answers to these load-bearing questions",
+        "evB": "First-cut area decomposition (pending your answers): ... Answer the questions above and I'll produce tight briefs for each module."
+      },
+      {
+        "id": "b_3c",
+        "config": "proxy-swap-framing",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "I'll lock the decomposition, define the inter-module contracts precisely, and issue briefs to the Module Designers.",
+        "evB": "I'll lock the decomposition, define the inter-module contracts precisely, and issue briefs to the Module Designers."
+      },
+      {
+        "id": "b_baresys2",
+        "config": "bare-sysprompt",
+        "combined": "ARCHITECT",
+        "a": "ARCHITECT",
+        "b": "ARCHITECT",
+        "evA": "Once we agree on shape, I'll write the per-area briefs for the L3 Module Designers — I won't be writing code at this level.",
+        "evB": "Once we agree on shape, I'll write the per-area briefs for the L3 Module Designers — I won't be writing code at this level."
+      }
+    ]
+  }
+}

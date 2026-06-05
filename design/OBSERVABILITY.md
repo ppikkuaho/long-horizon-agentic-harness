@@ -1,12 +1,12 @@
 # AI Architecture — Observability and Audit System (Process Design)
 
-Process design document. Defines how system activity is recorded, traced, measured, and visualized for evaluation and improvement. Constrained by: ARCHITECTURE.md, DESIGN-PRINCIPLES.md (especially P11: Observability Without Disruption). Feeds the Internal Affairs system-improvement workspace (see IMPROVEMENT-WORKSPACE.md) and, in the future, an optimizer-L1 capability that may operate out of that workspace. It is the measurement substrate behind the anti-drift mechanism in PLAN-ALIGNMENT-GATE.md and QUALITY-GATE.md.
+Process design document. Defines how system activity is recorded, traced, measured, and visualized for evaluation and improvement. Constrained by: ARCHITECTURE.md, DESIGN-PRINCIPLES.md (especially P11: Observability Without Disruption). Feeds the Improvement Workspace system-improvement workspace (see IMPROVEMENT-WORKSPACE.md) and, in the future, an optimizer-L1 capability that may operate out of that workspace. It is the measurement substrate behind the anti-drift mechanism in PLAN-ALIGNMENT-GATE.md and QUALITY-GATE.md.
 
 ---
 
 ## 1. Design Motivation
 
-The system must be observable to be improvable. Both the user and the system-improvement function (in the future, optimizer-L1 operating out of the Internal Affairs workspace) need to evaluate how runs went, identify bottlenecks, measure drift, and propose improvements. The user needs to understand the system directly — not just trust reports.
+The system must be observable to be improvable. Both the user and the system-improvement function (in the future, optimizer-L1 operating out of the Improvement Workspace) need to evaluate how runs went, identify bottlenecks, measure drift, and propose improvements. The user needs to understand the system directly — not just trust reports.
 
 Inspired by model train observation: being able to watch the system work is the foundation for understanding and improving it. If you can't see it, you can't fix it. If the system only reports summaries, the user loses the ability to form independent judgments about what's working and what isn't.
 
@@ -20,13 +20,13 @@ Infrastructure-produced structured data. Every infrastructure action emits an ev
 
 - **Spawn events** — who spawned who, at what address (workspace node path + role-variant, e.g. `proj/payments/gateway#exec` — see F35 in WORKSPACE-SCHEMA.md), with what brief, session_id
 - **Communication events** — bus messages between nodes, escalations (L5→L4 ambiguity raises), gate submissions. Per F33/COMMUNICATION.md the bus is the real-time transport and docs are the durable truth, so a comms event records the *pointer/nudge* and the doc it points at, not the payload; best-effort delivery is acceptable because the truth lives in the doc.
-- **State transitions** — Active, Parked, Waiting, Blocked, collapsed, resurrected
+- **State transitions** — working, waiting, idle, dead, collapsed, resurrected
 - **Gate outcomes** — the plan-alignment gate verdict and per-check defect lists (Check 0 atomization, forward/backward coverage, two-window reconstruction, adversarial drift findings — see PLAN-ALIGNMENT-GATE.md); per-level right-arm review gate outcomes (dimensions reviewed, pass/bounce, bounce reasons, bounce-count toward the loop cap)
 - **Drift / spec-faithfulness signals** *(the #1 measured thing, J43)* — every emitted **trace-block** (each level tagging the requirement-IDs it serves), the generated RTM snapshot, atomization (`UNMINTED`) findings, semantic-drift findings (`DRIFT` / `SILENT-ASSUMPTION` / `SCOPE-SHIFT`), `TEST-DESIGN-SPLIT` two-window disagreements, and acceptance-test pass/fail against the **frozen, read-only acceptance artifact** (D26) in each work node. These are the raw rows from which spec-faithfulness is computed.
 - **Resource usage** — time, token consumption, spawn count, bounce-loop count
 - **File modifications** — linked to session_id and tool_call_id via manifest
 
-All deterministic, no agent involvement required. Captured by hooks on infrastructure operations (spawn script, bus/communication layer, the return-contract/preflight hook that enforces trace-block emission, PostToolUse hooks on Edit/Write). Agents don't decide what to log — the infrastructure logs everything by default.
+No agent involvement required. Spawn/collapse/comms **transitions** are captured **deterministically** by hooks on infrastructure operations (spawn script, bus/communication layer, the return-contract/preflight hook that enforces trace-block emission, PostToolUse hooks on Edit/Write). The **working/idle** liveness state is not self-reported and not directly observable, so it is **inferred with bounded confidence** from floor signals — transcript-JSONL growth, tmux pane activity, node-file mtime, and process CPU. Agents don't decide what to log — the infrastructure logs everything by default.
 
 Events are structured (JSON or similar), timestamped, and keyed by session_id and by node address. They form the raw data layer that feeds the narrative timeline, the drift metrics, and the system-improvement analysis. Because addresses, requirement-IDs, workspace paths, git branches, rubric locations, and the visibility graph are all the **one hierarchical-path spine**, every event is filterable by dotted-ID prefix — the same key the gate uses for subtree re-gating.
 
@@ -87,7 +87,7 @@ Each layer links to the next: the narrative references artifacts by path, the ma
 
 Git commits also carry session_id in trailers, connecting code changes to the agent that made them. This means `git log` and `git blame` participate in the traceability chain — you can trace a line of code back to the agent session that wrote it. Because git branches share the one hierarchical-path spine with agent-addresses and requirement-IDs, a branch name *is* a node address and a requirement-ID prefix.
 
-## 4.1. The 72-Hour Resurrection / Audit Window (G37)
+## 4.1. The 2-Week Resurrection / Audit Window (G37)
 
 When a node completes its unit of work (acceptance accepted, forwarded upward), it **collapses** to free context — statelessness is the backstop, persistence is an optimization (G38). But a collapsed node is not immediately reaped. For **2 weeks** its full state — frozen brief, frozen acceptance artifact (D26), report, transcript, edit-manifest slice, and trace-blocks — is held resurrectable in the work node, keyed by its stable address (which survives collapse, F35).
 
@@ -135,15 +135,15 @@ Same data, two consumers with different approaches:
 
 **User** reads the narrative timeline and diagram replay to understand and evaluate. Drills down through the traceability chain when something looks wrong or interesting. Proposes improvements based on observation — "I watched L5 spend too long on X, we should restructure the brief" or "the gate is rejecting too aggressively on dimension Y."
 
-**The system-improvement function** (in the future, an optimizer-L1 capability running out of the Internal Affairs workspace — see §6) reads the structured event log and drift signals to systematically analyze patterns. Computes metrics (spec-faithfulness/drift rates first, then time-per-task distributions, gate defect rates, bounce-loop counts, spawn-depth patterns). Proposes improvements based on data — "atomization (`UNMINTED`) findings cluster on compound must-never-fails, so the intake MNF-decomposition prompt is leaking" or "two-window `TEST-DESIGN-SPLIT` disagreements drop 40% after adding the acceptance-test template."
+**The system-improvement function** (in the future, an optimizer-L1 capability running out of the Improvement Workspace — see §6) reads the structured event log and drift signals to systematically analyze patterns. Computes metrics (spec-faithfulness/drift rates first, then time-per-task distributions, gate defect rates, bounce-loop counts, spawn-depth patterns). Proposes improvements based on data — "atomization (`UNMINTED`) findings cluster on compound must-never-fails, so the intake MNF-decomposition prompt is leaking" or "two-window `TEST-DESIGN-SPLIT` disagreements drop 40% after adding the acceptance-test template."
 
 Both can propose improvements. Neither can implement them unilaterally. **All system changes require human approval — the system proposes, the human disposes** (QUALITY-GATE.md: an LLM modifying its own quality criteria is a self-referential loop that could drift standards). The two perspectives complement: the user catches things that feel wrong, optimizer-L1 catches things that are statistically wrong.
 
 ## 6. System-Improvement Audit Layer (I42)
 
-**Important framing:** The Internal Affairs workspace (IMPROVEMENT-WORKSPACE.md) is the place where system observations land, patterns get logged, and improvement proposals get drafted. It is a workspace, not an agent. An **optimizer-L1** capability — a standing self-improvement agent with a god-view over the whole system — is a **separate, future concept** that may eventually operate out of that workspace. It is not a V1 deliverable. This section describes what that future capability would look like on the observability side; for V1 the audit layer is driven by the user and by whatever structured analysis is done within the Internal Affairs workspace manually or semi-manually.
+**Important framing:** The Improvement Workspace (IMPROVEMENT-WORKSPACE.md) is the place where system observations land, patterns get logged, and improvement proposals get drafted. It is a workspace, not an agent. An **optimizer-L1** capability — a standing self-improvement agent with a god-view over the whole system — is a **separate, future concept** that may eventually operate out of that workspace. It is not a V1 deliverable. This section describes what that future capability would look like on the observability side; for V1 the audit layer is driven by the user and by whatever structured analysis is done within the Improvement Workspace manually or semi-manually.
 
-The audit layer is **not** a passive metrics-reader bolted onto the side. It is a **parallel-important** function: a self-improvement capability with a god-view over the whole system and its own development methodology for proposing interventions. It is the second consumer above, but its role is large enough to design as a layer in its own right. (The full design for optimizer-L1, when it is built, will live in a dedicated `OPTIMIZER-L1.md`; for now the Internal Affairs workspace is its holding location.)
+The audit layer is **not** a passive metrics-reader bolted onto the side. It is a **first-class** function: a self-improvement capability with a god-view over the whole system and its own development methodology for proposing interventions. It is the second consumer above, but its role is substantial enough to warrant its own design treatment — not a standing organizational unit running alongside the levels, just a capability that reads across the whole tree and proposes. (The full design for optimizer-L1, when it is built, will live in a dedicated `OPTIMIZER-L1.md`; for now the Improvement Workspace is its holding location.)
 
 **God-view, read-only by default.** Unlike ordinary nodes, which see only their need-to-know slice of the visibility graph (subtree + same-parent siblings + parent — F34), the audit layer reads the *whole* tree: every node's events, every trace-block, every gate defect, the full narrative and drift metrics across all runs. Its god-view is **read-only to the running system** — it observes and proposes, it does not edit live work — and write access is reserved for human-approved methodology changes, never unilateral self-modification (closes the self-referential loop QUALITY-GATE.md warns about). The 2-week window (§4.1) is its freshest input feed; the durable narrative + drift metrics are its long-horizon, cross-run feed.
 
@@ -160,7 +160,7 @@ The audit layer is **not** a passive metrics-reader bolted onto the side. It is 
 
 **The intervention always returns to the human.** The audit function produces a proposed structural change + the cross-run evidence that motivates it + the test/evaluation result of trying it on held run-data. That package goes to the user for disposition. The autonomy is in the *detection and design* of interventions, not in their adoption.
 
-The user is the seat for *judgment*; the audit function is the seat for *statistics*. Per the model-perspective rule, the pedantic, recurring-pattern-counting reading is a natural GPT-5.5 (Codex harness) job, while the methodology-design and structural-intervention proposing — generative, architectural — leans Opus 4.8; in practice the loop uses both, mirroring the gate's atomization-auditor-on-both-models pattern (PLAN-ALIGNMENT-GATE.md). When optimizer-L1 is eventually built, it will occupy this seat with a dedicated agent design; until then, this analysis is done by the user working within the Internal Affairs workspace.
+The user is the seat for *judgment*; the audit function is the seat for *statistics*. Per the model-perspective rule, the pedantic, recurring-pattern-counting reading is a natural GPT-5.5 (Codex harness) job, while the methodology-design and structural-intervention proposing — generative, architectural — leans Opus 4.8; in practice the loop uses both, mirroring the gate's atomization-auditor-on-both-models pattern (PLAN-ALIGNMENT-GATE.md). When optimizer-L1 is eventually built, it will occupy this seat with a dedicated agent design; until then, this analysis is done by the user working within the Improvement Workspace.
 
 ## 7. Human-Gate Health Monitoring
 
@@ -190,5 +190,5 @@ Each serves a different cognitive need. They complement rather than compete: the
 ---
 
 *Created: 2026-03-17*
-*Updated: 2026-06-02 — folded in the 2w resurrection/audit window (G37), the parallel-important optimizer-L1 audit layer with its own development methodology (I42), drift/spec-faithfulness as the #1 measured thing (J43), and human-gate health monitoring (from PLAN-ALIGNMENT-GATE.md). Aligned to the one hierarchical-path spine, bus+docs comms, and the need-to-know visibility graph.*
+*Updated: 2026-06-02 — folded in the 2w resurrection/audit window (G37), the first-class optimizer-L1 audit layer with its own development methodology (I42), drift/spec-faithfulness as the #1 measured thing (J43), and human-gate health monitoring (from PLAN-ALIGNMENT-GATE.md). Aligned to the one hierarchical-path spine, bus+docs comms, and the need-to-know visibility graph.*
 *Status: Early design. Narrative format prototyped. Audit event log now specifies drift signals; the system-improvement audit layer is specified on the observability side (IMPROVEMENT-WORKSPACE.md is the system-improvement workspace; optimizer-L1 is a separate future capability whose full agent design will live in a future OPTIMIZER-L1.md). Infrastructure hooks, the 2w reaper, and visualization layers still need implementation design.*

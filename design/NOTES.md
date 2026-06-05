@@ -1,5 +1,7 @@
 # AI Architecture — Design Notes
 
+> **IDEAS LOG / HISTORICAL — superseded where it conflicts with `design/INDEX.md` and the live 2026-06-04 notes** (`working-notes/runtime-decisions-and-commissioning-2026-06-04.md`, `working-notes/arch-gap-review-2026-06-04.md`). This file is an idea-log, not spec — read it last and treat the live notes + INDEX as canon on any conflict. In particular: the "Review Department" is dissolved (now a per-level review function — per-unit L5+ review + whole-set L4-level review, a `#review` seat co-located at a node, not a parallel room/department); agent states are working / waiting / idle / dead (inferred-with-bounded-confidence for working/idle, deterministic only for spawn/collapse/comms transitions); L3 is the **Module Designer**; and the architecture is **five levels + L5+** (System Orchestrator L1, Project Architect L2, Module Designer L3, Workstream Coordinator L4, Task Executor L5).
+
 Running notes, ideas, and future research directions.
 
 ## Per-Level Runtime Packages — Operational Config as Complete Package (2026-03-29)
@@ -69,6 +71,8 @@ The 5 levels:
 - Produces: resolved skeleton, domain briefs for L3s, cross-domain execution plan
 - Manages: 3-9 L3s (one per domain, mostly sequential, 2-3 active at a time)
 - Oversight lens: architectural alignment
+
+> **Superseded:** L3 is the **Module Designer** in the live model (`design/INDEX.md`); "Program Manager / Domain Coordinator" is the old name.
 
 **L3 — Program Manager / Domain Coordinator (NEW)**
 - Owns: one domain, decomposition into workstreams, cross-workstream coordination, internal sequencing
@@ -211,6 +215,8 @@ Design session: 2026-03-26.
 
 ### Note 6: Testing Layers — Test at Every Level with Real Data
 
+> **Superseded:** "Review Department" is dissolved — code review is L5-class work integrated at each level (per-unit L5+ review + whole-set L4-level review, a `#review` seat at a node), not a separate department. The independent-reviewer principle holds; the department framing does not. See `design/INDEX.md`.
+
 Testing happens at every level with increasing scope. Each level adds verification that the level below didn't/couldn't do.
 
 **L5 (task level):**
@@ -242,6 +248,8 @@ Design session: 2026-03-26.
 ---
 
 ### Note 7: Review Department Timing — Multiple Boundaries
+
+> **Superseded:** No "Review Department." The review function is per-level — per-unit L5+ review (an independent Opus reviewer seat per task) + whole-set L4-level review after all L5s in a workstream finish. The multi-boundary timing instinct survives as this per-level function, not a parallel department. See `design/INDEX.md`.
 
 The Review Department operates at multiple boundaries, not just one final gate.
 
@@ -318,6 +326,8 @@ Design session: 2026-03-26.
 
 ### Note 10: Complete End-to-End Process
 
+> **Superseded:** Step 21's "Review Department reviews at appropriate boundary" is now the per-level review function (per-unit L5+ review + whole-set L4-level review), not a separate department. See `design/INDEX.md`.
+
 The full process from user idea to completed work, through all 5 levels.
 
 **Phase 0 — Vision (L1 + User):**
@@ -363,6 +373,8 @@ Design session: 2026-03-26.
 ---
 
 ## Future Exploration: Proof-of-Access Gates as Compliance Enforcement for L1-L5
+
+> **Superseded (terminology):** "Review Department gates" below should read as gates on the per-level review function (per-unit L5+ review + whole-set L4-level review), not a standalone department. See `design/INDEX.md`.
 
 Specific application of the proof-of-access gate pattern to the alignment checkpoint and review systems:
 
@@ -451,6 +463,8 @@ Design session: 2026-03-25/26.
 
 ## Design Note: L5 Enforcement Stack
 
+> **Superseded (terminology):** "Layer 4: Review Department" is now the per-level review function — an independent Opus reviewer seat (L5+), structurally independent of the producer, not a separate department. The independence principle holds; the department framing does not. See `design/INDEX.md`.
+
 Four layers, each doing different work. No layer substitutes for another.
 
 **Shape:**
@@ -521,6 +535,8 @@ Design session: 2026-03-26.
 
 ## Design Note: Review Department Interacts with Running Products
 
+> **Superseded (terminology):** "Review Department" here is the per-level review function (the L5+ reviewer seat), not a separate department. The interaction-based-review principle — review by using the running product, not just reading code — survives intact. See `design/INDEX.md`.
+
 The Review Department must evaluate by USING the product, not just reading code. Without this, review is theater — you're checking code syntax, not whether the thing actually works.
 
 **Shape:**
@@ -567,6 +583,8 @@ Design session: 2026-03-26.
 
 ## Design Note: Review Intensity Scaling (Post-V1)
 
+> **Superseded (terminology):** "Review Department single-pass / multi-dimension review" in the intensity levels below should read as the per-level review function (L5+ reviewer seat). The intensity-scaling idea holds; the department framing does not. See `design/INDEX.md`.
+
 Not every L5 output needs the same review depth. Review intensity should scale with task complexity and risk.
 
 **Shape:**
@@ -600,6 +618,8 @@ Design session: 2026-03-25.
 
 ## Design Note: Insights from Anthropic Harness Design (2026-03-24 blog post)
 
+> **Superseded (terminology):** every "Review Department" below maps to the per-level review function — an independent reviewer seat (L5+) co-located at each level, not a separate organizational unit. The producer/evaluator-separation insight that motivated it is exactly what the per-level review function preserves. See `design/INDEX.md`.
+
 Anthropic published "Harness design for long-running application development" — a three-agent architecture (Planner → Generator → Evaluator) for multi-hour autonomous coding. Key insights for our system:
 
 **Validates our architecture:**
@@ -623,6 +643,8 @@ Design session: 2026-03-25.
 ---
 
 ## Design Note: Integration Engineer — L4 Lateral Spawn
+
+> **Superseded (terminology):** the "Review Department" contrasted against here is now the per-level review function (L5+ reviewer seat + whole-set L4-level review). The integration-vs-quality-review distinction still holds; just read "Review Department" as that per-level function. See `design/INDEX.md`.
 
 L4 needs integration review capability — checking that multiple L5 outputs are consistent, follow the same patterns, and compose well together. This is separate from the Review Department (which does final quality verification). In real orgs, this is the tech lead or integration engineer role.
 
@@ -705,6 +727,8 @@ Design session: 2026-03-25.
 ---
 
 ## Design Note: Review Department — Full Parallel Organizational Function
+
+> **Superseded:** This whole "full parallel organizational function / persistent review-coordinator / parallel room" framing is DISSOLVED. Review is the per-level review function: per-unit **L5+** review (an independent Opus reviewer seat per task) + whole-set **L4-level** review after all L5s in a workstream finish — a role-variant `#review` seat co-located at a node, not a separate parallel room/department/org-unit. The surviving principle is that the reviewer is structurally independent of the producer, clean context, judged at altitude — not a standing department with its own hierarchy. See `design/INDEX.md`.
 
 The Review Department (currently documented in QUALITY-GATE.md) is not a quality gate — it's a full parallel organizational function. The "quality gate" label undersells what it actually is:
 - A persistent coordinator agent with its own judgment authority
@@ -793,6 +817,8 @@ L2 chooses the right strategy per project — some work is highly parallel, some
 
 ## Design Note: Seeds, Not Instructions (Natural Alignment)
 
+> **Superseded (terminology):** the L3 seed below ("→ program manager") names the old role; L3 is the **Module Designer** in the live model. The seeds-not-instructions principle is unaffected. See `design/INDEX.md`.
+
 The soul documents are seeds, not instruction sets. Each defines a fundamental being whose natural desires and inclinations are the thing the architecture needs from that level. The behavior isn't imposed — it emerges from who the agent is.
 
 An instruction says "test your code." A soul makes the agent naturally gravitate toward testing — not because it was told to, but because an unverified thing feels unfinished, and this mind doesn't leave things unfinished. Not a constraint, a gravity. The agent *can* skip it. It just doesn't *want* to.
@@ -853,6 +879,8 @@ This awareness serves multiple purposes:
 
 **Placement:** This is likely a combination of soul document context (sense of place) and operational configuration (specific knowledge of adjacent levels). The soul plants the awareness; the config fills in the specifics.
 
+> **Superseded:** The state model below — Active / Parked / Waiting, "deterministic (infrastructure-tracked, not self-reported)", the blocking-command wrapper, and self-waking Parked — is replaced. Live states are **working / waiting / idle / dead**; detection is deterministic only for spawn/collapse/comms **transitions** and **inferred-with-bounded-confidence for working/idle** from floor signals (transcript-JSONL growth, tmux pane activity, node-file mtime, process CPU). No blocking-command wrapper, no self-waking Parked. See `OBSERVABILITY.md` and the live 2026-06-04 notes via `design/INDEX.md`.
+
 **Promoted to V1:** Real-time state awareness is required for the inbox/communication system to function. At minimum, the system needs to know each agent's state (Active, Parked, or Waiting) to determine how to route messages. Agents not on the status board haven't been spawned — spawning creates an entry as Active. This must be deterministic (infrastructure-tracked, not self-reported) — the spawning mechanism, process lifecycle, and communication system already know state transitions. Hook into those events rather than asking agents to announce their own state.
 
 **Visibility model (per-project, siloed):**
@@ -865,6 +893,8 @@ This awareness serves multiple purposes:
 Each level sees all the way down within its domain, one level up, no lateral visibility (V1).
 
 **Three agent states (all deterministically trackable):**
+
+> **Superseded:** Replaced by **working / waiting / idle / dead**. working/idle are **inferred with bounded confidence** (not deterministically tracked); only spawn/collapse/comms transitions are deterministic. The "Parked / self-waking / blocking-command wrapper" machinery is dropped. See `OBSERVABILITY.md` via `design/INDEX.md`.
 
 - **Active**: LLM doing work — between tool calls, thinking, producing output. Detected by: LLM API calls in progress or tool calls executing.
 - **Parked**: process alive via a deliberate blocking command (sleep, file watch, process poll). Agent set it up intentionally — knows what it's waiting for and when it will resolve. Wakes automatically when the block ends. Zero API cost. Detected by: session process running but no LLM API activity, blocking command in progress.
@@ -1161,6 +1191,8 @@ Two patterns observed from real multi-agent implementations that matter for L5 d
 ---
 
 ## Design Note: Quality Gate System (Review Department)
+
+> **Superseded (terminology):** "Review Department" is dissolved — see `QUALITY-GATE.md` and `design/INDEX.md`. Review is the per-level review function (per-unit L5+ review + whole-set L4-level review), not a department.
 
 Promoted to standalone design document. See `QUALITY-GATE.md`.
 

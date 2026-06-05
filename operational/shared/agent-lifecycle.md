@@ -24,7 +24,7 @@ Your identity is your **address**: a workspace node path plus a role-variant suf
 
 **Block / review-failure — you do NOT end (G37).** If you hit a blocker you cannot resolve at your altitude, or your output fails the gate above you, you do **not** dead-end and you do **not** collapse. You **keep your context** and **escalate options to your parent** — see *Block & Review-Failure Handling* below. Collapse is reserved for *accepted* completion and for parent-ordered shutdown.
 
-**Key rule: only your parent can collapse your session.** You never kill your own session. You also never collapse a child session that still has active children — shutdown cascades bottom-up.
+**Key rule: your parent (or the harness on its behalf) collapses your session — you never kill your own.** You also never collapse a child that still has live descendants — shutdown cascades bottom-up. The harness watchdog may collapse an **ephemeral leaf** (L5/L5+) that has gone idle without emitting its **terminal signal** (`comms-protocol.md`): a bounded, evidence-based reap of a non-signing leaf, recorded as `FAILED` — never a blind kill of a live, working session. It does not auto-collapse persistent coordinators; a dead coordinator is *recovered*, not reaped (see Liveness below).
 
 ---
 
@@ -86,7 +86,7 @@ Across every level the invariant holds: **artifacts must be good enough that a f
 
 ---
 
-## The 72-Hour Resurrection / Audit Window (G37)
+## The 2-Week Resurrection / Audit Window (G37)
 
 When a node **collapses on finish**, it is *not* immediately reaped. For **2 weeks** its full state — frozen brief, frozen acceptance artifact (D26), `report.md`, transcript, edit-manifest slice, and trace-blocks — is held **resurrectable** in the work node, keyed by its **stable address** (which survives collapse, F35). This window is the lifecycle hook that the audit layer hangs off of; the window's *audit/optimizer contract* is owned by `OBSERVABILITY.md` and is only summarized here.
 
@@ -97,7 +97,7 @@ The window serves the **audit and improvement layer, not the live run**:
 
 **Reaping.** After 2w the **lifecycle reaper** (infrastructure, not an agent) garbage-collects the resurrectable state. By then whatever the audit layer needed has been distilled into the durable narrative + drift metrics, which persist permanently. **optimizer-L1 (god-view) or the user can pin a node to extend its window** when a run is under active investigation.
 
-**The window feeds the system-improvement audit function.** This 2-week buffer is the live, highest-fidelity feed into the audit layer (I42): the freshest material for drift analysis is whatever collapsed in the last 2 weeks. The audit function reads the held state to spot the recurring, cross-run patterns the per-run plan-alignment gate structurally cannot see (a single defect is the gate's job; the same defect recurring across runs is the audit function's). In V1 this is done by the user working within the Internal Affairs workspace (IMPROVEMENT-WORKSPACE.md); a future optimizer-L1 capability (a separate concept from the workspace itself) would automate this systematically. The full 2w-window contract — read-only god-view, drift-first targeting, structural-intervention-with-human-disposition — lives in `OBSERVABILITY.md`; this section just establishes that collapse leaves a 2w trail and who consumes it.
+**The window feeds the system-improvement audit function.** This 2-week buffer is the live, highest-fidelity feed into the audit layer (I42): the freshest material for drift analysis is whatever collapsed in the last 2 weeks. The audit function reads the held state to spot the recurring, cross-run patterns the per-run plan-alignment gate structurally cannot see (a single defect is the gate's job; the same defect recurring across runs is the audit function's). In V1 this is done by the user working within the Improvement Workspace (IMPROVEMENT-WORKSPACE.md); a future optimizer-L1 capability (a separate concept from the workspace itself) would automate this systematically. The full 2w-window contract — read-only god-view, drift-first targeting, structural-intervention-with-human-disposition — lives in `OBSERVABILITY.md`; this section just establishes that collapse leaves a 2w trail and who consumes it.
 
 ---
 
@@ -114,23 +114,25 @@ The quality of your documentation directly determines how well recovery works. A
 
 ---
 
-## Timeouts
+## Liveness — Sign-Off-or-Fail (the watchdog)
 
-If a child produces no result within the expected timeframe:
+Liveness is **observed, not self-reported**, and **inferred from evidence of progress, not wall-clock elapsed time** — a task that legitimately runs long stays "working" because it is still producing output and file activity. The harness watchdog tracks each session's liveness state (`working / waiting / idle / dead`) from floor signals (transcript-JSONL growth, tmux pane activity, node-file mtimes, process CPU). The model is canonical in `working-notes/runtime-decisions-and-commissioning-2026-06-04.md`; the detailed lease/recovery state-machine for persistent coordinators will live in `design/WATCHDOG.md` (cluster ②). This section is the lifecycle facet.
 
-1. Parent sends a status inquiry (bus nudge; the child's truth is in its node).
-2. If the inquiry also fails, parent escalates upward.
-3. This is the **dead-man's switch** — the only proactive check in an otherwise event-driven system.
+The terminal contract is **sign-off-or-fail**:
 
-Timeout values depend on **task type, not level**. A research/spike task legitimately takes longer than a code fix. The spawning level sets expected timeframes per task at spawn time.
+1. An agent's loop ends only by emitting its **terminal signal** (`DONE` / `FAILED` / `ESCALATED`, `comms-protocol.md`) or by escalating — the journaled signal is the sign-off the watchdog checks for.
+2. If a session goes **idle and non-terminal** (no terminal signal, no progress within the activity window), the watchdog **prods** it (a bounded retry); if it still does not sign off, the watchdog records `FAILED` and the parent respawns or escalates.
+3. For a **coordinator**, idle is only actionable when its **subtree is also quiet** — a quiet coordinator with live descendants is *waiting*, not stalled. A coordinator whose **process has died** (not merely gone quiet) with live descendants below is a recoverable **orphan**, recovered from the ledger — never left hanging.
+
+The activity window depends on **task type, not level** (a research/spike legitimately runs longer than a code fix); the spawning level sets it at spawn time.
 
 ---
 
 ## Cascading Failure Prevention
 
-Each level only monitors its **direct children** — which is also all it can *see* under the need-to-know visibility graph (subtree + same-parent siblings + parent, F34; `WORKSPACE-SCHEMA.md`). If an L5 is stuck, L4 handles it (inquiry → respawn or escalate). L4 doesn't escalate to L3 unless it cannot resolve the issue itself. This natural containment prevents one stuck L5 from cascading upward through the whole hierarchy, and it composes with the escalate-options rule above: a block travels exactly one level up, where it is either resolved or re-escalated as a freshly-framed decision.
+A level **acts on its direct children** (if an L5 is stuck, L4 handles it — prod → respawn or escalate; L4 escalates to L3 only when it cannot resolve it itself). This natural containment keeps one stuck L5 from cascading upward, and composes with the escalate-options rule above: a block travels exactly one level up. But **liveness and quiescence are read over the whole subtree, not just direct children** — the harness maintains a **live-descendant roll-up** per node so a coordinator is never judged idle (or collapsed) while live work exists two levels down. Direct-children is the *action* scope; the subtree roll-up is the *visibility* the harness needs to keep the accountability invariant.
 
-**Emergency override:** L1 can force-reap agents at any depth, bypassing the bottom-up protocol. This is destructive and requires explicit confirmation. (The system-improvement god-view is read-only — it observes and proposes, it cannot kill sessions.)
+**Emergency override:** L1 can force-reap agents at any depth, bypassing the bottom-up protocol — destructive, requires explicit confirmation. Routine reaps are the watchdog's bounded, evidence-based reap of non-signing leaves (above), never a blind kill. (The system-improvement god-view is read-only — it observes and proposes, it cannot kill sessions.)
 
 ---
 
