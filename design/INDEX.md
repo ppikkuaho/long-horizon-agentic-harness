@@ -23,6 +23,7 @@
 - **`WATCHDOG.md`** ② — liveness & lifecycle: evidence-lease recovery, detector, leaf/coordinator split, wedge detector, sign-off-or-fail.
 - **`TRANSPORTS.md`** ③ — own bus, wake contract, escalation-answer-down, the user-authorized human channels.
 - **`SCALE.md`** ④ — admission gate, per-runtime ceilings, OAuth-subscription usage model (mostly deferred-with-triggers).
+- **`SECURITY.md`** — containment floor (cross-cutting): the `sandbox-exec` write/read-jail, secret protection, skip-perms-in-jail posture, fleet HALT. Wires into the spawn chokepoint (the seatbelt is the pane launch command). Decisions locked 2026-06-05 (Option A).
 
 *Internally consistent post cross-cluster reconciliation (2026-06-05). The recovered `research/` files below are the SUSPECT adaptation source, NOT these specs.*
 
