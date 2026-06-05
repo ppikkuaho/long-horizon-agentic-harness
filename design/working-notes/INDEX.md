@@ -1,5 +1,7 @@
 # Working Notes — Index
 
+> **▶ RESUMING A COMPACTED SESSION? START AT [`BRIDGE-2026-06-05.md`](BRIDGE-2026-06-05.md)** — current build state, what's in flight (a background workflow), what's next, and how we work.
+
 **Canon-precedence:** the LIVE decision notes below are SOURCE OF TRUTH for the runtime / liveness / transport / scale model and **override the Jun-02 design specs wherever they conflict**. The Jun-02 specs remain canonical for the semantics they already cover.
 
 ## LIVE — source of truth (read first)
