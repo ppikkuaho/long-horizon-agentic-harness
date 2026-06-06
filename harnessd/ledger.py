@@ -158,6 +158,46 @@ def build_wal_record(
 # WAL append (hands RAW json to store.append_framed — NEVER pre-frames; §2.4).
 # ---------------------------------------------------------------------------
 
+def _heal_torn_tail(path: Path) -> None:
+    """Truncate an UNTERMINATED (torn) trailing frame before a fresh append (§4.4 torn-tail).
+
+    The single-write contract guarantees every COMPLETE frame ends in ``\\n`` (store.append_framed
+    emits ``<byte-len>\\t<payload>\\n`` in one write+fsync). So if the WAL exists and its LAST byte
+    is NOT ``\\n``, the bytes after the last newline are an incomplete frame from a crash mid-append
+    — intent-first means its binding checkpoint never landed, so they carry no committed state and
+    are safe to drop (exactly the §4.4 truncate-and-continue rule ``load_wal`` applies on read).
+
+    Healing here is load-bearing for kill-9 recovery: ``store.append`` opens in ``"a"`` mode, so a
+    fresh frame would otherwise CONCATENATE onto the torn partial bytes. The torn frame's missing
+    ``\\n`` would then be supplied by the new frame's terminator, freezing the torn bytes as a
+    permanent NON-final corrupt line — which ``load_wal`` fails closed on (the WALCorruptionError
+    brick). Recovery does MANY appends (necro, then the L1 claim/spawn), so without this heal the
+    SECOND recovery append bricks every subsequent load. Truncating to the last clean newline keeps
+    "only the FINAL line can ever be torn" true across appends, not only within a single one.
+
+    A no-op when the WAL is absent, empty, or already cleanly newline-terminated (the steady case),
+    so it adds no write to a normal append.
+    """
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)  # SEEK_END
+            size = handle.tell()
+            if size == 0:
+                return  # empty WAL — nothing to heal
+            handle.seek(-1, 2)
+            if handle.read(1) == b"\n":
+                return  # cleanly terminated — the common steady-state path, no heal needed
+            # Unterminated tail: find the last newline and cut everything after it (the torn frame).
+            handle.seek(0)
+            data = handle.read()
+        last_nl = data.rfind(b"\n")
+        keep = last_nl + 1 if last_nl != -1 else 0  # whole file is one torn frame -> drop it all
+        with path.open("rb+") as handle:
+            handle.truncate(keep)
+    except FileNotFoundError:
+        return  # no WAL yet — the append creates it fresh
+
+
 def append_wal(record: dict, *, wal_path: Path | None = None) -> None:
     """Append ``record`` to the WAL as one durable framed line.
 
@@ -166,10 +206,18 @@ def append_wal(record: dict, *, wal_path: Path | None = None) -> None:
     ``append_wal`` never pre-frames and never computes a length itself — the ``<byte-len>``
     prefix is store's job and is the sole length authority (no in-payload ``len``).
 
+    BEFORE the append it HEALS any torn (unterminated) trailing frame (``_heal_torn_tail``): a
+    crash mid-append leaves a partial final frame with no ``\\n``; appending onto it would freeze the
+    torn bytes as a permanent NON-final corrupt line (the kill-9-recovery brick — Integration C).
+    Truncating the torn tail first keeps the §4.4 "only the FINAL line can be torn" invariant true
+    ACROSS appends. The dropped bytes carry no committed state (intent-first: their binding
+    checkpoint never landed), exactly the records ``load_wal`` already truncates on read.
+
     ``ensure_ascii=True`` (json.dumps default) guarantees no raw newline in the payload, which
     is store.append_framed's precondition (one record == one physical line).
     """
     path = _resolve_wal_path(wal_path)
+    _heal_torn_tail(path)
     payload = json.dumps(record)
     store.append_framed(path, payload)
 
