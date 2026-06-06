@@ -187,7 +187,7 @@ def counterpart_reply(scenario: str, agent_said: str, history: str) -> str:
 # The eval loop — spawn the jailed agent, drive the multi-turn conversation.
 # ---------------------------------------------------------------------------
 
-def _artifacts(workspace: Path, exclude=("BRIEF.md",)) -> dict:
+def _artifacts(workspace: Path, exclude=("brief.md", "BRIEF.md")) -> dict:
     out = {}
     for p in sorted(workspace.rglob("*")):
         if p.is_file() and p.name not in exclude and ".tmp" not in p.parts and p.suffix in (".md", ".json", ".txt", ""):

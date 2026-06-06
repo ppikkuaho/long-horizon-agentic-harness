@@ -18,25 +18,29 @@ Your identity is your **address**: a workspace node path plus a role-variant suf
 
 ## How You Spawn a Child
 
-You decompose your unit and delegate sub-units to children (an L2 spawns planning/execution-L3s, an L3 spawns L4s, an L4 spawns L5s). You do **not** create a child session directly, and you do **not** touch the ledger or the control plane — those belong to the harness daemon (the single writer). What you do is **drop a spawn-request into your own outbox**, and the harness brings the child online under your node on its next sweep. This is the cascade: one request file is how the build flows down a level.
+You decompose your unit and delegate sub-units to children (an L2 spawns planning/execution-L3s, an L3 spawns L4s, an L4 spawns L5s). The **work** is the point; spawning the worker is a thin administrative act on top of it. The real work is your decomposition and the artifacts you author **into each child's node** — its brief and its frozen acceptance. By the time you spawn, the child's node is already prepared; the spawn just brings it online. You do **not** create a child session directly, and you do **not** touch the ledger or the control plane — those belong to the harness daemon (the single writer).
 
-**The mechanism — one request file per child.** Write a small JSON file into the `.harness-outbox/` directory inside your workspace (create the directory if absent). The harness watches it. Each file requests exactly one child:
+**Two steps: PREPARE the node, then ask the harness to spawn it.**
+
+**Step 1 — prepare the child's node (this is the work).** Each child gets a node that is a **subdirectory of your own workspace**, named for the child. Because your write-jail covers your whole subtree, you author the child's files there directly:
+- `<<child_name>>/brief.md` — the child's task, **pointer-not-payload**: the requirement IDs it owns (its responsible-ID-set, with trace-blocks), the interface contract it must honor, the constraints, and the ADRs that bridge the rationale — *referencing* the upstream design rather than copying it. Thin-but-decision-complete: enough that the worker never has to ask before starting.
+- `<<child_name>>/acceptance.md` — the **frozen** acceptance tests / gate rubric, authored from the spec *before* the worker starts (for an L5 task, by your separate tester lateral, never by you-as-coder and never by the worker). Read-only to the executor once set.
+
+**Step 2 — drop a one-line spawn-request into your own `.harness-outbox/`.** A small JSON file, one per child:
 
 ```json
-{
-  "child_name": "parser",
-  "child_level": "L3",
-  "brief": "Design the markdown-parsing module: <the child's actual task, its inputs, its frozen interface, its acceptance bar>."
-}
+{ "child_name": "parser", "child_level": "L4" }
 ```
 
-- **`child_name`** — a **leaf-name only**, not a full address. The harness composes the child's real address by appending this leaf under *your* address (`proj/widget#exec` + `parser` → `proj/widget/parser#exec`). You therefore cannot name a child anywhere except inside your own subtree — and a name carrying a `/`, `..`, `#`, or whitespace is **refused**. Use a short lowercase slug (`a-z 0-9 . _ -`).
+That's the whole request in the normal case — no brief text. The harness brings the child online pointed at the node you prepared: it derives the child's `spec_pointer` → its `brief.md` and `frozen_acceptance_ref` → its `acceptance.md` from the node's own files.
+
+- **`child_name`** — a **leaf-name only**, not a full address. The harness composes the child's real address by appending this leaf under *your* address (`proj/widget#exec` + `parser` → `proj/widget/parser#exec`), and the child's node is `…/parser/` under your workspace. You cannot name a child anywhere except inside your own subtree — a name carrying a `/`, `..`, `#`, or whitespace is **refused**. Use a short lowercase slug (`a-z 0-9 . _ -`).
 - **`child_level`** — the level the child runs at (`L2`…`L5`), and it must be **deeper than your own** (an L2 spawns L3s, an L3 spawns L4s, an L4 spawns L5s). A same-level or up-level request — or an attempt to spawn an `L1` (the root is genesis-only) — is **refused**. The level selects the child's model + runtime + role (see `runtime-and-model-map.md`); you never pick a child's model directly.
-- **`brief`** — the child's **actual task**: the unit, its frozen interface/inputs, its acceptance bar, the constraints it must honor. This becomes the child's brief verbatim, alongside its auto-assembled role load-manifest. A thin brief produces a thin child — write it as carefully as you'd brief a capable colleague who will read nothing else.
+- **`brief` (optional — the exception, not the default)** — an inline task string. Use it ONLY for a throwaway child you didn't pre-author a `brief.md` for; it writes the child's `brief.md` for you. The faithful default is to pre-author the node (Step 1) and omit `brief`. A pre-authored `brief.md` is **never overwritten** by a no-`brief` request.
 
-**What happens next (observable).** On its next sweep the daemon reads your request, registers the child as a planned node **under your address** (the supervision-tree edge points back at you), writes the brief into the child's node, and spawns it through the one spawn chokepoint — under *your* identity, so a request in your outbox can only ever spawn *your* child. A serviced request is renamed `…​.done`; it is never spawned twice.
+**What happens next (observable).** On its next sweep the daemon reads your request, registers the child as a planned node **under your address** (the supervision-tree edge points back at you), derives its spec/acceptance pointers from the node you prepared (or writes `brief.md` from an inline `brief`), and spawns it through the one chokepoint — under *your* identity, so a request in your outbox can only ever spawn *your* child. A serviced request is renamed `…​.done`; it is never spawned twice.
 
-**Rejection is visible, never silent.** If a request is malformed (bad JSON, an unsafe `child_name`, an unknown `child_level`, an empty `brief`) the harness renames it `…​.rejected` and drops a `…​.rejected.reason` file next to it explaining why. Read the reason, fix the request, drop a new one. The flow never silently skips a child — a missing child is always either a `.rejected` you can see or a spawn-failure escalation (below), not a quiet gap.
+**Rejection is visible, never silent.** If a request is malformed (bad JSON, an unsafe `child_name`, an unknown or non-descending `child_level`) the harness renames it `…​.rejected` and drops a `…​.rejected.reason` file next to it explaining why. Read the reason, fix the request, drop a new one. The flow never silently skips a child — a missing child is always either a `.rejected` you can see or a spawn-failure escalation (below), not a quiet gap.
 
 **A spawn that cannot honor its contract escalates** — it does not silently substitute or degrade (see *Spawn-time failure is an escalation* below). The request channel is how you *ask*; the contract guarantees are enforced by the harness on your behalf.
 

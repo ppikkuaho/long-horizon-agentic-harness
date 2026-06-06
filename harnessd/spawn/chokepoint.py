@@ -548,23 +548,21 @@ def _brief_payload(neutral) -> dict:
 #       parent_address SET): generation=0, lease_epoch=1, a minted owner_token, written via the
 #       single-writer lock-held ledger path. SAFE if the child already exists (does NOT clobber a
 #       live/non-planned child — that lets the claim lose against it, single-owner preserved).
-#   (3) BRIEF — brief.assemble_neutral's load-manifest + the parent brief_content written into the
-#       child node workspace (a BRIEF.md the child reads in place; FORK-BRIEF-LANDING below).
+#   (3) BRIEF — DERIVATION by default (FORK-BRIEF-DERIVATION): the child binding carries
+#       spec_pointer -> <node>/brief.md and frozen_acceptance_ref -> <node>/acceptance.md, both
+#       PRE-AUTHORED by the parent into the child node at plan time (pointer-not-payload,
+#       WORKSPACE-SCHEMA:221). A pre-authored brief.md is left intact; a brief_content OVERRIDE writes
+#       it (the exception); neither present -> a manifest stub. The load-manifest also rides the
+#       neutral contract to the adapter.
 #   (4) SPAWN — the EXISTING chokepoint.claim_and_spawn(child, expected_state=planned, …) — the
 #       F-024 claim-before-spawn (a lost claim opens NO actor; on a post-claim failure the claim is
 #       released exactly as today).
 #
-# BUILDER DECISIONS (the increment leaves these open — STATED here + in the build report):
-#
-#   * FORK-BRIEF-LANDING — the brief lands at ``<RUNTIME_ROOT>/nodes/<sanitized-child-address>/
-#     BRIEF.md`` (the child node-dir layout). The address is sanitized for the filesystem ('/' and
-#     '#' -> '__') so a nested address (proj/feature/widget#exec) is one node dir. The BRIEF.md
-#     carries BOTH the parent brief_content (the child's actual task) AND the assembled
-#     load-manifest (the role-as-documents paths the child reads in place). The same workspace +
-#     brief_content are ALSO recorded onto the child binding for legibility, so the brief is
-#     recoverable from the node whether a reader scans the on-disk file OR the binding slice. A
-#     dedicated work-node schema (status/log/report scaffolding) is a later cluster's refinement;
-#     v1 writes the one BRIEF.md the child boots against.
+# NODE LANDING (FORK-NODE-NESTING, revises FORK-BRIEF-LANDING): the node dir is NESTED by path
+#   (``addressing.node_dir`` = ``<RUNTIME_ROOT>/nodes/<address-path>/``, the #seat stripped, the '/'
+#   nesting KEPT), so a child's dir sits UNDER its parent's and the parent's WORKROOT-subtree write-jail
+#   can seed brief.md/acceptance.md into it (ARCHITECTURE.md:122). The canonical files are lowercase
+#   ``brief.md`` + ``acceptance.md``. The earlier flat ``'/'/'#' -> '__'`` collapse broke the nesting.
 #
 #   * FORK-CHILD-SUBTREE — child_address must be UNDER the parent subtree (the address-prefix edge).
 #     v1 checks ``child_address.startswith(parent_address)`` defensively but does NOT hard-refuse a
@@ -631,6 +629,7 @@ def _register_child(
     lease_epoch = 1
     generation = 0
     owner_token = fencing.mint_owner_token(child_address, subagent_id, session_uuid, lease_epoch)
+    node_dir = _child_node_dir(child_address)
     binding = {
         "node_address": child_address,
         "parent_address": parent_address,  # the supervision-tree edge — SET (not null), DAEMON §7
@@ -648,7 +647,12 @@ def _register_child(
         "terminal_signal_at": None,
         "gate_crossed_at": None,
         "paused_at": None,
-        "workspace": str(_child_node_dir(child_address)),
+        "workspace": str(node_dir),
+        # DERIVATION (FORK-BRIEF-DERIVATION): the brief + frozen acceptance are the node's OWN files,
+        # pre-authored by the parent at plan time (pointer-not-payload, WORKSPACE-SCHEMA:221). The spawn
+        # derives these pointers from the node — it does not carry the spec/acceptance as payload.
+        "spec_pointer": str(node_dir / "brief.md"),
+        "frozen_acceptance_ref": str(node_dir / "acceptance.md"),
     }
     # Merge into the live whole map (preserve siblings) and write under a BRIEFLY-held EX lock —
     # released on exit, before claim_and_spawn re-takes it per-mutation (no re-entrant fcntl deadlock).
@@ -681,10 +685,10 @@ def _write_child_brief(
 
     node_dir = _child_node_dir(child_address)
     node_dir.mkdir(parents=True, exist_ok=True)
-    brief_path = node_dir / "BRIEF.md"
+    brief_path = node_dir / "brief.md"  # canonical lowercase (WORKSPACE-SCHEMA:221)
 
-    lines: list[str] = [
-        f"# BRIEF — {child_address}",
+    manifest_header = [
+        f"# brief — {child_address}",
         "",
         f"- node_address: {child_address}",
         f"- parent_address: {registered_binding.get('parent_address')}",
@@ -694,26 +698,41 @@ def _write_child_brief(
         "",
         "## Identity — Load These Documents (read in place)",
         "",
+        *[f"- {path}" for path in neutral.load_manifest],
+        "",
     ]
-    lines.extend(f"- {path}" for path in neutral.load_manifest)
-    lines.extend(["", "## Task", "", brief_content if brief_content else "(no brief_content supplied)", ""])
 
-    def render(handle):
-        handle.write("\n".join(lines))
-        handle.write("\n")
+    # THREE cases (FORK-BRIEF-DERIVATION):
+    #   (1) OVERRIDE — a brief_content was supplied: write brief.md = manifest + the inlined task (the
+    #       exception path, e.g. a throwaway task the parent didn't pre-author a node file for).
+    #   (2) PRE-AUTHORED DEFAULT — no override AND brief.md already exists: the parent authored the
+    #       pointer-not-payload brief into the node at plan time. Do NOT overwrite it; the spawn only
+    #       brings the prepared node online (spec_pointer already points at it).
+    #   (3) STUB — no override AND no brief.md: write a manifest-only stub so the node is never empty
+    #       (an L4 that forgot to pre-author still gets its load-manifest and can escalate the gap).
+    wrote = True
+    if brief_content is not None:
+        lines = manifest_header + ["## Task", "", brief_content, ""]
+        store.atomic_replace(brief_path, lambda h: (h.write("\n".join(lines)), h.write("\n")))
+    elif not brief_path.exists():
+        lines = manifest_header + ["## Task", "",
+                                   "(no brief pre-authored and no override supplied — escalate the gap "
+                                   "to your parent rather than guessing the task)", ""]
+        store.atomic_replace(brief_path, lambda h: (h.write("\n".join(lines)), h.write("\n")))
+    else:
+        wrote = False  # pre-authored brief.md left intact — the derivation default
 
-    store.atomic_replace(brief_path, render)
-
-    # Record the brief_content (the child's actual task) + the workspace onto the child binding too,
-    # so the brief is recoverable from the binding slice as well as the on-disk BRIEF.md. This is a
-    # control-plane own-slice write routed through the single writer (NOT a lifecycle transition):
-    # the child is still ``planned`` and unclaimed here, so we fence on the registered owner_token.
+    # Record the deliverable_state=briefed onto the child binding (own-slice write through the single
+    # writer; the child is still ``planned`` + unclaimed, so we fence on the registered owner_token).
+    # The brief is present by whichever path; the spec_pointer already names brief.md on the binding.
+    summary = (f"child brief written into the node ({brief_path})" if wrote
+               else f"child brief pre-authored; left intact ({brief_path})")
     executor.deliver(
         child_address,
         deliverable_state="briefed",
         expected_owner_token=registered_binding.get("owner_token"),
         event="brief_written",
-        summary=f"child brief written into the node ({brief_path})",
+        summary=summary,
     )
 
 

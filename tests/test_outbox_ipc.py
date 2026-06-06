@@ -53,9 +53,12 @@ def _install(fake):
         chokepoint.ADAPTER = fake
 
 
+import harnessd.addressing as _addressing
+
+
 def _seed_live_node(runtime, address, level="L2"):
     token = fencing.mint_owner_token(address, "sa", "uuid", 2)
-    workspace = runtime / "nodes" / chokepoint._sanitize_address(address)
+    workspace = _addressing.node_dir(address, runtime)  # NESTED (canonical)
     workspace.mkdir(parents=True, exist_ok=True)
     rec = {"node_address": address, "parent_address": "root#exec", "level": level, "subagent_id": "sa",
            "session_uuid": "uuid", "state": "running", "generation": 5, "lease_epoch": 2,

@@ -63,10 +63,13 @@ def _install(fake):
         chokepoint.ADAPTER = fake
 
 
+import harnessd.addressing as _addressing
+
+
 def _seed_live_node(runtime, address, level="L2"):
-    """Seed a LIVE parent node with a real workspace dir on disk (where its outbox lives)."""
+    """Seed a LIVE parent node with a real (NESTED) workspace dir on disk (where its outbox lives)."""
     token = fencing.mint_owner_token(address, "sa", "uuid", 2)
-    workspace = runtime / "nodes" / chokepoint._sanitize_address(address)
+    workspace = _addressing.node_dir(address, runtime)
     workspace.mkdir(parents=True, exist_ok=True)
     rec = {"node_address": address, "parent_address": "root#exec", "level": level, "subagent_id": "sa",
            "session_uuid": "uuid", "state": "running", "generation": 5, "lease_epoch": 2,
@@ -112,7 +115,8 @@ def test_l1_is_not_a_spawnable_child_level():
     assert not ok and "L1" in reason
 
 
-def test_empty_brief_is_rejected():
+def test_empty_brief_is_rejected_when_provided():
+    """A brief that is PRESENT but blank is invalid (omit it to derive; don't send an empty one)."""
     ok, _ = outbox.validate_request({"child_name": "parser", "child_level": "L3", "brief": "  "})
     assert not ok
 
@@ -120,6 +124,13 @@ def test_empty_brief_is_rejected():
 def test_a_well_formed_request_validates():
     ok, reason = outbox.validate_request({"child_name": "parser", "child_level": "L3",
                                           "brief": "design the markdown parser"})
+    assert ok, reason
+
+
+def test_request_without_a_brief_is_valid_the_derivation_default():
+    """The DEFAULT: no brief in the request — the spawn derives spec_pointer/frozen_acceptance_ref from
+    the pre-authored node files. A bare {child_name, child_level} is a complete, valid request."""
+    ok, reason = outbox.validate_request({"child_name": "parser", "child_level": "L3"})
     assert ok, reason
 
 
@@ -257,6 +268,34 @@ def test_service_all_services_a_live_l2(runtime):
     spawned = [o for o in outcomes if o.status == "spawned"]
     assert len(spawned) == 1 and spawned[0].child_address == "proj/widget/parser#exec"
     assert len(fake.calls) == 1
+
+
+# --------------------------------------------------------------------------- #
+# DERIVATION default — a no-brief request spawns from the pre-authored node files
+# --------------------------------------------------------------------------- #
+
+def test_no_brief_request_derives_from_preauthored_node(runtime):
+    """The canonical flow: the parent (in its nested subtree-jail) pre-authors the child's brief.md +
+    acceptance.md, then drops a NO-BRIEF request; the spawn brings the prepared node online, the binding
+    carries the derived pointers, and the pre-authored brief.md is left intact."""
+    _seed_live_node(runtime, PARENT)
+    fake = _FakeAdapter(); _install(fake)
+    workspace = ledger.read_binding(PARENT)["workspace"]
+    # parent pre-authors the child node (a subdir of its own workspace — writable under the nested jail)
+    child_node = _addressing.node_dir("proj/widget/parser#exec", runtime)
+    child_node.mkdir(parents=True, exist_ok=True)
+    (child_node / "brief.md").write_text("# pointer-not-payload\nserves: R-002.1.a\n", encoding="utf-8")
+    (child_node / "acceptance.md").write_text("frozen tests", encoding="utf-8")
+    outbox.request_child_spawn(workspace, child_name="parser", child_level="L3")  # NO brief
+
+    outcomes = outbox.service_outbox(PARENT)
+
+    assert len(outcomes) == 1 and outcomes[0].status == "spawned"
+    child = ledger.read_binding("proj/widget/parser#exec")
+    assert child["spec_pointer"] == str(child_node / "brief.md")
+    assert child["frozen_acceptance_ref"] == str(child_node / "acceptance.md")
+    assert (child_node / "brief.md").read_text("utf-8").startswith("# pointer-not-payload"), \
+        "the pre-authored brief.md must survive the no-brief spawn"
 
 
 # --------------------------------------------------------------------------- #

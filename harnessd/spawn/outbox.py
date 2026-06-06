@@ -104,11 +104,15 @@ def validate_request(obj: object) -> tuple[bool, str]:
     if not isinstance(level, str) or level not in SPAWNABLE_LEVELS:
         return False, (f"child_level {level!r} is not a spawnable child level {list(SPAWNABLE_LEVELS)} "
                        "(a child is never an L1 root)")
+    # The brief is OPTIONAL (FORK-BRIEF-DERIVATION): the DEFAULT is to pre-author brief.md + acceptance.md
+    # INTO the child node and let the spawn DERIVE the pointers; an inline brief is the OVERRIDE/exception.
+    # Absent/None -> derivation default. Present -> must be a non-empty string within the size cap.
     brief = obj.get("brief")
-    if not isinstance(brief, str) or not brief.strip():
-        return False, "brief is missing or empty"
-    if len(brief.encode("utf-8")) > MAX_BRIEF_BYTES:
-        return False, f"brief exceeds {MAX_BRIEF_BYTES} bytes"
+    if brief is not None:
+        if not isinstance(brief, str) or not brief.strip():
+            return False, "brief, when provided, must be a non-empty string (omit it to derive from the pre-authored node)"
+        if len(brief.encode("utf-8")) > MAX_BRIEF_BYTES:
+            return False, f"brief exceeds {MAX_BRIEF_BYTES} bytes"
     return True, ""
 
 
@@ -130,23 +134,28 @@ def compose_child_address(parent_address: str, child_name: str) -> str:
 # agent-side writer (runs inside the jail; writes ONLY the node's own workroot)
 # --------------------------------------------------------------------------- #
 
-def request_child_spawn(workroot, *, child_name: str, child_level: str, brief: str) -> Path:
+def request_child_spawn(workroot, *, child_name: str, child_level: str, brief: Optional[str] = None) -> Path:
     """Drop a spawn-request into the node's own outbox (the agent-side call; jail-writable workroot).
 
-    Client-side fail-fast: the same contract the daemon enforces is checked here too, so an agent that
-    mis-forms a request gets an immediate error rather than a silent later rejection. (The DAEMON
+    The DEFAULT is derivation: pre-author ``<child>/brief.md`` + ``<child>/acceptance.md`` into the
+    child node (a subdir of your own workspace, writable under the nested subtree-jail) FIRST, then call
+    this with NO ``brief`` — the spawn derives the pointers from those files. Pass ``brief`` only as the
+    OVERRIDE/exception (a throwaway task you didn't pre-author a node file for).
+
+    Client-side fail-fast: the same contract the daemon enforces is checked here too. (The DAEMON
     re-validates regardless — this check is convenience, not the trust boundary.)
     """
-    ok, reason = validate_request({"child_name": child_name, "child_level": child_level, "brief": brief})
+    request: dict = {"child_name": child_name, "child_level": child_level}
+    if brief is not None:
+        request["brief"] = brief
+    ok, reason = validate_request(request)
     if not ok:
         raise ValueError(f"invalid spawn request: {reason}")
     outbox_dir = Path(workroot) / OUTBOX_DIRNAME
     outbox_dir.mkdir(parents=True, exist_ok=True)
     seq = _next_seq(outbox_dir)
     path = outbox_dir / f"{seq:04d}-{child_name}.json"
-    payload = json.dumps({"child_name": child_name, "child_level": child_level, "brief": brief},
-                         indent=2, ensure_ascii=False)
-    path.write_text(payload + "\n", encoding="utf-8")
+    path.write_text(json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path
 
 
@@ -262,7 +271,7 @@ def _service_one(node_address: str, parent_token: Optional[str], parent_level: O
         res = chokepoint.register_and_spawn_child(
             node_address, child_address,
             child_level_config=level_config,
-            brief_content=obj["brief"],
+            brief_content=obj.get("brief"),  # None -> derive from the pre-authored node (the default)
             expected_parent_owner_token=parent_token,
         )
     except Exception as exc:  # noqa: BLE001 — an unexpected spawn error MUST surface, never silently stall
