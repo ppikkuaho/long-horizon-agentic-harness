@@ -33,14 +33,32 @@ ADRs pull quadruple duty: handoff contract + anti-drift anchor + audit/optimizer
 
 Every element you author carries a well-formed trace-block per the canonical syntax in `design/PLAN-ALIGNMENT-GATE.md` → Requirements Traceability (do not re-document the syntax here). You emit one trace-block, at the moment of authoring, for **each** of:
 
-- **each area/module** and **each substrate primitive** — `kind: requirement` with a dotted child id minted under its parent intent-ID prefix (`R-003` → `R-003.2`), `level: L2`, `node` set to the area's one-spine path;
+- **each area/module** (and each substrate primitive) — `kind: decision`, a flat `DD-NNN` id, with `serves: [the intent IDs this area discharges]`. **An area is a CARVING DECISION, not a requirement.** An area typically serves *several* intent requirements (the search area serves the search intent, the re-index intent, AND the access-control intent), so it has **no single parent** to dot under — and it imposes no obligation of its own (the obligations live in the elements *inside* it). Model it as what it is: a decision, whose `serves` list is informational (it names the intents the carving groups, it is not a coverage claim). Do **not** force an area into `kind: requirement` (you cannot dot a multi-intent grouping under one parent) and do **not** tag it `kind: derived` (an area is not a derived *requirement*). The carving rationale goes in the ADR body, not a non-standard trace-block field.
 - **each ADR** — `kind: decision`, a flat `DD-NNN` id (ADR-class; imposes no obligation, excluded from the scope-creep scan);
-- **each derived requirement** born below intake — `kind: derived`, a `DR-<seed><suffix>` id, with a **non-empty `serves` link** to the live intent ID(s) it discharges (a `DR-` with no serves-link, or one naming a dead/non-existent id, is itself a scope-creep defect);
-- **each interface clause** — every port, every request/response field, and every contract invariant — `kind: requirement` with its own dotted child id.
+- **each derived requirement** born below intake — `kind: derived`, a `DR-<seed><suffix>` id where `<seed>` is **an intent ID it serves** (e.g. `DR-017a` serves `R-017`; **never** an area label like `DR-A1`), with a **non-empty `serves` link** to the live intent ID(s) it discharges (a `DR-` with no serves-link, or one naming a dead/non-existent id, is itself a scope-creep defect);
+- **each interface clause** — every port, every request/response field, and every contract invariant — `kind: requirement` with its own dotted child id under the **one** intent it most directly realizes. Because these are single-intent obligations *inside* an area, the dotted-child rule applies cleanly (no multi-parent ambiguity — that lives at the area level, which is a decision).
 
 Tag **only what you created**; an inherited ID you cannot place is **escalated up, never silently dropped**. The dotted prefix *is* the upward trace link — mint child ids in author order, unique among siblings, no reuse.
 
-Observable pass/fail: the **return-contract / preflight hook** walks your artifact and **rejects it** — you cannot report complete, and the artifact cannot enter the plan-alignment gate — if any area, substrate primitive, ADR, interface field, or contract invariant lacks a parseable adjacent `trace:` stanza, if a dotted child id has no resolvable parent, if a `DR-` lacks a live serves-link, or if an id is duplicated. Rejections surface as typed defects (`MISSING-TRACE-*`, `MALFORMED-TRACE-*`, `DANGLING-PARENT-*`, `DR-UNSERVED-*`, `DUP-ID-*`) keyed to `level: L2` + `node` so the fix routes to you.
+**Closed field set + self-check (before you return).** A trace-block carries EXACTLY `{ id, serves, kind, level, node }` — no other keys (no `reason`, no `serves_also`; put rationale in the ADR/prose body). Before returning, verify for every `kind: requirement` block: its dotted `id` **truncates to** its declared parent/served intent (`R-008.6` truncates to `R-008`, NOT `R-008.1` — if you mean a child of `R-008.1`, the id must be `R-008.1.N`). A truncation that disagrees with the declared parent is a `TRACE-CONTRADICTION` and the hook rejects it.
+
+**Worked area example** (the search area + two obligations inside it):
+
+```
+# Area: search
+<!-- trace: { id: DD-014, serves: [R-003, R-008, R-012], kind: decision, level: L2, node: proj/teamkb/search } -->
+(rationale in the ADR body: full-text + semantic + the ACL filter are co-located because every query must apply the access filter inline.)
+
+  ### Search Port — contract invariant: ACL filter applied to every result
+  <!-- trace: { id: R-012.4, serves: [R-012], kind: requirement, level: L2, node: proj/teamkb/search } -->
+
+  ### Re-index worker
+  <!-- trace: { id: R-008.2, serves: [R-008], kind: requirement, level: L2, node: proj/teamkb/search } -->
+```
+
+The AREA is a decision that openly lists the three intents it groups; each OBLIGATION inside it traces to its ONE intent, so dotting is unambiguous.
+
+Observable pass/fail: the **return-contract / preflight hook** walks your artifact and **rejects it** — you cannot report complete, and the artifact cannot enter the plan-alignment gate — if any area, substrate primitive, ADR, interface field, or contract invariant lacks a parseable adjacent `trace:` stanza, if a `kind: requirement` dotted child id has no resolvable parent (or its truncation disagrees with its declared parent), if a `DR-` lacks a live serves-link (or its `<seed>` is not an intent ID), if a block carries a non-canonical field, or if an id is duplicated. Rejections surface as typed defects (`MISSING-TRACE-*`, `MALFORMED-TRACE-*`, `DANGLING-PARENT-*`, `TRACE-CONTRADICTION-*`, `DR-UNSERVED-*`, `DUP-ID-*`) keyed to `level: L2` + `node` so the fix routes to you.
 
 ---
 
