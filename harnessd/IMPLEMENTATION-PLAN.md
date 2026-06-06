@@ -748,7 +748,13 @@ shape 6/7 were written against.
 > ANTHROPIC_API_KEY` is EMPTY (the `env -i` from-empty isolation works); and `assert_pane_env_isolated`
 > RAISES when the pane is launched without the from-empty wrapper. (c) **tmux-interface conformance:**
 > `list_targets` returns the `{pane_pid, pane_dead, window_activity}` shape Increments 6/7 were written
-> against.
+> against. (d) **MOCK-CONTRACT VALIDATION (the Increment-6 detector mock pinned to reality — register
+> Lesson 6):** run the REAL `detector_signals` against the REAL boundary, NOT the Inc-6 mock — `pane_alive`
+> on a real living pane returns `(alive=True, <real pid>)`; on a real `kill`'d / closed pane returns
+> `(alive=False / pane_dead)`; `jsonl_progress` returns `grew=True` for a real transcript appended-to between
+> calls and `grew=False` for a flat one. This validates that real tmux actually emits what the Increment-6
+> detector logic was mocked against, so the two cannot silently drift (real tmux server + fake CLI pane, zero
+> model burn). Without (d), the Increment-6 verdict logic rests on an unverified assumption about tmux.
 
 > **Increment 10 — spawn chokepoint (claim-before-spawn + rollback + gate firewall) + necro seam.**
 > `claim_and_spawn` (STEP0-5), `release_claim`, `resume` (gate firewall + re-adopt), `collapse`,
