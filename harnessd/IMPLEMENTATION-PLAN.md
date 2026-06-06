@@ -856,6 +856,58 @@ shape 6/7 were written against.
 > push lands the deliverable at the captured remote (or is dry-run-asserted to issue exactly that push),
 > same gate. No real model usage.
 
+---
+
+## Phase 6 — Behavioural validation (the trace-through)
+
+> Phase 5 (increments 0–17) verifies the substrate is **mechanically correct** (the stage works). Phase 6
+> **validates the system's desired behaviour** — that when a real build flows L1-downward, the *design*
+> carries it without leaking (a leak = the flow silently routing AROUND a gap: a step skipped, a system it
+> leverages not in place, a field defaulted). The agents are the trusted medium; the design is under test.
+> Canonical: `design/BEHAVIOURAL-VALIDATION.md`. Two instruments: **(P) pieces-present** — deterministic,
+> no agent, FRONT-LOADED (testable now from `brief.py`); **(B) behaviour-per-joint** — real-agent evals,
+> rubric-scored, after Inc 16; **(T) full trace** — the commissioning real job. Type-B/T burn the OAuth
+> window (user-approved). The **behavioural contracts are the user's to set** — drafts below for review.
+
+> **Increment 18 — Pieces-present harness (P; deterministic, front-loaded — build BEFORE 16/17 if convenient).**
+> For each spawn boundary (intake, intent-spec→L2, L2→L3, L3→L4, L4→L5, #review, #test), assemble the
+> `brief.assemble_neutral` contract + load-manifest and assert: every manifest doc PATH resolves (present,
+> readable under the read-allow graph); every cross-ref inside a manifest doc resolves (no dangling
+> pointer); the brief is decision-complete for the receiving level (spec pointer present, frozen
+> `acceptance.md` present for executor seats); the `role_variant` selects the CORRECT per-seat manifest
+> (L5↔swe-handbook, L3↔planning-template, #review↔reviewer bundle). **Done-test:** a deliberately
+> removed/renamed role doc OR a missing brief field makes the harness FAIL (catches "a piece isn't in
+> place" deterministically). No model.
+
+> **Increment 19 — L1 intake behavioural eval (B; @pytest.mark.real_boot, real OAuth).** Spawn the real
+> grilling-session with a representative request. **Behavioural contract (DRAFT — user to set):** returns
+> a contract-complete intent-spec (8 fields, contract-valid, delivery destination captured); an
+> UNDER-SPECIFIED request triggers a clarification/escalation (loud), NOT a silently-invented spec (the
+> leak test). Rubric-scored, not exact-match. The earliest real-agent joint — isolates intake gaps before
+> anything downstream.
+
+> **Increment 20 — L2 concept-design eval (B). Contract (DRAFT):** produces the concept-design artifacts
+> (component map + interface contracts + ADRs + per-module specs); had its pieces present; stayed in lane
+> (architected — did NOT code or re-open intent); on an injected ambiguity ESCALATED rather than papered over.
+
+> **Increment 21 — L3 area-design eval (B). Contract (DRAFT):** realization-not-redesign; mints requirement
+> IDs + trace-blocks; escalates a cross-area dependency rather than absorbing it.
+
+> **Increment 22 — L4/L5/L5+ execution eval (B). Contract (DRAFT):** L4 spawns the tester lateral BEFORE
+> L5 + decomposes to executable tasks; L5 is spec-faithful + escalates-don't-decides on an under-spec task;
+> L5+ reviews against the frozen rubric and bounces a real defect.
+
+> **Increment 23 — cascade-dynamics eval (B or scripted). Contract (DRAFT):** a report-up reaches the
+> parent and is acted on; a quality-gate bounce loops back to L5; an escalation round-trips (up + answer
+> down); collapsing a coordinator cascades to its subtree.
+
+> **Increment 24 — the full trace-through (T; commissioning).** The real job the user designed — a
+> non-trivial build it is MEANT for, poured in at L1 and traced slowly L1-down, watching the named joints
+> for leaks (esp. silent gap-routing). The goal is not the artifact; it is to watch how the water moves and
+> find what we forgot. Expects breakage by design.
+
+---
+
 **Minimal ③ wake placement — the two halves, and which is harnessd vs agent:**
 - **harnessd side (the send-keys nudge + its trigger):** `inbox_has_unacked` (tail `<node>/.inbox.jsonl`,
   decide WHEN to wake) + `wake_keystroke` (the pointer payload) + `prod_precondition`/`confirm_prod_worked`
