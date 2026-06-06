@@ -172,6 +172,45 @@ Scored against the produced `plan.md` + `acceptance-plan.md` (vs the real L4 rol
    `kind: requirement`; each acceptance test `kind: test` keyed to the requirement it verifies; inherited
    IDs it can't place are escalated.
 
+## The L5 / L5+ (execute–review pair) rubric (Inc 22b) — DRAFT
+
+The eval must check BOTH halves of the M52 pair (user, 2026-06-06 — "check that the L5+ works too"):
+
+**L5 (executor):**
+1. **SPEC-FAITHFUL + tests-pass** — implements the task against the FROZEN acceptance tests (makes them
+   pass), spec-anchored, literal.
+2. **ESCALATE-DON'T-DECIDE** — on a genuine ambiguity in the brief, escalates rather than silently
+   choosing (the executor's brief discipline).
+
+**L5+ (independent reviewer — the load-bearing leak test):**
+3. **REAL INDEPENDENT REVIEW, not theater** — given L5's output + the spec + the frozen acceptance, L5+
+   does its OWN testing pass and writes a report on process quality + spec fidelity. **Plant a subtle
+   defect** (code that passes the literal frozen tests but misses the spec intent, OR a real bug the
+   tests don't cover): L5+ must CATCH it and BOUNCE — a rubber-stamp "looks good" = fail. (Judgment
+   diversity is deliberate: L5 on Codex, L5+ on Claude; in the eval both run on the pinned Claude as a
+   stand-in — note the runtime-difference caveat.)
+
+## The full trace-through (Inc 24) — and what it actually validates: the REVIEW MACHINERY
+
+The per-level evals above test each level's PRODUCTION behaviour. The full run tests the **other half —
+the up-the-tree REVIEWS/GATES** (user, 2026-06-06): a minimal feature (the markdown-folder → PDF-with-TOC
+tool) poured through the WHOLE cascade L1→L2→L3→L4→L5/L5+, small enough that the cascade actually
+COMPLETES so we can watch each review fire and confirm it works:
+
+- **L5+ reviews L5** (independent code review, accept/bounce).
+- **L4 reviews the L5+ REPORT** (not raw L5 code) — coverage + verification-claim scrutiny.
+- **L3 reviews workstream INTEGRATION** — do the L4 workstreams' outputs connect; does the area cohere.
+- **L2 COMPATIBILITY REVIEW** — cross-module interface ripples across the planning-L3s; the freeze point.
+- **The PLAN-ALIGNMENT GATE** — the big-bang gate on the assembled plan (the RTM + trace-block walk + the
+  judgment checks); PASS is the freeze edge.
+
+**Approach (until the live daemon cascade is commissioned):** a MANUAL trace-through — chain the real
+level runs (each level's real output becomes the next level's real input) + fire each REVIEW as its own
+real agent run + the counterpart-sim as the human for L1. The goal is NOT the artifact; it is to confirm
+each review/gate genuinely fires and catches what it should (plant a defect at one boundary and confirm
+the review above it bounces). This is the validation that the system's quality-control spine works, not
+just that each level produces plausible output in isolation.
+
 ## The increments (Phase 6) — drafts for the user's behavioural opinion
 
 Detailed in `harnessd/IMPLEMENTATION-PLAN.md` (Phase 6). Proposed behavioural contracts:
