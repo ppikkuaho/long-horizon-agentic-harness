@@ -373,3 +373,31 @@ def run_autonomous_eval(level: str, workspace: Path, initial_task: str, escalati
 
 def _shquote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+def run_jailed(workspace: Path, task: str, *, work_timeout=600) -> tuple:
+    """Run ONE jailed -p agent in `workspace` with `task`; return (stdout, returncode|'timeout').
+
+    The reusable primitive under run_autonomous_eval — used by the execute-review pair (L5 then L5+)
+    so each agent runs jailed + dialog-free in the SAME workspace (L5+ must see L5's code).
+    """
+    workspace = Path(workspace)
+    (workspace / ".tmp").mkdir(parents=True, exist_ok=True)
+    cc_config.seed_trust(CONFIG_DIR, str(workspace))
+    prof = workspace / "jail.sb"
+    prof.write_text(_self_auth_jail_profile(str(workspace), str(workspace / ".tmp")), encoding="utf-8")
+    cmd = ["/usr/bin/sandbox-exec", "-f", str(prof), "env", "-i",
+           f"CLAUDE_CONFIG_DIR={CONFIG_DIR}", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+           "DISABLE_AUTOUPDATER=1", f"CLAUDE_CODE_TMPDIR={workspace}/.tmp",
+           f"HOME={os.path.expanduser('~')}",
+           # tool-cache redirect so a real pip/npm install lands inside the jail (§2.3)
+           *[f"{k}={v}" for k, v in sandbox.cache_redirect_env(str(workspace)).items()],
+           "sh", "-c",
+           f"cd '{workspace}' && exec '{CC}' --system-prompt-file '{SYSTEM_PROMPT}' "
+           f"--add-dir '{_root()}' --dangerously-skip-permissions -p {_shquote(task)}"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           timeout=work_timeout)
+        return (r.stdout or "")[-8000:], r.returncode
+    except subprocess.TimeoutExpired:
+        return "[FROZEN — no return within timeout]", "timeout"
