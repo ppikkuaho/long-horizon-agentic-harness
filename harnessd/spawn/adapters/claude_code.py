@@ -124,6 +124,23 @@ def _transcript_path(env: dict, session_name: str, session_uuid: str) -> str:
     return str(Path(config_dir) / "projects" / project_seg / f"{session_uuid}.jsonl")
 
 
+def _brief_get(brief, key, default=None):
+    """Read a brief field TOLERANTLY — works for a dict brief AND a NeutralContract dataclass.
+
+    THE BRIEF-SHAPE BUG (JAIL-WIRING): ``brief.assemble_neutral`` returns a ``NeutralContract``
+    DATACLASS (no ``.get``), but the production chokepoint hands that dataclass straight to the
+    adapter. The old ``(neutral_brief or {}).get(...)`` reads raised ``AttributeError`` on the
+    dataclass (the existing adapter tests passed only because they handed a DICT brief). This helper
+    does ``dict.get`` for a mapping and ``getattr`` for the dataclass, so BOTH shapes read the same
+    fields (``role_variant`` / ``containment_profile``). A None brief yields the default.
+    """
+    if brief is None:
+        return default
+    if isinstance(brief, dict):
+        return brief.get(key, default)
+    return getattr(brief, key, default)
+
+
 def _resolve_containment(neutral_brief, level_config) -> dict | None:
     """Resolve the §2.5a ``containment_profile`` block, or None for the unjailed (dry-run) path.
 
@@ -141,7 +158,7 @@ def _resolve_containment(neutral_brief, level_config) -> dict | None:
     READ_DENY_ROOT / extra_read_denies / extra_write_roots). ``sandbox.render_profile`` owns the
     §2.4 realpath-canonicalization; the chokepoint hands it logical paths.
     """
-    block = (neutral_brief or {}).get("containment_profile")
+    block = _brief_get(neutral_brief, "containment_profile")
     if block is None:
         block = getattr(level_config, "containment_profile", None)
     if not block:
@@ -213,9 +230,10 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         """Pin, OAuth-gate, open the from-empty pane, record the facts (the H40 recipe)."""
         env = dict(env)  # never mutate the caller's dict
 
-        # role_variant rides the brief / level_config (role-as-documents), NEVER the argv.
+        # role_variant rides the brief / level_config (role-as-documents), NEVER the argv. Read the
+        # brief field TOLERANTLY (dict brief OR NeutralContract dataclass) — the brief-shape bug fix.
         role_variant = (
-            (neutral_brief or {}).get("role_variant")
+            _brief_get(neutral_brief, "role_variant")
             or getattr(level_config, "role_variant", None)
             or getattr(level_config, "level", None)
         )

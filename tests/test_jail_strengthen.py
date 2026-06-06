@@ -73,6 +73,31 @@ def test_own_env_still_readable_under_workroot():
         shutil.rmtree(wr, ignore_errors=True)
 
 
+def test_config_dir_is_readable_even_under_read_deny_root_but_token_still_denied():
+    """CC MUST read its CLAUDE_CONFIG_DIR (state/settings). When CONFIG sits UNDER READ_DENY_ROOT (the
+    fallback <runtime>/cc-config case), the cross-project read-deny would otherwise deny it -> CC can't
+    boot. The CONFIG read re-allow fixes it; the FINAL token re-deny still closes the token. REAL sandbox."""
+    rt = os.path.realpath(tempfile.mkdtemp(prefix="jail-cfgread-"))
+    try:
+        cfg = os.path.join(rt, "cc-config")   # CONFIG under READ_DENY_ROOT (= rt)
+        wr = os.path.join(rt, "node")
+        os.makedirs(cfg); os.makedirs(wr)
+        with open(os.path.join(cfg, "settings.json"), "w") as f:
+            f.write("CONFIG-SETTINGS-OK")
+        with open(os.path.join(cfg, ".oauth_token"), "w") as f:
+            f.write("TOKEN-LEAK-MARKER")
+        profile = sandbox.render_profile(
+            {"WORKROOT": wr, "TMPDIR": os.path.join(wr, "tmp"), "CONFIG": cfg,
+             "HOME": os.path.expanduser("~"), "READ_DENY_ROOT": rt})
+        r = _run_in_jail(profile, ["cat", os.path.join(cfg, "settings.json")])
+        assert "CONFIG-SETTINGS-OK" in r.stdout, "CC must READ its CLAUDE_CONFIG_DIR even under READ_DENY_ROOT"
+        t = _run_in_jail(profile, ["cat", os.path.join(cfg, ".oauth_token")])
+        assert "TOKEN-LEAK-MARKER" not in t.stdout and t.returncode != 0, \
+            "the token under CONFIG must stay DENIED (final re-deny is last-match-wins)"
+    finally:
+        shutil.rmtree(rt, ignore_errors=True)
+
+
 @pytest.mark.skipif(False, reason="pure function")
 def test_resolve_containment_produces_the_v1_floor_block():
     """resolve_containment (the production seam): WORKROOT = the node's own subtree under the runtime

@@ -232,6 +232,12 @@ def render_profile(containment: dict) -> str:
     # the LAST read rule so it scopes the secret-pattern deny to "outside WORKROOT" WITHOUT
     # un-denying siblings' .env (§2.3).
     lines.append(f'(allow file-read* (subpath "{workroot}"))')
+    # CC MUST be able to READ its own CLAUDE_CONFIG_DIR (state/lock/settings). With (allow default) this
+    # is already open when CONFIG is OUTSIDE READ_DENY_ROOT (the real harness: .cc-pinned/config). But a
+    # CONFIG placed UNDER READ_DENY_ROOT (= the runtime root) would otherwise be read-DENIED by the
+    # cross-project deny -> CC fails to boot. Re-allow CONFIG reads here (BEFORE the final token re-deny,
+    # so the token under CONFIG stays closed). Defensive — makes CONFIG-anywhere boot correctly.
+    lines.append(f'(allow file-read* (subpath "{config_dir}"))')
     lines.append("")
 
     # --- FINAL: the OAuth token is NEVER agent-readable/writable, even if CONFIG sits under WORKROOT ---

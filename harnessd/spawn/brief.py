@@ -146,6 +146,11 @@ class NeutralContract:
     status_md: Optional[str] = None
     log_md: Optional[str] = None
     report_md: Optional[str] = None
+    # The RESOLVED §2.5a containment block the chokepoint attaches (dataclasses.replace) when a spawn
+    # REQUESTS containment — None for the unjailed/structural (dry-run) shape. When present the adapter
+    # renders the §2.3 seatbelt profile + wraps the pane with sandbox-exec (§7.1); when None the pane is
+    # the bare ``env -i`` isolator. The seat the JAIL-WIRING attaches the resolved block onto.
+    containment_profile: Optional[dict] = None
     reporting: str = (
         "Report via the durable work node: write status.md / log.md and the final report.md; "
         "signal terminal state via the comms-protocol (DONE / FAILED / ESCALATED)."

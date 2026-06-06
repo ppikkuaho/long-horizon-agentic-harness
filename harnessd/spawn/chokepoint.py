@@ -58,10 +58,12 @@ BUILDER DECISIONS (the §2.11 details the frozen tests leave open — stated in 
 
 from __future__ import annotations
 
+import dataclasses
+import os
 from typing import Optional
 
 from harnessd import config, executor, fencing, ledger
-from harnessd.spawn import brief
+from harnessd.spawn import brief, sandbox
 from harnessd.spawn.adapters.base import SpawnResult
 from harnessd.spawn.oauth_guard import SpawnFailure
 
@@ -233,7 +235,8 @@ def _spawn_after_claim(
     node_address: str,
     claimed_binding: dict,
     level_config,
-    spawn_brief: dict,
+    spawn_brief,
+    spawn_env: Optional[dict] = None,
 ) -> SpawnResult:
     """STEP2-5 after a committed claim: assemble brief, open the actor, record facts, reach running.
 
@@ -241,14 +244,20 @@ def _spawn_after_claim(
     bumped epoch, re-minted owner_token). On ANY failure STEP2-5 the claim is RELEASED
     (claimed->planned, bump epoch) and a spawn-failure escalation is emitted (§6.3). On success the
     node ends in ``running`` with the actual session_uuid / transcript_path / model_used recorded.
+
+    ``spawn_env`` is the pane env handed to the adapter. The JAIL-WIRING path passes the
+    cache-redirect-MERGED env (a containment spawn); the structural path passes None, falling back to
+    the bare 4-var ``_spawn_env()`` (UNJAILED — exactly the 4 isolation vars, the Increment-14
+    integration-B contract).
     """
     adapter = _require_adapter()
     post_claim_token = claimed_binding["owner_token"]
     post_claim_generation = claimed_binding["generation"]
+    pane_env = _spawn_env() if spawn_env is None else spawn_env
 
     # STEP3 — pin + open the actor. The claim is STRICTLY before this (the F-024 ordering).
     try:
-        spawn_result = adapter.pin_and_open(spawn_brief, level_config, node_address, _spawn_env())
+        spawn_result = adapter.pin_and_open(spawn_brief, level_config, node_address, pane_env)
     except SpawnFailure as exc:
         # POST-claim failure (§6.3): release the claim and escalate to L1 with the class that fired.
         failure_class = getattr(exc, "failure_class", None) or "model_unavailable"
@@ -357,6 +366,72 @@ def _spawn_env() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# JAIL WIRING (§2.3/§2.5a/§7) — the containment-production step the v1 structural
+# chokepoint owed. On a spawn that REQUESTS containment (a truthy
+# ``level_config.containment`` opt-in, §2.5a "the per-spawn containment_profile is
+# set by the parent/L1 at the chokepoint, carried in level_config") AND with
+# ``ledger.RUNTIME_ROOT`` bound (needed to compute WORKROOT), the chokepoint
+# RESOLVES the §2.5a block, ATTACHES it to the brief (dataclasses.replace onto the
+# NeutralContract.containment_profile field), and MERGES the §2.3 cache-redirect env.
+# On a spawn that does NOT request containment (the v1 structural chokepoint the
+# Increment-14 integration-B + Increment-9 dry-run tests drive) NO containment is
+# produced — the pane stays the bare ``env -i`` isolator with EXACTLY the 4 isolation
+# vars. Jailing is gated on the EXPLICIT per-spawn REQUEST (NOT RUNTIME_ROOT presence
+# alone — the structural integration-B spawn also has RUNTIME_ROOT set).
+# ---------------------------------------------------------------------------
+
+def _containment_requested(level_config) -> bool:
+    """True iff this spawn carries the §2.5a per-spawn containment_profile REQUEST (opt-in).
+
+    The request is a truthy ``level_config.containment`` flag the parent/L1 sets at the chokepoint
+    (§2.5a). Jailing is gated on THIS explicit request — never on RUNTIME_ROOT-presence alone (the v1
+    structural integration-B spawn also binds RUNTIME_ROOT yet stays UNJAILED).
+    """
+    return bool(getattr(level_config, "containment", False))
+
+
+def _resolve_containment_config_dir() -> str:
+    """Resolve the CONFIG dir handed to ``sandbox.resolve_containment`` (CC's own state-write root).
+
+    FORK-CONTAINMENT-CONFIG (spec-faithful, STATED): §2.5c lists CONFIG (CLAUDE_CONFIG_DIR) as a
+    write-allow root; the concrete on-disk dir is a deployment value the daemon binds at boot. v1
+    reads it from the ``HARNESS_CC_CONFIG_DIR`` env override when present (the seam the production
+    daemon/eval-spawn sets), else falls back to ``<RUNTIME_ROOT>/cc-config``. Either lands a REAL
+    on-disk writable dir the adapter's ``_write_profile`` can write the rendered ``.sb`` into.
+    """
+    override = os.environ.get("HARNESS_CC_CONFIG_DIR")
+    if override:
+        return override
+    return os.path.join(str(ledger.RUNTIME_ROOT), "cc-config")
+
+
+def _produce_containment(node_address: str, level_config, neutral, env: dict):
+    """Resolve + attach the §2.5a containment block and merge the §2.3 cache-redirect env.
+
+    Returns ``(neutral, env)`` — the brief with the resolved block attached
+    (``dataclasses.replace`` onto ``NeutralContract.containment_profile``) and the env with
+    ``sandbox.cache_redirect_env(WORKROOT)`` merged in. Called ONLY when containment is REQUESTED
+    and ``ledger.RUNTIME_ROOT`` is bound (the WORKROOT source); otherwise the caller leaves the
+    structural brief/env untouched (UNJAILED).
+
+    HOME resolution (FORK-CONTAINMENT-HOME, STATED): §2.5a anchors the secret-deny set on the user
+    HOME; v1 lets ``sandbox.resolve_containment`` default HOME to ``os.path.expanduser("~")`` (its
+    own documented default — the secret-deny anchor), so the chokepoint passes ``home=None``. A
+    per-deployment HOME override is a deferred refinement.
+    """
+    block = sandbox.resolve_containment(
+        node_address,
+        runtime_root=ledger.RUNTIME_ROOT,
+        config_dir=_resolve_containment_config_dir(),
+        home=None,
+    )
+    neutral = dataclasses.replace(neutral, containment_profile=block)
+    merged_env = dict(env)
+    merged_env.update(sandbox.cache_redirect_env(block["WORKROOT"]))
+    return neutral, merged_env
+
+
+# ---------------------------------------------------------------------------
 # claim_and_spawn — STEP0-5 (the F-024 claim-before-spawn path).
 # ---------------------------------------------------------------------------
 
@@ -399,10 +474,21 @@ def claim_and_spawn(
     # STEP2 — assemble the runtime-neutral brief + the role_variant-selected load-manifest.
     work_node = _work_node_for(node_address, claim_result.binding)
     neutral = brief.assemble_neutral(node_address, level_config, work_node)
+
+    # STEP2a — JAIL WIRING (§2.3/§2.5a/§7): on a spawn that REQUESTS containment AND with the runtime
+    # root bound, PRODUCE the §2.5a block (resolve_containment), ATTACH it to the brief, and MERGE the
+    # §2.3 cache-redirect env. A structural spawn (no request) leaves the brief/env UNJAILED — the
+    # pane stays the bare ``env -i`` with exactly the 4 isolation vars (Increment-14 / Increment-9).
+    spawn_env: Optional[dict] = None
+    if _containment_requested(level_config) and ledger.RUNTIME_ROOT is not None:
+        neutral, spawn_env = _produce_containment(node_address, level_config, neutral, _spawn_env())
+
     spawn_brief = _brief_payload(neutral)
 
     # STEP3-5 — open the actor, record facts, reach running (rollback on any failure).
-    return _spawn_after_claim(node_address, claim_result.binding, level_config, spawn_brief)
+    return _spawn_after_claim(
+        node_address, claim_result.binding, level_config, spawn_brief, spawn_env
+    )
 
 
 def _work_node_for(node_address: str, binding: dict) -> dict:
@@ -441,6 +527,9 @@ def _brief_payload(neutral) -> dict:
         "frozen_acceptance_ref": neutral.frozen_acceptance_ref,
         "workspace": neutral.workspace,
         "reporting": neutral.reporting,
+        # JAIL WIRING: carry the resolved §2.5a containment block onto the adapter's dict brief so the
+        # adapter's tolerant ``_resolve_containment`` jails the pane. None on the structural path.
+        "containment_profile": neutral.containment_profile,
     }
 
 
