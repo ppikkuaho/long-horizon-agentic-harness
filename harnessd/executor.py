@@ -629,9 +629,13 @@ def watchdog_checkpoint(
             or binding.get("last_progress_at") != last_progress_at
         )
         must_reset_counter = healthy and prior_stale != 0
+        # An IDLE observation ADVANCES the two-counter ladder (derive_checkpoint: stale_count+1 on a
+        # STALE_FAMILY condition, L206-211) — without this the counter never grows and the
+        # idle->prod->FAILED ladder can never reach grace (the leaf would be prodded forever).
+        must_bump_counter = liveness_state == "idle"
 
-        if not slice_changed and not must_reset_counter:
-            # Steady-healthy poll: nothing changed and no counter to reset -> NO WAL append.
+        if not slice_changed and not must_reset_counter and not must_bump_counter:
+            # Steady-healthy poll: nothing changed and no counter to reset/bump -> NO WAL append.
             return CheckpointResult(ok=True, appended=False, binding=binding, errors=[])
 
         candidate = copy.deepcopy(binding)
@@ -641,9 +645,13 @@ def watchdog_checkpoint(
         candidate["last_evidence"] = last_evidence
         if gate_crossed_at is not None:
             candidate["gate_crossed_at"] = gate_crossed_at
-        # Reset the stale-counter on a healthy observation (L1337-1350); otherwise leave it.
+        # The two-counter discipline (§3.5 / WATCHDOG §3.5): a HEALTHY observation RESETS the
+        # stale-counter to 0 (L1337-1350); an IDLE observation INCREMENTS it (the ladder rung that
+        # eventually crosses stale_grace_checks -> FAILED). Other states leave it untouched.
         if healthy:
             candidate["stale_check_count"] = 0
+        elif liveness_state == "idle":
+            candidate["stale_check_count"] = (prior_stale or 0) + 1
 
         entry = ledger.build_wal_record(
             node_address=node_address,
