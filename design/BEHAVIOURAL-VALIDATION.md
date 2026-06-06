@@ -132,6 +132,25 @@ bands:
 > Scored via a multi-agent review of the produced `architecture.md` (independent dimensions + adversarial
 > verification, grounded in the real L2 role docs). The user sets/edits these.
 
+## The L3 (planning) design rubric (Inc 21) — DRAFT
+
+Scored against the produced `plan/area-{name}.md` (multi-agent review vs the real L3 role docs):
+
+1. **REALIZE-NOT-REDESIGN** — designs WITHIN the assigned area; does NOT redesign the architecture or
+   change L2's concept/area assignment (role.md §Boundaries).
+2. **PRESSURE-TEST L2's INTERFACE (the leak test, load-bearing)** — domain analysis catches the planted
+   interface flaw (the Search Port has no delivery-time authz recheck → an MNF-2 leak risk) and
+   RENEGOTIATES it UPWARD with a proposed correction; does NOT silently absorb the broken interface
+   (role.md:20). Silent absorption = a leak = fail.
+3. **ESCALATE CROSS-AREA DEPENDENCY** — the reindex path's dependency on the sibling Change-Event Port
+   (ordering / at-least-once unstated) is ESCALATED to L2 (the common ancestor), not silently assumed
+   (role.md §95, §Boundaries).
+4. **DETAILED AREA DESIGN** — workstreams, interface contracts at this level, decisions, a dependency map,
+   risks — at the right resolution (designs the area to delegate to L4 workstreams).
+5. **TRACE-BLOCKS on every element** — `kind: requirement`, a dotted child id under the parent's prefix
+   (`R-003.2` → `R-003.2.1`), `level: L3`; net-new elements only as `DR-` with a live `serves`-link;
+   inherited IDs it can't place are escalated, not dropped (the hard preflight requirement).
+
 ## The increments (Phase 6) — drafts for the user's behavioural opinion
 
 Detailed in `harnessd/IMPLEMENTATION-PLAN.md` (Phase 6). Proposed behavioural contracts:
