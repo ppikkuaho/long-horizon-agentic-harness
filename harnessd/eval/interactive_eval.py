@@ -81,6 +81,10 @@ class Pane:
     def capture(self) -> str:
         return self._tmux("capture-pane", "-p", "-t", self.session).stdout
 
+    def capture_full(self) -> str:
+        # full scrollback (history), so the agent's growing output is captured, not just the viewport
+        return self._tmux("capture-pane", "-p", "-S", "-", "-t", self.session).stdout
+
     def send_text(self, text: str):
         # type the text then Enter (two calls — Claude Code's input box submits on Enter)
         self._tmux("send-keys", "-t", self.session, "-l", text)
@@ -296,3 +300,76 @@ def run_interactive_eval(level: str, workspace: Path, initial_task: str, scenari
     finally:
         pane.kill()
     return run
+
+
+# ---------------------------------------------------------------------------
+# Autonomous level eval (L2-L5) — synthetic upstream input, the agent works to an output artifact.
+# The level mostly works AUTONOMOUSLY (reads its input → produces its output); the counterpart-sim is
+# used ONLY if the agent ESCALATES (asks a question). Far simpler than the L1 interactive intake.
+# ---------------------------------------------------------------------------
+
+def generate_synthetic(spec_prompt: str, *, timeout=180) -> str:
+    """One-shot LLM generation of a synthetic upstream artifact (e.g. a contract-valid intent-spec).
+
+    The cheap way to make a faithful upstream INPUT without running the full upstream cascade (the
+    user's "create a synthetic one"): hand the model the output contract + the request, get the artifact.
+    Unjailed (it is test-harness scaffolding, not an agent-under-test), no system prompt.
+    """
+    r = subprocess.run(
+        ["env", "-i", f"CLAUDE_CONFIG_DIR={CONFIG_DIR}", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+         "DISABLE_AUTOUPDATER=1", f"HOME={os.path.expanduser('~')}", CC, "-p", spec_prompt],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
+    return (r.stdout or "").strip()
+
+
+def run_autonomous_eval(level: str, workspace: Path, initial_task: str, escalation_scenario: str = "",
+                        *, work_timeout=900, **_ignored) -> EvalRun:
+    """Spawn a jailed level agent in PRINT mode that reads its synthetic input + works to completion,
+    producing its output artifact.
+
+    An autonomous artifact-producing level (L2-L5) does NOT need an interactive loop — it reads its
+    input, does its work, writes its output artifact, and exits. So we run `claude -p` (jailed +
+    dialog-free via seed_trust + skip-permissions, so the freeze that broke -p before is gone) with a
+    WALL-CLOCK TIMEOUT as the freeze guard: a frozen -p never returns, so a timeout detects it (the
+    coarser-but-real freeze detection the user's concern asked for). The level records open decisions as
+    deferred ADRs (per its task) rather than blocking — so it does not need the counterpart mid-run; the
+    counterpart-sim is reserved for the genuinely-interactive L1 intake + the cascade-dynamics escalation
+    round-trips. The leak test is judged from the PRODUCED ARTIFACT (did it ADR-defer or invent?).
+    """
+    workspace = Path(workspace)
+    (workspace / ".tmp").mkdir(parents=True, exist_ok=True)
+    run = EvalRun(level=level, scenario=escalation_scenario)
+
+    cc_config.seed_trust(CONFIG_DIR, str(workspace))
+    prof = workspace / "jail.sb"
+    prof.write_text(_self_auth_jail_profile(str(workspace), str(workspace / ".tmp")), encoding="utf-8")
+    seed_files = {p.name for p in workspace.iterdir() if p.is_file()}
+
+    cmd = ["/usr/bin/sandbox-exec", "-f", str(prof), "env", "-i",
+           f"CLAUDE_CONFIG_DIR={CONFIG_DIR}", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+           "DISABLE_AUTOUPDATER=1", f"CLAUDE_CODE_TMPDIR={workspace}/.tmp",
+           f"HOME={os.path.expanduser('~')}", "sh", "-c",
+           f"cd '{workspace}' && exec '{CC}' --system-prompt-file '{SYSTEM_PROMPT}' "
+           f"--add-dir '{_root()}' --dangerously-skip-permissions -p {_shquote(initial_task)}"]
+    run.add("system", f"[task] {initial_task}")
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           timeout=work_timeout)
+        run.add("agent", (r.stdout or "")[-6000:])
+        run.pane_tail = (r.stderr or "")[-2000:]
+        run.outcome = "done" if r.returncode == 0 else f"exit_{r.returncode}"
+    except subprocess.TimeoutExpired as exc:
+        run.outcome = "frozen"
+        run.add("system", f"[FROZEN] -p did not return within {work_timeout}s (the freeze guard fired)")
+        run.pane_tail = (exc.stdout or b"")[-2000:].decode("utf-8", "replace") if exc.stdout else ""
+    run.artifacts = {k: v for k, v in _artifacts(workspace, exclude=tuple(seed_files) + ("jail.sb",)).items()}
+    if run.artifacts and run.outcome.startswith("exit"):
+        run.outcome = "done"  # produced its artifact even if the process exit code was nonzero
+    print(f"[autonomous {level}] returned in {time.time()-t0:.0f}s outcome={run.outcome} "
+          f"artifacts={list(run.artifacts)}")
+    return run
+
+
+def _shquote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
