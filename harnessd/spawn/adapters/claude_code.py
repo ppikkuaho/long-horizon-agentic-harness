@@ -46,11 +46,12 @@ BUILDER DECISIONS for the §2.11 details the plan leaves open (stated in the bui
 from __future__ import annotations
 
 import hashlib
+import os
 import uuid
 from pathlib import Path
 
 from harnessd import config
-from harnessd.spawn import oauth_guard
+from harnessd.spawn import oauth_guard, sandbox
 
 from .base import RuntimeAdapter, SpawnResult
 
@@ -123,6 +124,31 @@ def _transcript_path(env: dict, session_name: str, session_uuid: str) -> str:
     return str(Path(config_dir) / "projects" / project_seg / f"{session_uuid}.jsonl")
 
 
+def _resolve_containment(neutral_brief, level_config) -> dict | None:
+    """Resolve the §2.5a ``containment_profile`` block, or None for the unjailed (dry-run) path.
+
+    SECURITY.md §7 wires the write-jail at the DAEMON §6.2 pane-launch command. The chokepoint
+    resolves the containment block (machine baseline -> per-spawn override -> resolved block,
+    §2.5a/§2.5b) and rides it on the brief / level_config. When NO block is present (the pure
+    dry-run argv/env assembly that the Increment-9 adapter tests exercise), the pane is the bare
+    ``env -i`` isolator — UNJAILED — so the dry-run boundary stays a deterministic, sandbox-free
+    assembly. When a block IS present, ``pin_and_open`` renders the §2.3 profile and wraps the
+    pane with ``sandbox-exec`` (§7.1).
+
+    The block is read from ``neutral_brief['containment_profile']`` first (the per-spawn override
+    the chokepoint flattens onto the brief), then ``level_config.containment_profile``. It must
+    already be RESOLVED to the §2.5a shape — WORKROOT/TMPDIR/CONFIG/HOME (+ optional
+    READ_DENY_ROOT / extra_read_denies / extra_write_roots). ``sandbox.render_profile`` owns the
+    §2.4 realpath-canonicalization; the chokepoint hands it logical paths.
+    """
+    block = (neutral_brief or {}).get("containment_profile")
+    if block is None:
+        block = getattr(level_config, "containment_profile", None)
+    if not block:
+        return None
+    return dict(block)
+
+
 class ClaudeCodeAdapter(RuntimeAdapter):
     """The concrete Claude-Code adapter (the H40 boot recipe; OAuth-only by construction)."""
 
@@ -162,6 +188,27 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         """
         return None
 
+    def _write_profile(self, env, containment, session_name, profile_text) -> str:
+        """Write the rendered ``.sb`` to a stable per-session path the seatbelt reads, return it.
+
+        The profile file lives under the jail's writable CONFIG dir (CLAUDE_CONFIG_DIR — a §2.3
+        write-allow root, realpath-canonicalized) so sandbox-exec can read it AND the spawning
+        daemon may rewrite it on resume/necro (the same jail is re-applied — §7). Falls back to
+        the containment CONFIG/TMPDIR when CLAUDE_CONFIG_DIR is not a real on-disk path (e.g. the
+        ``$HARNESS/...`` placeholder the dry-run carries). The filename is keyed to the collapsed
+        session so concurrent spawns never collide.
+        """
+        config_dir = env.get("CLAUDE_CONFIG_DIR", "")
+        base = config_dir if os.path.isdir(config_dir) else (
+            containment.get("CONFIG") or containment.get("TMPDIR") or containment.get("WORKROOT")
+        )
+        prof_dir = Path(base) / ".sandbox-profiles"
+        prof_dir.mkdir(parents=True, exist_ok=True)
+        safe = session_name.replace("/", "-").replace(":", "-")
+        pf = prof_dir / f"{safe}.sb"
+        pf.write_text(profile_text)
+        return str(pf)
+
     def pin_and_open(self, neutral_brief, level_config, tmux_target, env) -> SpawnResult:
         """Pin, OAuth-gate, open the from-empty pane, record the facts (the H40 recipe)."""
         env = dict(env)  # never mutate the caller's dict
@@ -195,28 +242,53 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         #     not a model outage). Lives in this path, NOT the shared gate.
         oauth_guard.check_credential_health(env)
 
-        # (6) ENFORCE the exact 4-var isolation set (defense-in-depth for the OAuth-only invariant).
-        #     The pane is built `env -i <K=V for each env var>`, so ANY extra var the caller passed
-        #     would widen the pane env — the precise leak `env -i` exists to prevent. Runs AFTER the
-        #     OAuth gate + credential check (so an api-key var -> ApiKeyForbidden and a missing token
-        #     -> AuthExpired keep their SPECIFIC classes) but BEFORE create_detached, so no
-        #     widened/incomplete pane ever opens. (This is the enforcement _ISOLATION_ENV_KEYS exists for.)
-        if set(env) != _ISOLATION_ENV_KEYS:
-            extra = set(env) - _ISOLATION_ENV_KEYS
+        # (6) Resolve the §2.5a containment block. When present, the pane is JAILED (§2.3 profile
+        #     + sandbox-exec wrap, §7.1) and its env legitimately carries the §2.3 containment vars
+        #     (CLAUDE_CODE_TMPDIR/HOME + the cache-redirection set) ON TOP of the 4 isolation vars.
+        #     When absent (the dry-run boundary), the pane is the bare `env -i` isolator and the
+        #     env MUST be EXACTLY the 4 isolation vars.
+        containment = _resolve_containment(neutral_brief, level_config)
+
+        # (6a) ENFORCE the OAuth-only isolation floor. UNJAILED: the env must be EXACTLY the 4
+        #      isolation vars (any extra widens the pane — the precise leak `env -i` prevents).
+        #      JAILED: the 4 isolation vars are the REQUIRED floor; the extra vars are the named
+        #      §2.3 containment set (no raw API key — already rejected by the OAuth gate above).
+        #      Runs AFTER the OAuth gate + credential check (so api-key -> ApiKeyForbidden and a
+        #      missing token -> AuthExpired keep their SPECIFIC classes) but BEFORE create_detached.
+        if containment is None:
+            if set(env) != _ISOLATION_ENV_KEYS:
+                extra = set(env) - _ISOLATION_ENV_KEYS
+                missing = _ISOLATION_ENV_KEYS - set(env)
+                raise oauth_guard.SpawnFailure(
+                    "pane env must be EXACTLY the 4 isolation vars (DAEMON §6.2); refusing to spawn a "
+                    f"widened/incomplete env. extra={sorted(extra)} missing={sorted(missing)}"
+                )
+        else:
             missing = _ISOLATION_ENV_KEYS - set(env)
-            raise oauth_guard.SpawnFailure(
-                "pane env must be EXACTLY the 4 isolation vars (DAEMON §6.2); refusing to spawn a "
-                f"widened/incomplete env. extra={sorted(extra)} missing={sorted(missing)}"
-            )
+            if missing:
+                raise oauth_guard.SpawnFailure(
+                    "jailed pane env must carry the 4 isolation vars (DAEMON §6.2) as its floor; "
+                    f"missing={sorted(missing)}"
+                )
 
         # (7) Deterministic first-boot trust (pre-seeded config dir; no send-keys race).
         self._deterministic_trust(env)
 
-        # (7) Open the detached actor with the EXACT from-empty pane vector we gated. session =
-        #     "harness:" + collapse(address). create_detached is wrapping-idempotent, so passing
-        #     the already-`env -i`-wrapped pane (rather than raw argv) does not double-wrap.
+        # (8) Render the §2.3 seatbelt profile and wrap the env-i pane with sandbox-exec (§7.1) when
+        #     a containment block is resolved. The wrapped vector — `sandbox-exec -f <profile>.sb
+        #     env -i <K=V…> <binary> <flags>` — IS the detached pane's launch command. The §2.4
+        #     canonicalization + the cache-redirection env are owned by the sandbox seam. create_-
+        #     detached is wrapping-idempotent for the bare-`env -i` head; the sandbox-wrapped vector
+        #     (head = sandbox-exec) is passed through verbatim.
         session_name = "harness:" + _collapse(tmux_target)
-        self.tmux.create_detached(session_name, pane_argv, env)
+        launch_argv = pane_argv
+        if containment is not None:
+            profile_text = sandbox.render_profile(containment)
+            profile_path = self._write_profile(env, containment, session_name, profile_text)
+            launch_argv = sandbox.wrap(pane_argv, profile_path)
+
+        # (9) Open the detached actor with the pane vector (wrapped when jailed, bare env -i when not).
+        self.tmux.create_detached(session_name, launch_argv, env)
 
         # (8) Record the facts (config = intent, model_used = fact).
         session_uuid = str(uuid.uuid4())
