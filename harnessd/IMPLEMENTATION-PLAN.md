@@ -867,6 +867,25 @@ shape 6/7 were written against.
 > see the bridge's credential-refresh thread). **Phase 6 (below) is PLANNED, not built**; Inc 18 (pieces-present)
 > is un-blocked; 19–24 need a working real boot (the token). The behavioural contracts in 19–24 are the user's to set.
 
+## Security-jail increment (PREREQUISITE for the Phase-6 real-agent evals) — building 2026-06-06
+
+> The SECURITY.md containment (LOCKED Option A: `sandbox-exec`/seatbelt write-jail + secret-read-deny,
+> skip-perms-inside-jail) — deferred at design time, built NOW because the Phase-6 evals spawn REAL
+> unattended agents with full, auto-approved tools (the jail is the structural blast-radius bound, not
+> the agent's judgment). `harnessd/spawn/sandbox.py` renders the §2.3 `.sb` profile (realpath-canonicalized,
+> §2.4 load-bearing) + wraps the env-i pane command in `sandbox-exec`; wired into the adapter spawn. Tests
+> are the §8.1 regression checklist (REAL sandbox-exec: $HOME-write denied, nested-sandbox/osascript/
+> launchctl/crontab/symlink-out blocked, /tmp-vs-/private/tmp canonicalization, secrets denied + role docs
+> allowed, real npm/pip cache-redirect) + **gate 1 (the REAL pinned CC boots + auths under the seatbelt)**.
+>
+> **KEY INSIGHT — auth↔jail interaction (resolves the FORK-ADAPTER-AUTH decision):** the jail's keychain
+> mach-deny conflicts with self-auth (the binary needs `securityd` to read its keychain login). So the
+> harness should **INJECT the live access token** (read by the control plane from the pinned login's
+> keychain credential; the jailed agent uses the env token and needs NO keychain) — which lets the keychain
+> mach-deny SHIP, fully closing the keychain in the jail (security-superior, and matches the Inc-9 env-var
+> design). Gate 1 confirms this empirically. (Open follow-on: keeping the injected token fresh = the
+> deferred daily-login automation, OR the user's periodic re-login.)
+
 ## Phase 6 — Behavioural validation (the trace-through)
 
 > Phase 5 (increments 0–17) verifies the substrate is **mechanically correct** (the stage works). Phase 6
