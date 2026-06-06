@@ -153,33 +153,23 @@ def pane_pid_cpu(node, pane_pid) -> float | None:
 # INCLUDE-item #3). nodes/<collapsed-address>/.signal.json -> {signal, ts, owner_token, evidence}.
 # ---------------------------------------------------------------------------
 
-def _collapse_address(node_address: str) -> str:
-    """Collapse an address#seat into the on-disk node-dir name (§3 tree: <collapsed-address>).
-
-    Both the '/' hierarchy separator and the '#' seat separator collapse to '-', matching the
-    runtime tree's nodes/<collapsed-address>/ convention (and the frozen test's _node_dir).
-    """
-    return node_address.replace("/", "-").replace("#", "-")
-
-
 def _signal_path(node):
-    """The .signal.json path for a node: RUNTIME_ROOT/nodes/<collapsed-address>/.signal.json.
+    """The per-SEAT sign-off signal: ``<nested-node-dir>/.signal.<seat>.json`` (``addressing.signal_path``).
 
-    Resolved against the ledger's injectable RUNTIME_ROOT (the daemon binds it once; tests bind
-    it to tmp_path) so the reader and the agent-writer agree on the same tree without a second
-    path seat.
+    NESTED by path + seat-qualified: exec and review share the node dir (two actors, one node) so the
+    signal filename carries the seat to keep their sign-offs distinct. Resolved against the ledger's
+    injectable RUNTIME_ROOT (the daemon binds it once; tests bind tmp_path) so the agent-writer and the
+    detector-reader agree on the same path without a second seat.
     """
-    from . import ledger  # local import: share the ONE injectable RUNTIME_ROOT seat
+    from . import addressing, ledger  # local import: share the ONE injectable RUNTIME_ROOT seat
 
     root = ledger.RUNTIME_ROOT
     if root is None:
         raise RuntimeError(
             "read_terminal_signal: ledger.RUNTIME_ROOT is not bound — the runtime tree root is "
-            "where nodes/<addr>/.signal.json lives; bind it (daemon startup / tests' fixture)."
+            "where nodes/<nested-path>/.signal.<seat>.json lives; bind it (daemon startup / tests)."
         )
-    from pathlib import Path
-
-    return Path(root) / "nodes" / _collapse_address(_node_address(node)) / ".signal.json"
+    return addressing.signal_path(_node_address(node), root)
 
 
 def read_terminal_signal(node, binding) -> dict | None:

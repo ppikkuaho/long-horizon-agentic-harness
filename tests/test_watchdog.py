@@ -190,29 +190,33 @@ def _read(node=LEAF):
     return ledger.read_binding(node)
 
 
+import harnessd.addressing as _addressing
+
+
 def _node_dir(runtime, node_address):
-    collapsed = node_address.replace("/", "-").replace("#", "-")
-    d = runtime / "nodes" / collapsed
+    d = _addressing.node_dir(node_address, runtime)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _write_signal(runtime, node_address, *, signal, owner_token, evidence=None):
-    d = _node_dir(runtime, node_address)
+    # Same canonical derivation the reader uses (nested dir + per-seat .signal.<seat>.json).
+    p = _addressing.signal_path(node_address, runtime)
+    p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "signal": signal,
         "ts": _now_iso(),
         "owner_token": owner_token,
         "evidence": evidence or {},
     }
-    (d / ".signal.json").write_text(json.dumps(payload))
+    p.write_text(json.dumps(payload))
     return payload
 
 
 def _append_inbox(runtime, node_address, line: dict) -> int:
-    """Append one JSONL line to <node>/.inbox.jsonl (MULTI-writer append, TRANSPORTS §2). Return new size."""
-    d = _node_dir(runtime, node_address)
-    p = d / ".inbox.jsonl"
+    """Append one JSONL line to the per-seat wake inbox (addressing.inbox_path). Return new size."""
+    p = _addressing.inbox_path(node_address, runtime)
+    p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(line) + "\n")
     return p.stat().st_size

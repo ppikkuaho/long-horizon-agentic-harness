@@ -56,6 +56,45 @@ def test_token_re_deny_holds_even_when_config_under_workroot():
         shutil.rmtree(wr, ignore_errors=True)
 
 
+def test_coordinator_jail_permits_seeding_a_child_node_but_denies_a_cousin():
+    """THE canonical write model under a REAL sandbox (ARCHITECTURE.md:122 'each level writes within
+    its own workspace and creates child workspaces within it'): a coordinator whose WORKROOT is its
+    nested node dir can WRITE a child node path UNDER it (seed brief.md/acceptance.md) — but a COUSIN
+    path OUTSIDE its subtree is write-DENIED (the safety floor: no cross-subtree writes). This is the
+    property the flat layout broke and the nested fix restores."""
+    root = os.path.realpath(tempfile.mkdtemp(prefix="jail-subtree-"))
+    try:
+        # The coordinator's WORKROOT = its nested node dir; a child nests UNDER it, a cousin does not.
+        parent_wr = sandbox.resolve_containment("proj/widget#exec", runtime_root=root,
+                                                config_dir=os.path.join(root, "cfg"),
+                                                home=os.path.expanduser("~"))["WORKROOT"]
+        # Pre-create the dir tree OUTSIDE the jail (mkdir -p under sandbox would EPERM on dirs above
+        # WORKROOT); the jail test is about the FILE WRITE (the actual seed), not dir traversal.
+        child_dir = sandbox.resolve_containment("proj/widget/parser#exec", runtime_root=root,
+                                                config_dir=os.path.join(root, "cfg"),
+                                                home=os.path.expanduser("~"))["WORKROOT"]
+        cousin_dir = sandbox.resolve_containment("proj/checkout#exec", runtime_root=root,
+                                                 config_dir=os.path.join(root, "cfg"),
+                                                 home=os.path.expanduser("~"))["WORKROOT"]
+        os.makedirs(child_dir, exist_ok=True)
+        os.makedirs(cousin_dir, exist_ok=True)
+        profile = sandbox.render_profile(
+            {"WORKROOT": parent_wr, "TMPDIR": os.path.join(parent_wr, ".tmp"),
+             "CONFIG": os.path.join(root, "cfg"), "HOME": os.path.expanduser("~"), "READ_DENY_ROOT": root})
+        # WRITE a brief into a CHILD node UNDER the coordinator's WORKROOT (the seed) -> ALLOWED.
+        child_brief = os.path.join(child_dir, "brief.md")
+        w = _run_in_jail(profile, ["sh", "-c", f"echo SEED > '{child_brief}'"])
+        assert w.returncode == 0 and os.path.exists(child_brief), \
+            "a coordinator MUST be able to seed a child node dir under its own WORKROOT subtree"
+        # WRITE into a COUSIN node OUTSIDE the subtree -> DENIED (the safety floor holds).
+        cousin = os.path.join(cousin_dir, "pwn.md")
+        c = _run_in_jail(profile, ["sh", "-c", f"echo X > '{cousin}'"])
+        assert c.returncode != 0 and not os.path.exists(cousin), \
+            "a coordinator must NOT be able to write a cousin node OUTSIDE its subtree (cross-subtree write)"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_own_env_still_readable_under_workroot():
     """Control: the agent's OWN workspace .env IS readable (the re-deny is scoped to the token, NOT a
     blanket re-deny that would break the agent reading its own secrets)."""
@@ -100,10 +139,22 @@ def test_config_dir_is_readable_even_under_read_deny_root_but_token_still_denied
 
 @pytest.mark.skipif(False, reason="pure function")
 def test_resolve_containment_produces_the_v1_floor_block():
-    """resolve_containment (the production seam): WORKROOT = the node's own subtree under the runtime
-    root; READ_DENY_ROOT = the whole runtime root (cross-node read-confidentiality floor)."""
+    """resolve_containment (the production seam): WORKROOT = the node's own NESTED subtree under the
+    runtime root; READ_DENY_ROOT = the whole runtime root (cross-node read-confidentiality floor)."""
     b = sandbox.resolve_containment("proj/widget#exec", runtime_root="/runtime", config_dir="/cfg", home="/home/u")
-    assert b["WORKROOT"] == "/runtime/proj-widget-exec"
-    assert b["READ_DENY_ROOT"] == "/runtime"  # deny all other nodes; WORKROOT re-allow re-opens own
-    assert b["TMPDIR"] == "/runtime/proj-widget-exec/.tmp"
+    # NESTED by path (addressing.node_dir): nodes/<path>, NOT the old flat proj-widget-exec.
+    assert b["WORKROOT"] == "/runtime/nodes/proj/widget"
+    assert b["READ_DENY_ROOT"] == "/runtime"  # deny all other nodes; WORKROOT re-allow re-opens own subtree
+    assert b["TMPDIR"] == "/runtime/nodes/proj/widget/.tmp"
     assert b["CONFIG"] == "/cfg" and b["HOME"] == "/home/u"
+
+
+def test_resolve_containment_workroot_holds_the_childs_workroot():
+    """THE fix's load-bearing property: a coordinator's WORKROOT is a PARENT dir of its child's WORKROOT,
+    so `(allow file-write* (subpath WORKROOT))` lets the coordinator SEED its children's nodes
+    (ARCHITECTURE.md:122 'creates child workspaces within it'). The flat layout broke this."""
+    parent = sandbox.resolve_containment("proj/widget#exec", runtime_root="/runtime",
+                                         config_dir="/cfg", home="/home/u")["WORKROOT"]
+    child = sandbox.resolve_containment("proj/widget/parser#exec", runtime_root="/runtime",
+                                        config_dir="/cfg", home="/home/u")["WORKROOT"]
+    assert child.startswith(parent + "/"), "the child WORKROOT must nest under the parent WORKROOT"

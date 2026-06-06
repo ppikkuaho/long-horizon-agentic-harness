@@ -64,7 +64,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from harnessd import config, executor, fencing, ledger, states, store
+from harnessd import addressing, config, executor, fencing, ledger, states, store
 from harnessd.spawn import brief, sandbox
 from harnessd.spawn.adapters.base import SpawnResult
 from harnessd.spawn.oauth_guard import SpawnFailure
@@ -595,8 +595,9 @@ def _sanitize_address(node_address: str) -> str:
 
 
 def _child_node_dir(node_address: str) -> Path:
-    """The child node workspace dir: ``<RUNTIME_ROOT>/nodes/<sanitized-address>/`` (FORK-BRIEF-LANDING)."""
-    return Path(ledger.RUNTIME_ROOT) / "nodes" / _sanitize_address(node_address)
+    """The child node workspace dir — NESTED by path (``addressing.node_dir``), so a child's dir sits
+    UNDER its parent's and the parent's WORKROOT-subtree write-jail can seed it (ARCHITECTURE.md:122)."""
+    return addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
 
 
 def _register_child(

@@ -124,10 +124,11 @@ def test_ladder_resets_on_recovery(runtime):
 # --- mutant survivor 2: ESCALATED->NOOP isolated with idle liveness ------------------------------
 
 def _write_signal(signal, owner_token):
-    node_dir = ledger.RUNTIME_ROOT / "nodes" / "proj-widget-exec"
-    node_dir.mkdir(parents=True, exist_ok=True)
     import json
-    (node_dir / ".signal.json").write_text(
+    import harnessd.addressing as _addressing
+    p = _addressing.signal_path(LEAF, ledger.RUNTIME_ROOT)  # nested dir + per-seat signal file
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
         json.dumps({"signal": signal, "ts": _now(), "owner_token": owner_token, "evidence": "x"}),
         encoding="utf-8")
 

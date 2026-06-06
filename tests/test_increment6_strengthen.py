@@ -82,10 +82,11 @@ def test_corrupt_signal_json_propagates_not_silent_idle(tmp_path, monkeypatch):
     addr, transcript = _seed(tmp_path, monkeypatch, last_progress_at="2020-01-01T00:00:00+00:00",
                              terminal_signal="ESCALATED")  # flat beyond W, escalated
     monkeypatch.setattr(ds, "pane_alive", lambda node: (True, 123))  # warm pane
-    # write a CORRUPT .signal.json at the node's signal path
-    node_dir = tmp_path / "nodes" / "proj-a-exec"
-    node_dir.mkdir(parents=True)
-    (node_dir / ".signal.json").write_text("{not valid json", encoding="utf-8")
+    # write a CORRUPT signal at the node's canonical per-seat signal path (nested derivation)
+    import harnessd.addressing as _addressing
+    sigp = _addressing.signal_path(addr, tmp_path)
+    sigp.parent.mkdir(parents=True, exist_ok=True)
+    sigp.write_text("{not valid json", encoding="utf-8")
     # flat-beyond-W (grew=False on a baseline read) reaches step 6 -> reads the corrupt signal ->
     # must PROPAGATE the JSONDecodeError, NOT silently fall through to idle.
     with pytest.raises(json.JSONDecodeError):

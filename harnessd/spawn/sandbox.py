@@ -86,9 +86,13 @@ def cache_redirect_env(workroot: str) -> dict[str, str]:
 # the block to the brief, which makes the adapter jail the pane).
 # ---------------------------------------------------------------------------
 
-def _collapse(node_address: str) -> str:
-    """`a/b#seat` -> `a-b-seat` — the workspace dir name (matches the tmux_target collapse)."""
-    return node_address.replace("/", "-").replace("#", "-")
+def _node_workroot(node_address: str, runtime_root: str) -> str:
+    """The node's WORKROOT — NESTED by path (``addressing.node_dir``), so a coordinator's WORKROOT is a
+    PARENT dir of its children's WORKROOTs and `(allow file-write* (subpath WORKROOT))` covers the whole
+    subtree it may seed (ARCHITECTURE.md:122 'creates child workspaces within it'). The `#seat` is not a
+    path segment (it would break that nesting); seats share the node workspace."""
+    from harnessd import addressing
+    return str(addressing.node_dir(node_address, runtime_root))
 
 
 def resolve_containment(node_address: str, *, runtime_root: str, config_dir: str,
@@ -103,7 +107,7 @@ def resolve_containment(node_address: str, *, runtime_root: str, config_dir: str
     published-contract + parent-chain reads are a deferred extra_read refinement). All paths are
     realpath-canonicalized by ``render_profile`` (§2.4); logical paths are fine to hand in here.
     """
-    workroot = os.path.join(str(runtime_root), _collapse(node_address))
+    workroot = _node_workroot(node_address, str(runtime_root))
     return {
         "WORKROOT": workroot,
         "TMPDIR": os.path.join(workroot, ".tmp"),

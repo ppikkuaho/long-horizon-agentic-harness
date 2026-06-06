@@ -444,17 +444,18 @@ def wake_keystroke(node) -> str:
 
 
 def _inbox_path(node):
-    """Resolve <node>/.inbox.jsonl under the runtime tree (same collapsed-address seat as .signal.json)."""
-    from pathlib import Path
+    """Resolve the per-SEAT wake inbox ``<nested-node-dir>/.inbox.<seat>.jsonl`` (``addressing.inbox_path``)
+    — the same nested node dir as ``.signal.<seat>.json``, seat-qualified so the L5/L5+ pair don't share
+    a wake surface."""
+    from . import addressing
 
     root = ledger.RUNTIME_ROOT
     if root is None:
         raise RuntimeError(
             "inbox path is not configured: bind ledger.RUNTIME_ROOT (the runtime tree root where "
-            "nodes/<addr>/.inbox.jsonl lives)"
+            "nodes/<nested-path>/.inbox.<seat>.jsonl lives)"
         )
-    collapsed = _node_address(node).replace("/", "-").replace("#", "-")
-    return Path(root) / "nodes" / collapsed / ".inbox.jsonl"
+    return addressing.inbox_path(_node_address(node), root)
 
 
 # ===========================================================================

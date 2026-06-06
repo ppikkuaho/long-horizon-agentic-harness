@@ -184,23 +184,27 @@ def _level_config(role_variant="L3"):
     )
 
 
+import harnessd.addressing as _addressing
+
+
 def _node_dir(runtime, node_address):
-    collapsed = node_address.replace("/", "-").replace("#", "-")
-    d = runtime / "nodes" / collapsed
+    d = _addressing.node_dir(node_address, runtime)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _write_signal(runtime, node_address, *, signal, owner_token, evidence=None):
-    """Write the REAL .signal.json the agent would write (atomic-ish: the fake CLI's sign-off)."""
-    d = _node_dir(runtime, node_address)
+    """Write the REAL per-seat .signal.<seat>.json the agent would write, through the canonical
+    addressing derivation (the same nested path the fenced reader uses)."""
+    p = _addressing.signal_path(node_address, runtime)
+    p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "signal": signal,
         "ts": _now_iso(),
         "owner_token": owner_token,
         "evidence": evidence or {},
     }
-    (d / ".signal.json").write_text(json.dumps(payload), encoding="utf-8")
+    p.write_text(json.dumps(payload), encoding="utf-8")
     return payload
 
 

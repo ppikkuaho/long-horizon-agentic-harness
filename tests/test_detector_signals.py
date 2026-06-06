@@ -132,23 +132,28 @@ def test_pane_pid_cpu_is_stub_none_in_v1(runtime, tmp_path):
 # nodes/<collapsed-address>/.signal.json carrying {signal, ts, owner_token, evidence}.
 # ===========================================================================
 
+import harnessd.addressing as _addressing
+
+
 def _node_dir(runtime, node_address):
-    """The node dir per the runtime layout: nodes/<collapsed-address>/."""
-    collapsed = node_address.replace("/", "-").replace("#", "-")
-    d = runtime / "nodes" / collapsed
+    """The node dir per the canonical NESTED layout (addressing.node_dir)."""
+    d = _addressing.node_dir(node_address, runtime)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _write_signal(runtime, node_address, *, signal, owner_token, evidence=None):
-    d = _node_dir(runtime, node_address)
+    # Write through the SAME canonical derivation the reader uses (nested dir + per-seat signal file),
+    # so the test writer and detector_signals.read_terminal_signal can never drift on the layout.
+    path = _addressing.signal_path(node_address, runtime)
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "signal": signal,
         "ts": _now(),
         "owner_token": owner_token,
         "evidence": evidence or {},
     }
-    (d / ".signal.json").write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload))
     return payload
 
 

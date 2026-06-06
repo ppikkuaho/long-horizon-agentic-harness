@@ -332,11 +332,11 @@ def _is_sandbox_exec_wrapped(launch_argv) -> bool:
 def _expected_workroot(runtime_root) -> str:
     """The resolve_containment-derived WORKROOT for THIS node, realpath-canonicalized (§2.4).
 
-    sandbox.resolve_containment joins runtime_root with the collapsed node address; render_profile
-    canonicalizes. We compute the same so the test pins the RIGHT node's jail (not a hardcoded root).
+    sandbox.resolve_containment derives the NESTED node dir (addressing.node_dir = nodes/<path>);
+    render_profile canonicalizes. We compute the same so the test pins the RIGHT node's jail.
     """
-    collapsed = NODE.replace("/", "-").replace("#", "-")
-    return os.path.realpath(os.path.join(str(runtime_root), collapsed))
+    import harnessd.addressing as _addressing
+    return os.path.realpath(str(_addressing.node_dir(NODE, str(runtime_root))))
 
 
 # A real CONFIG dir so the adapter's _write_profile can write the rendered .sb to disk. The chokepoint
