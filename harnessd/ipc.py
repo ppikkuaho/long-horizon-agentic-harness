@@ -170,36 +170,58 @@ def _handle_kill(request: dict) -> dict:
 
 
 def _handle_spawn(request: dict) -> dict:
-    """A claim-before-spawn (spawn <addr>) — routed THROUGH chokepoint.claim_and_spawn.
+    """A spawn (spawn <addr>) — routed THROUGH the chokepoint (the single writer), inside the one lock.
 
-    The chokepoint's STEP1 CAS-claim is a REAL ``executor.claim`` transition under the one EX lock (the
-    single writer); STEP3 opens the actor through the installed adapter (a dry-run FakeAdapter in tests,
-    the real RuntimeAdapter in production). The level config is resolved from the request's ``level``
-    (defaulting to the node's recorded level, else L3).
+    TWO routes (the ``parent`` field is the discriminator):
+      * --parent given -> the PARENT-SPAWNS-CHILD route: ``chokepoint.register_and_spawn_child``
+        registers the child UNDER the parent (parent_address SET), writes the brief into the child
+        node, then claim-before-spawns it (F-024). The CLI is NOT a writer — the DAEMON performs the
+        whole register+brief+spawn here inside the one lock.
+      * no --parent -> the EXISTING claim-only spawn of an already-planned node
+        (``chokepoint.claim_and_spawn``): STEP1 CAS-claim, STEP3 actor open via the installed adapter.
+
+    The chokepoint's claim is a REAL ``executor.claim`` transition under the one EX lock (the single
+    writer); the actor opens through the installed adapter (a dry-run FakeAdapter in tests, the real
+    RuntimeAdapter in production). The level config is resolved from the request's ``level`` (defaulting
+    to the node's recorded level, else L3).
     """
     addr = request.get("addr")
     live = ledger.read_binding(addr)
     level = request.get("level") or (live.get("level") if live else None) or "L3"
     level_config = config.get_level_config(level)
-    expected_state = request.get("expected_state")
-    expected_generation = request.get("expected_generation")
-    if expected_state is None and live is not None:
-        expected_state = live.get("state")
-    if expected_generation is None and live is not None:
-        expected_generation = live.get("generation")
-    result = chokepoint.claim_and_spawn(
-        addr,
-        expected_state=expected_state,
-        expected_generation=expected_generation,
-        expected_owner_token=request.get("expected_owner_token"),
-        level_config=level_config,
-    )
+
+    parent = request.get("parent") or request.get("parent_address")
+    if parent:
+        # PARENT-SPAWNS-CHILD: the daemon registers the child under the parent + briefs it + spawns it,
+        # all inside the one lock (the CLI shipped only the parent address + the brief_content text).
+        result = chokepoint.register_and_spawn_child(
+            parent,
+            addr,
+            child_level_config=level_config,
+            brief_content=request.get("brief_content"),
+            expected_parent_owner_token=request.get("expected_owner_token"),
+        )
+    else:
+        expected_state = request.get("expected_state")
+        expected_generation = request.get("expected_generation")
+        if expected_state is None and live is not None:
+            expected_state = live.get("state")
+        if expected_generation is None and live is not None:
+            expected_generation = live.get("generation")
+        result = chokepoint.claim_and_spawn(
+            addr,
+            expected_state=expected_state,
+            expected_generation=expected_generation,
+            expected_owner_token=request.get("expected_owner_token"),
+            level_config=level_config,
+        )
     binding = ledger.read_binding(addr)
     ok = bool(getattr(result, "ok", False))
     return {
         "ok": ok,
         "command": "spawn",
         "addr": addr,
+        "parent": parent,
         "session_uuid": getattr(result, "session_uuid", None),
         "model_used": getattr(result, "model_used", None),
         "failure_class": getattr(result, "failure_class", None),

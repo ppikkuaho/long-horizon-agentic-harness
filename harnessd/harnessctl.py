@@ -121,6 +121,17 @@ def build_parser() -> argparse.ArgumentParser:
     spawn.add_argument("--expected-state", dest="expected_state", default=None)
     spawn.add_argument("--expected-generation", dest="expected_generation", type=int, default=None)
     spawn.add_argument("--expected-owner-token", dest="expected_owner_token", default=None)
+    # The PARENT-SPAWNS-CHILD route (the supervision-tree spawn). When --parent is given the daemon
+    # registers the child under the parent + briefs it + spawns it; without it the daemon falls to the
+    # EXISTING claim-only spawn of an already-planned node. The CLI only serializes the parent address.
+    spawn.add_argument(
+        "--parent", dest="parent", default=None,
+        help="the parent node address — routes a parent-spawns-child (register+brief+spawn) via the daemon",
+    )
+    spawn.add_argument(
+        "--brief", dest="brief", default=None,
+        help="path to a file whose contents are the child's brief (the child's actual task)",
+    )
 
     transition = subparsers.add_parser(
         "transition", help="transition a node to a target state (mutation -> daemon)"
@@ -157,7 +168,7 @@ _REQUEST_FIELDS = {
     "next-seq": (),
     "validate": (),
     "reconcile-inspect": (),
-    "spawn": ("level", "expected_state", "expected_generation", "expected_owner_token"),
+    "spawn": ("level", "expected_state", "expected_generation", "expected_owner_token", "parent"),
     "transition": (
         "expected_state",
         "expected_generation",
@@ -170,13 +181,23 @@ _REQUEST_FIELDS = {
 
 
 def _build_request(args: argparse.Namespace) -> dict:
-    """Serialize the parsed namespace into the daemon request dict (pure — no mutation)."""
+    """Serialize the parsed namespace into the daemon request dict (pure — no ledger mutation).
+
+    The ONLY non-trivial step is the spawn ``--brief`` flag: the CLIENT reads the brief FILE
+    (client-side file I/O, NOT a ledger write — the brief is the child's task text the daemon writes
+    into the child node) and ships its CONTENTS as ``brief_content``. The daemon, not the CLI, writes
+    the brief into the child node (the cardinal rule: the CLI is a client, never a writer).
+    """
     request: dict = {"command": args.command}
     if hasattr(args, "addr"):
         request["addr"] = args.addr
     for field in _REQUEST_FIELDS.get(args.command, ()):  # only the fields this command carries
         if hasattr(args, field):
             request[field] = getattr(args, field)
+    # spawn --brief <file>: read the file CONTENTS (client-side file read) and ship as brief_content.
+    brief_path = getattr(args, "brief", None)
+    if args.command == "spawn" and brief_path:
+        request["brief_content"] = Path(brief_path).read_text(encoding="utf-8")
     return request
 
 

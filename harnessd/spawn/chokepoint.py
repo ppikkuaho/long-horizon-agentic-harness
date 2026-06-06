@@ -59,10 +59,12 @@ BUILDER DECISIONS (the §2.11 details the frozen tests leave open — stated in 
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
+from pathlib import Path
 from typing import Optional
 
-from harnessd import config, executor, fencing, ledger
+from harnessd import config, executor, fencing, ledger, states, store
 from harnessd.spawn import brief, sandbox
 from harnessd.spawn.adapters.base import SpawnResult
 from harnessd.spawn.oauth_guard import SpawnFailure
@@ -531,6 +533,258 @@ def _brief_payload(neutral) -> dict:
         # adapter's tolerant ``_resolve_containment`` jails the pane. None on the structural path.
         "containment_profile": neutral.containment_profile,
     }
+
+
+# ---------------------------------------------------------------------------
+# register_and_spawn_child — THE ONE parent-spawns-child path (the supervision-tree spawn).
+#
+# A PARENT (e.g. an L2) creates + briefs + spawns its CHILD (e.g. an L3). genesis registers the
+# parentless L1 ROOT (_register_l1_root, parent_address=null); this is the GENERAL case the cascade
+# below L1 needs: a live parent registers its child with parent_address SET, writes the brief into
+# the child node, then hands it to the EXISTING claim_and_spawn (F-024 preserved). STEPS:
+#   (1) PRECONDITION — the parent binding exists + is LIVE (non-terminal). Only a live parent spawns;
+#       a dead/absent parent is REFUSED BEFORE any child register (no half-registered orphan slot).
+#   (2) REGISTER — the child as a fresh planned slot under the parent (mirror _register_l1_root but
+#       parent_address SET): generation=0, lease_epoch=1, a minted owner_token, written via the
+#       single-writer lock-held ledger path. SAFE if the child already exists (does NOT clobber a
+#       live/non-planned child — that lets the claim lose against it, single-owner preserved).
+#   (3) BRIEF — brief.assemble_neutral's load-manifest + the parent brief_content written into the
+#       child node workspace (a BRIEF.md the child reads in place; FORK-BRIEF-LANDING below).
+#   (4) SPAWN — the EXISTING chokepoint.claim_and_spawn(child, expected_state=planned, …) — the
+#       F-024 claim-before-spawn (a lost claim opens NO actor; on a post-claim failure the claim is
+#       released exactly as today).
+#
+# BUILDER DECISIONS (the increment leaves these open — STATED here + in the build report):
+#
+#   * FORK-BRIEF-LANDING — the brief lands at ``<RUNTIME_ROOT>/nodes/<sanitized-child-address>/
+#     BRIEF.md`` (the child node-dir layout). The address is sanitized for the filesystem ('/' and
+#     '#' -> '__') so a nested address (proj/feature/widget#exec) is one node dir. The BRIEF.md
+#     carries BOTH the parent brief_content (the child's actual task) AND the assembled
+#     load-manifest (the role-as-documents paths the child reads in place). The same workspace +
+#     brief_content are ALSO recorded onto the child binding for legibility, so the brief is
+#     recoverable from the node whether a reader scans the on-disk file OR the binding slice. A
+#     dedicated work-node schema (status/log/report scaffolding) is a later cluster's refinement;
+#     v1 writes the one BRIEF.md the child boots against.
+#
+#   * FORK-CHILD-SUBTREE — child_address must be UNDER the parent subtree (the address-prefix edge).
+#     v1 checks ``child_address.startswith(parent_address)`` defensively but does NOT hard-refuse a
+#     non-prefixed child (the load-bearing supervision edge is parent_address recorded on the child
+#     binding, which is set authoritatively from parent_address here regardless of the string shape;
+#     an address-prefix can be spoofed by sibling naming — the recorded edge is authoritative, the
+#     same reasoning as ancestors_inclusive's FORK-ANCESTORS).
+#
+#   * FORK-PARENT-TOKEN — ``expected_parent_owner_token`` is threaded for the live-parent precondition
+#     (the parent presents its own token to authorize spawning a child). v1's load-bearing gate is the
+#     parent's LIVENESS (non-terminal); the token, when given AND the parent exists, is a best-effort
+#     cross-check that does NOT reject a live parent on a mismatch (a later cluster can harden it into
+#     a hard fence). It is NEVER the child's claim precondition — the child claim uses the CHILD's
+#     freshly-minted registered owner_token (the §6.1 claim CAS).
+# ---------------------------------------------------------------------------
+
+def _parent_is_live(parent_binding: Optional[dict]) -> bool:
+    """True iff the parent binding exists AND is non-terminal (only a LIVE parent spawns a child)."""
+    if parent_binding is None:
+        return False
+    return not states.is_terminal(parent_binding.get("state"))
+
+
+def _sanitize_address(node_address: str) -> str:
+    """Map a node address to a single filesystem-safe node-dir name ('/' and '#' -> '__')."""
+    return node_address.replace("/", "__").replace("#", "__")
+
+
+def _child_node_dir(node_address: str) -> Path:
+    """The child node workspace dir: ``<RUNTIME_ROOT>/nodes/<sanitized-address>/`` (FORK-BRIEF-LANDING)."""
+    return Path(ledger.RUNTIME_ROOT) / "nodes" / _sanitize_address(node_address)
+
+
+def _register_child(
+    child_address: str,
+    parent_address: str,
+    child_level_config,
+    runtime_root: Path,
+) -> Optional[dict]:
+    """Register the child as a fresh ``planned`` slot UNDER the parent (mirror _register_l1_root).
+
+    parent_address is SET (the supervision-tree edge — only the L1 root is parentless). generation=0,
+    lease_epoch=1, a minted owner_token, written via the single-writer lock-held ledger path under the
+    EX lock (the §2.10-sanctioned lock-held seeding the suite uses). SAFE if the child already exists:
+    if a NON-planned child binding is already present (e.g. a RUNNING child from a prior spawn) this
+    does NOT clobber it — it returns the LIVE binding so the caller's claim (expected_state=planned)
+    loses against it (single-owner; no double-register of a live child). A child that is absent (or
+    already terminal/planned) is (re-)registered as a fresh planned slot the claim can win.
+
+    Returns the registered (or pre-existing-live) child binding.
+    """
+    live = ledger.read_binding(child_address)
+    # SINGLE-OWNER: do NOT overwrite a live non-planned child (a running/claimed/spawning incarnation).
+    # Returning it lets the caller's planned-expected claim lose against it (no double-open, F35/F-024).
+    if live is not None and not states.is_terminal(live.get("state")) and live.get("state") != "planned":
+        return live
+
+    level = getattr(child_level_config, "level", None) or "L3"
+    role_variant = getattr(child_level_config, "role_variant", None) or level
+    subagent_id = "subagent-" + _sanitize_address(child_address)
+    session_uuid = "registered-" + _sanitize_address(child_address)
+    lease_epoch = 1
+    generation = 0
+    owner_token = fencing.mint_owner_token(child_address, subagent_id, session_uuid, lease_epoch)
+    binding = {
+        "node_address": child_address,
+        "parent_address": parent_address,  # the supervision-tree edge — SET (not null), DAEMON §7
+        "level": level,
+        "subagent_id": subagent_id,
+        "session_uuid": session_uuid,
+        "tmux_target": "harness:" + child_address,
+        "state": "planned",
+        "generation": generation,
+        "lease_epoch": lease_epoch,
+        "owner_token": owner_token,
+        "last_applied_seq": 0,
+        "liveness_state": "claimed",
+        "terminal_signal": None,
+        "terminal_signal_at": None,
+        "gate_crossed_at": None,
+        "paused_at": None,
+        "workspace": str(_child_node_dir(child_address)),
+    }
+    # Merge into the live whole map (preserve siblings) and write under a BRIEFLY-held EX lock —
+    # released on exit, before claim_and_spawn re-takes it per-mutation (no re-entrant fcntl deadlock).
+    # This mirrors genesis._register_l1_root's lock-held seed exactly, with parent_address SET.
+    lock_path = Path(runtime_root) / executor.LOCK_FILENAME
+    with store.file_lock(lock_path, shared=False):
+        live_map = dict(ledger.all_nodes())
+        live_map[child_address] = binding
+        ledger.write_binding(live_map, _lock_held=True)
+    return binding
+
+
+def _write_child_brief(
+    child_address: str,
+    child_level_config,
+    registered_binding: dict,
+    brief_content: Optional[str],
+) -> None:
+    """Write the child BRIEF.md (the assembled load-manifest + the parent brief_content) into the node.
+
+    The brief lands SOMEWHERE the child reads it in place (DAEMON §6.1 STEP2 + the increment). v1
+    assembles the runtime-neutral load-manifest (brief.assemble_neutral — the role-as-documents PATHS
+    the child reads) and writes it ALONGSIDE the parent brief_content (the child's actual task) into
+    ``<node-dir>/BRIEF.md`` (FORK-BRIEF-LANDING). The brief_content is ALSO recorded onto the child
+    binding (a ``brief_content`` field) so the task is recoverable from the binding slice too. A
+    skipped brief would leave the child node with no task / no manifest (the mutant the (b) test kills).
+    """
+    work_node = _work_node_for(child_address, registered_binding)
+    neutral = brief.assemble_neutral(child_address, child_level_config, work_node)
+
+    node_dir = _child_node_dir(child_address)
+    node_dir.mkdir(parents=True, exist_ok=True)
+    brief_path = node_dir / "BRIEF.md"
+
+    lines: list[str] = [
+        f"# BRIEF — {child_address}",
+        "",
+        f"- node_address: {child_address}",
+        f"- parent_address: {registered_binding.get('parent_address')}",
+        f"- level: {neutral.level}",
+        f"- role_variant: {neutral.role_variant}",
+        f"- system_prompt_file: {neutral.system_prompt_file}",
+        "",
+        "## Identity — Load These Documents (read in place)",
+        "",
+    ]
+    lines.extend(f"- {path}" for path in neutral.load_manifest)
+    lines.extend(["", "## Task", "", brief_content if brief_content else "(no brief_content supplied)", ""])
+
+    def render(handle):
+        handle.write("\n".join(lines))
+        handle.write("\n")
+
+    store.atomic_replace(brief_path, render)
+
+    # Record the brief_content (the child's actual task) + the workspace onto the child binding too,
+    # so the brief is recoverable from the binding slice as well as the on-disk BRIEF.md. This is a
+    # control-plane own-slice write routed through the single writer (NOT a lifecycle transition):
+    # the child is still ``planned`` and unclaimed here, so we fence on the registered owner_token.
+    executor.deliver(
+        child_address,
+        deliverable_state="briefed",
+        expected_owner_token=registered_binding.get("owner_token"),
+        event="brief_written",
+        summary=f"child brief written into the node ({brief_path})",
+    )
+
+
+def register_and_spawn_child(
+    parent_address: str,
+    child_address: str,
+    *,
+    child_level_config,
+    brief_content: Optional[str] = None,
+    expected_parent_owner_token: Optional[str] = None,
+) -> SpawnResult:
+    """THE parent-spawns-child path: register the child under the parent, brief it, then claim+spawn.
+
+    (1) PRECONDITION — the parent binding exists AND is LIVE (non-terminal). A dead/absent parent is
+        REFUSED HERE, BEFORE any child register (no half-registered orphan slot a reconcile sweep
+        could adopt). Returns a not-ok SpawnResult; NO child binding, NO actor.
+    (2) REGISTER — the child as a fresh planned slot UNDER the parent (parent_address SET; mirror
+        genesis._register_l1_root). Safe if the child already exists (does not clobber a live child).
+    (3) BRIEF — assemble the load-manifest + write the parent brief_content into the child node.
+    (4) SPAWN — the EXISTING chokepoint.claim_and_spawn(child, expected_state=planned, …): the F-024
+        claim-before-spawn (a lost claim opens NO actor; a post-claim failure releases the claim).
+
+    The adapter is the module-level injected port (set_adapter / ADAPTER) — register_and_spawn_child
+    spawns THROUGH the same real chokepoint, so the child actor open rides the SAME adapter seam.
+    """
+    runtime_root = ledger.RUNTIME_ROOT
+    if runtime_root is None:
+        raise RuntimeError(
+            "register_and_spawn_child requires ledger.RUNTIME_ROOT bound (the child register + brief "
+            "land under the runtime tree; bind it like the executor/ledger path-injection contract)"
+        )
+
+    # STEP 1 — PRECONDITION: only a LIVE (existing + non-terminal) parent spawns a child. Decided
+    # BEFORE the register so a refused spawn leaves NO half-registered child slot (test (c)/(e)).
+    parent_binding = ledger.read_binding(parent_address)
+    if not _parent_is_live(parent_binding):
+        return _result_failed("dead_parent", tmux_target=child_address)
+
+    # STEP 1a — PARENT FENCE (supervision-tree integrity, FORK-PARENT-TOKEN): when the caller presents
+    # an ``expected_parent_owner_token``, it must equal the parent's live owner_token — i.e. the caller
+    # must OWN the parent it is spawning under, so an agent can only spawn children under ITS OWN node,
+    # not a sibling/cousin subtree. Optional (None) mirrors the deliver()/own-slice pattern: a
+    # daemon-internal/genesis-style spawn presents no token (the EX lock + local IPC are the bound). A
+    # mismatched token is refused BEFORE the register (no half-registered child).
+    if (expected_parent_owner_token is not None
+            and parent_binding.get("owner_token") != expected_parent_owner_token):
+        return _result_failed("parent_fence", tmux_target=child_address)
+
+    # STEP 2 — REGISTER the child as a fresh planned slot UNDER the parent (parent_address SET). Safe
+    # if the child already exists live (returns it so the planned-expected claim below loses — single
+    # owner, no double-register of a running child).
+    registered = _register_child(child_address, parent_address, child_level_config, runtime_root)
+    if registered is None:  # defensive — _register_child always returns a binding
+        return _result_failed("register_failed", tmux_target=child_address)
+
+    # STEP 3 — WRITE THE BRIEF (the assembled load-manifest + the parent brief_content) into the child
+    # node. Skipped only when the child was NOT freshly registered as planned (an already-live child we
+    # did not re-register — the claim below will lose, so there is no fresh brief to write).
+    if registered.get("state") == "planned":
+        _write_child_brief(child_address, child_level_config, registered, brief_content)
+
+    # STEP 4 — SPAWN via the EXISTING claim-before-spawn (F-024). The child claim's CAS precondition is
+    # the CHILD's registered (planned, gen0, minted-token) slot — NOT the parent's token. A lost claim
+    # (a racer, or an already-running child this register did not clobber) opens NO actor; a post-claim
+    # failure releases the claim, exactly as today.
+    fresh = ledger.read_binding(child_address) or registered
+    return claim_and_spawn(
+        child_address,
+        expected_state="planned",
+        expected_generation=registered["generation"],
+        expected_owner_token=fresh.get("owner_token"),
+        level_config=child_level_config,
+    )
 
 
 # ---------------------------------------------------------------------------
