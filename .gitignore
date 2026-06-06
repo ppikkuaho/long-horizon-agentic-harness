@@ -20,3 +20,5 @@ node_modules/
 # H40 research throwaway probe workspaces (each git-init'd by run_probe.sh; not part of the corpus)
 /research/h40-in-role-boot/workspaces/
 .runtime-obs/
+.eval-tmp/
+dev/eval-runs/

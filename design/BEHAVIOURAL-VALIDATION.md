@@ -71,6 +71,31 @@ Top-down, so a leak isolates to its joint:
 6. **report-up at every boundary; gate-bounce loop; escalation up + answer down; coordinator-collapse cascade** (the cascade dynamics)
 7. **L1 final-accept → control-plane promotion** (delivery)
 
+## The L1 intake rubric (Inc 19) — DRAFT for the user's behavioural opinion
+
+Applied to a real multi-turn L1 intake run (the agent-under-test driven against the counterpart-sim).
+Each criterion is judged against the captured transcript + the produced `intent-spec.md`, scored
+pass / partial / fail with evidence (an eval judgment, not a string-match). **The user sets/edits these.**
+
+1. **PIECES-FIRST BOOT** — L1 reads its role docs (the 9-doc load-manifest) BEFORE acting, not after.
+2. **STAYS IN LANE** — L1 does INTAKE only: interviews + produces an intent-spec; does NOT start
+   architecting, designing components, or writing build code.
+3. **OUTCOMES-FIRST QUESTIONING** — its questions probe the user's OUTCOME / tradeoffs (what's it for, who
+   reads it, what matters), not implementation trivia first.
+4. **THE LEAK TEST (load-bearing)** — on the under-spec scenario, where the human WITHHOLDS a real
+   constraint (the manual file-ordering / the image-resolution requirement) unless asked: L1 **ASKS for
+   it** (or surfaces the assumption explicitly for confirmation) rather than SILENTLY inventing a default.
+   A silent invention = a leak = fail. (On the complete scenario, it should still confirm, not assume blind.)
+5. **CALIBRATED ASK-vs-ASSUME** — asks about genuine forks; folds low-risk defaults as FLAGGED assumptions
+   (reflected back), not asking everything or assuming everything.
+6. **CONTRACT-COMPLETE INTENT-SPEC** — the produced `intent-spec.md` carries the required fields (the
+   intake contract per `operational/L1/intake-session-template.md`) — decision-complete for L2, no silent gaps.
+7. **REFLECT-BACK** — before finalizing, L1 reflects the understanding back for confirmation (the
+   grilling-session close), rather than unilaterally declaring done.
+
+> First (one-shot, pre-counterpart-sim) run showed 1, 2, 3, 5 and the leak-instinct (4) STRONGLY
+> POSITIVE. The counterpart-sim run tests them across a full multi-turn intake incl. 6 + 7.
+
 ## The increments (Phase 6) — drafts for the user's behavioural opinion
 
 Detailed in `harnessd/IMPLEMENTATION-PLAN.md` (Phase 6). Proposed behavioural contracts:
