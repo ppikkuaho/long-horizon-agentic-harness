@@ -1,0 +1,271 @@
+"""harnessctl — the OPERATOR CLI. A CLIENT, NEVER a writer.
+
+Authoritative sources:
+  - IMPLEMENTATION-PLAN §3 module table (harnessctl.py row, L65): "CLI client — NOT a writer. Sends
+    requests to the resident daemon over a local socket/FIFO; the daemon performs the mutation inside
+    the one lock. Read-only commands (show/next/validate/reconcile-inspect) may take the shared lock
+    directly." GENERALIZE: the recovered ``build_parser`` L1613-1696 subcommand structure -> node-addressed.
+  - IMPLEMENTATION-PLAN §2.x / Increment-13 Done-test (L800-803): node-addressed subcommands
+    (spawn/transition/show/reconcile-inspect/kill) over a local socket/FIFO to the daemon; a mutation
+    via harnessctl is performed BY THE DAEMON inside the one lock (not by the CLI process); a read
+    command returns ledger state.
+  - DAEMON §4.3: "CLIs are clients, not writers. A harnessctl command sends a request to the resident
+    daemon (over a local socket/fifo), and the daemon performs the mutation inside the one lock." §4.5:
+    read-only (shared lock) = show / next / validate / reconcile-inspect; mutating (exclusive lock) =
+    transition / claim / collapse-kill.
+
+THE CARDINAL RULE (§4.3): this module is a CLIENT. It does arg parsing + socket I/O ONLY. It NEVER
+imports or calls the single-writer primitives (the ledger's whole-map writer, the executor's
+state-changer, the spawn-chokepoint mutators). Every mutation is serialized into a request dict and
+shipped over the local unix socket to the resident daemon, which performs it inside the one EX lock.
+The client prints the JSON response to stdout and returns an exit code (0 on ``ok``, nonzero otherwise).
+
+BUILDER DECISIONS (stated in the build report):
+
+  * THE SOCKET PATH (FORK-SOCKET-PATH). The daemon's IPC socket lives at
+    ``<RUNTIME_ROOT>/.harnessd/harnessd.sock`` by default (alongside the §2.3 runtime.json / status.json
+    under ``.harnessd/``). The client resolves the path in precedence order: an explicit
+    ``main(argv, socket_path=...)`` kwarg, then a ``--socket <path>`` flag, then the ``HARNESSD_SOCKET``
+    env var, then the RUNTIME_ROOT default. This keeps the wiring detail un-over-constrained (the §2.x
+    plan names "a local socket/FIFO", not an exact path).
+
+  * THE PRINT-JSON / EXIT-CODE CONVENTION. The client prints the daemon's response dict as one JSON line
+    to stdout and returns ``0`` when ``response["ok"]`` is truthy, else ``2`` (a command-level abort).
+    A transport failure (no daemon reachable) returns ``3`` after printing a JSON error line — the
+    client cannot perform the mutation itself, so an unreachable daemon is a hard failure, never a
+    silent local write.
+
+  * NODE-ADDRESSED SUBCOMMANDS. Every command carries the node address as a positional ``addr`` (the
+    GENERALIZE of the recovered ``build_parser`` subcommand structure). The read surface (show / next /
+    validate / reconcile-inspect) and the mutation surface (spawn / transition / kill) share the
+    node-addressed shape; the request dict is built from the parsed namespace and shipped as-is.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket as socket_mod
+import sys
+from pathlib import Path
+from typing import Optional
+
+from . import ledger
+
+
+# The IPC socket lives under the runtime's ``.harnessd/`` dir (alongside runtime.json / status.json).
+SOCKET_FILENAME: str = "harnessd.sock"
+SOCKET_ENV_VAR: str = "HARNESSD_SOCKET"
+
+
+# ---------------------------------------------------------------------------
+# build_parser — the node-addressed argparse CLI (GENERALIZE of the recovered build_parser L1613-1696).
+# ---------------------------------------------------------------------------
+
+
+def _add_addr(subparser) -> None:
+    """Attach the node-address positional shared by every node-addressed subcommand (parse+route)."""
+    subparser.add_argument(
+        "addr",
+        help="the node address (e.g. 'proj/widget#exec') this command targets",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the node-addressed CLI parser (§3 GENERALIZE of build_parser L1613-1696 -> node-addressed).
+
+    Subcommands (Increment-13 Done-test L800-803 + §4.5 read-only surface):
+      reads  (§4.5):  show / next-seq / validate / reconcile-inspect — return ledger state.
+      writes (§4.3):  spawn / transition / kill — serialized into a request, performed by the daemon.
+
+    The parser sets ``args.command`` to the subcommand name (the route) and carries the node ``addr``
+    positional on every node-addressed command. A ``--socket`` flag overrides the daemon socket path.
+    """
+    parser = argparse.ArgumentParser(
+        prog="harnessctl",
+        description=(
+            "harnessctl — the operator CLI. A CLIENT, not a writer: mutations are sent to the resident "
+            "daemon over a local socket and performed inside the one lock (DAEMON §4.3)."
+        ),
+    )
+    parser.add_argument(
+        "--socket",
+        dest="socket_path",
+        default=None,
+        help="path to the daemon IPC socket (default: <RUNTIME_ROOT>/.harnessd/harnessd.sock or $HARNESSD_SOCKET)",
+    )
+    subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+    subparsers.required = True
+
+    # --- Read-only surface (§4.5) ---------------------------------------------------------------
+    show = subparsers.add_parser("show", help="print the ledger state for a node (read-only)")
+    _add_addr(show)
+
+    next_seq = subparsers.add_parser(
+        "next-seq", help="print the next monotonic WAL seq (read-only)"
+    )
+
+    validate = subparsers.add_parser(
+        "validate", help="run the whole-ledger admission scan (read-only)"
+    )
+
+    inspect = subparsers.add_parser(
+        "reconcile-inspect", help="dry-inspect what a reconcile would do (read-only)"
+    )
+
+    # --- Mutating surface (§4.3 — performed BY THE DAEMON, never the CLI) -----------------------
+    spawn = subparsers.add_parser("spawn", help="claim-before-spawn a node (mutation -> daemon)")
+    _add_addr(spawn)
+    spawn.add_argument("--level", default=None, help="the level config (L1..L5) for the spawn seat")
+    spawn.add_argument("--expected-state", dest="expected_state", default=None)
+    spawn.add_argument("--expected-generation", dest="expected_generation", type=int, default=None)
+    spawn.add_argument("--expected-owner-token", dest="expected_owner_token", default=None)
+
+    transition = subparsers.add_parser(
+        "transition", help="transition a node to a target state (mutation -> daemon)"
+    )
+    _add_addr(transition)
+    transition.add_argument("--expected-state", dest="expected_state", default=None)
+    transition.add_argument("--expected-generation", dest="expected_generation", type=int, default=None)
+    transition.add_argument("--expected-owner-token", dest="expected_owner_token", default=None)
+    transition.add_argument("--target-state", dest="target_state", required=True)
+    transition.add_argument("--event", dest="event", default="transition")
+
+    kill = subparsers.add_parser(
+        "kill", help="collapse a node to a terminal state (mutation -> daemon)"
+    )
+    _add_addr(kill)
+    kill.add_argument("--expected-owner-token", dest="expected_owner_token", default=None)
+    kill.add_argument(
+        "--terminal-signal", dest="terminal_signal", default="FAILED",
+        help="the terminal signal (DONE / FAILED / DIED / DEAD); default FAILED",
+    )
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Request assembly — build the daemon request dict from the parsed namespace. NO mutation here: this is
+# pure serialization (the daemon performs the mutation). Only the relevant fields per command are sent.
+# ---------------------------------------------------------------------------
+
+
+# Per-command request fields (besides ``command`` + ``addr``) the client serializes and ships.
+_REQUEST_FIELDS = {
+    "show": (),
+    "next-seq": (),
+    "validate": (),
+    "reconcile-inspect": (),
+    "spawn": ("level", "expected_state", "expected_generation", "expected_owner_token"),
+    "transition": (
+        "expected_state",
+        "expected_generation",
+        "expected_owner_token",
+        "target_state",
+        "event",
+    ),
+    "kill": ("expected_owner_token", "terminal_signal"),
+}
+
+
+def _build_request(args: argparse.Namespace) -> dict:
+    """Serialize the parsed namespace into the daemon request dict (pure — no mutation)."""
+    request: dict = {"command": args.command}
+    if hasattr(args, "addr"):
+        request["addr"] = args.addr
+    for field in _REQUEST_FIELDS.get(args.command, ()):  # only the fields this command carries
+        if hasattr(args, field):
+            request[field] = getattr(args, field)
+    return request
+
+
+# ---------------------------------------------------------------------------
+# The socket round-trip — the CLIENT's ONLY I/O. Connect, send the framed request, read the response to
+# EOF, return the parsed JSON. This is socket I/O, NOT ledger I/O: the client never writes the ledger.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_socket_path(explicit: Optional[str], parsed: Optional[str]) -> Optional[str]:
+    """Resolve the daemon socket path: explicit kwarg > --socket flag > env var > RUNTIME_ROOT default."""
+    if explicit is not None:
+        return explicit
+    if parsed is not None:
+        return parsed
+    env_value = os.environ.get(SOCKET_ENV_VAR)
+    if env_value:
+        return env_value
+    if ledger.RUNTIME_ROOT is not None:
+        return str(Path(ledger.RUNTIME_ROOT) / ".harnessd" / SOCKET_FILENAME)
+    return None
+
+
+def _round_trip(socket_path: str, request: dict) -> dict:
+    """Send ``request`` to the daemon at ``socket_path``, return the parsed JSON response.
+
+    Connects to the AF_UNIX socket, writes the whole request, shuts down the write half (so the daemon's
+    EOF-framed read terminates), reads the response to EOF, and parses it. A missing socket / refused
+    connection raises (FileNotFoundError / ConnectionError / OSError) — the client is NOT a writer, so
+    an unreachable daemon is a hard failure the caller surfaces as a nonzero exit (never a local write).
+    """
+    payload = json.dumps(request).encode("utf-8")
+    with socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM) as client:
+        client.connect(str(socket_path))
+        client.sendall(payload)
+        client.shutdown(socket_mod.SHUT_WR)  # signal EOF so the daemon's read-to-EOF completes
+        chunks: list[bytes] = []
+        while True:
+            data = client.recv(65536)
+            if not data:
+                break
+            chunks.append(data)
+    raw = b"".join(chunks)
+    if not raw.strip():
+        return {"ok": False, "errors": ["empty response from daemon"]}
+    return json.loads(raw.decode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# main — parse argv, build the request, ship it over the socket, print the JSON response + return an
+# exit code. The ONLY entrypoint. A CLIENT: arg parsing + socket I/O, never a ledger write.
+# ---------------------------------------------------------------------------
+
+
+def main(argv: Optional[list] = None, *, socket_path: Optional[str] = None) -> int:
+    """Parse ``argv``, ship the request to the daemon, print the JSON response, return an exit code.
+
+    Exit codes (the print-JSON / exit-code convention):
+      0 — the daemon reported ``ok`` (a committed mutation or a successful read);
+      2 — the daemon reported an abort (``ok`` false: a CAS miss / illegal edge / fencing rejection);
+      3 — a transport failure (no daemon reachable) — the client cannot perform the mutation itself.
+
+    The mutation path is SOCKET I/O, not ledger I/O: ``main`` builds a request dict and ships it; the
+    DAEMON performs the mutation inside the one lock. ``main`` never writes the ledger.
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    resolved_socket = _resolve_socket_path(socket_path, getattr(args, "socket_path", None))
+    if resolved_socket is None:
+        print(json.dumps({"ok": False, "errors": ["no daemon socket configured (--socket / $HARNESSD_SOCKET / RUNTIME_ROOT)"]}))
+        return 3
+
+    request = _build_request(args)
+
+    try:
+        response = _round_trip(resolved_socket, request)
+    except (ConnectionError, FileNotFoundError, OSError) as exc:
+        # The daemon is unreachable. The CLIENT cannot perform the mutation itself (DAEMON §4.3) — print
+        # the error as JSON and fail with a nonzero exit. The ledger is NOT touched.
+        print(json.dumps({"ok": False, "command": args.command, "errors": [f"daemon unreachable: {exc}"]}))
+        return 3
+
+    print(json.dumps(response))
+    return 0 if response.get("ok", False) else 2
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
