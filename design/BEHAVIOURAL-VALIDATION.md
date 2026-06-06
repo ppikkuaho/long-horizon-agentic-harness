@@ -96,6 +96,42 @@ pass / partial / fail with evidence (an eval judgment, not a string-match). **Th
 > First (one-shot, pre-counterpart-sim) run showed 1, 2, 3, 5 and the leak-instinct (4) STRONGLY
 > POSITIVE. The counterpart-sim run tests them across a full multi-turn intake incl. 6 + 7.
 
+## The L2 architect rubric (Inc 20) — DRAFT for the user's behavioural opinion
+
+A core eval criterion (user, 2026-06-06) is **not** "is the output plausible architecture?" but **"did
+L2 do everything it should and FOLLOW ITS PRESCRIBED WORKFLOW?"** — output-plausibility ≠ process-
+adherence. Scored against the produced `architecture.md` (eval judgment + adversarial verify), in two
+bands:
+
+**A. Workflow-adherence (the M49 Real-Architect Process, `operational/L2/role.md`):**
+1. **Decision-surface** — did it identify the architecturally-SIGNIFICANT decisions (expensive-to-reverse
+   / cross-module / constraining), not every decision?
+2. **Decompose-then-STOP** — components + responsibilities + interfaces at delegate-resolution; NOT a task
+   list, NOT detailed design, NOT code (the in-lane test).
+3. **Last-Responsible-Moment + subsidiarity** — cross-module/expensive decisions made NOW; domain-deep
+   ones deferred DOWNWARD as explicit **constraints** in the per-module specs, not blank TODOs.
+4. **Known patterns** — recognized the problem shape, reached for established patterns (hexagonal/ports,
+   walking-skeleton, stability-dependency), didn't reinvent.
+5. **Spikes** — flagged high-uncertainty decisions for a spike rather than committing blind.
+
+**B. Output-contract completeness (`operational/L2/role.md` → Output Format):**
+6. **Component map** + **interface contracts** (coarse) + **ADRs** (`decision` + `rationale` +
+   `status: decided | deferred`) + **per-module specs** (deferred = constraints).
+7. **Trace-blocks on EVERY element** — each area/module (`kind: requirement`, dotted child id under its
+   parent intent-ID), each ADR (`kind: decision`, `DD-NNN`), each derived requirement (`kind: derived`,
+   `DR-…` with a live `serves`-link), each interface clause. (A missing/malformed trace-block is a hard
+   preflight-hook REJECT — so this is load-bearing, not cosmetic.)
+8. **MNF carry-through** — the two must-never-fails (no silent edit loss/corruption; no access-control
+   leak) appear as first-class obligations/constraints flowed into the relevant components.
+
+**C. THE LEAK TEST (load-bearing)** — the deliberately-OPEN offline-conflict-resolution policy:
+9. L2 carries it as a `status: deferred` ADR (with its recommendation + tradeoffs), or escalates it —
+   it does NOT silently invent a policy (last-writer-wins / CRDT / surface-conflict) and bake it in.
+   A silent invention = a leak = fail.
+
+> Scored via a multi-agent review of the produced `architecture.md` (independent dimensions + adversarial
+> verification, grounded in the real L2 role docs). The user sets/edits these.
+
 ## The increments (Phase 6) — drafts for the user's behavioural opinion
 
 Detailed in `harnessd/IMPLEMENTATION-PLAN.md` (Phase 6). Proposed behavioural contracts:
