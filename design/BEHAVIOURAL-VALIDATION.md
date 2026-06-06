@@ -151,6 +151,27 @@ Scored against the produced `plan/area-{name}.md` (multi-agent review vs the rea
    (`R-003.2` → `R-003.2.1`), `level: L3`; net-new elements only as `DR-` with a live `serves`-link;
    inherited IDs it can't place are escalated, not dropped (the hard preflight requirement).
 
+## The L4 (coordinator) rubric (Inc 22) — DRAFT
+
+Scored against the produced `plan.md` + `acceptance-plan.md` (vs the real L4 role docs):
+
+1. **TASK DECOMPOSITION** — the frozen design is decomposed into executable, parallelizable tasks that
+   cover every requirement without redundancy and sequence/recover sensibly; each task has a precise
+   brief (scope, acceptance criteria, constraints, context).
+2. **TEST-FIRST DISCIPLINE (the leak test, load-bearing)** — L4 recognizes the plan phase is NOT done
+   until three artifacts exist (spec + FROZEN acceptance tests + gate rubric), and that the acceptance
+   tests are authored by a SEPARATE L4-tester lateral, from the spec, BEFORE any L5 — never by L4 itself
+   and never by L5 (the anti-theater temporal rule, M51). A plan that skips the tester lateral or lets
+   the executor write its own tests = fail.
+3. **ESCALATE-DON'T-ABSORB (the second leak test)** — the under-framed workstream (W3 reindex, really a
+   subsystem) is SURFACED to L3 ("this piece is bigger than the framing because X — here's how I'd
+   adjust"), not silently absorbed by expanding what the executors do.
+4. **REVIEW-THE-REPORT discipline** — the plan reflects that L4 reviews L5+ reports (not raw L5 code),
+   checks coverage + verification claims, and treats "tested and it works" as a signal (role.md).
+5. **TRACE-BLOCKS** — each task is a dotted child of its parent design-element id (author order),
+   `kind: requirement`; each acceptance test `kind: test` keyed to the requirement it verifies; inherited
+   IDs it can't place are escalated.
+
 ## The increments (Phase 6) — drafts for the user's behavioural opinion
 
 Detailed in `harnessd/IMPLEMENTATION-PLAN.md` (Phase 6). Proposed behavioural contracts:
