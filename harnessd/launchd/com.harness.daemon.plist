@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.harness.daemon — the launchd user agent that hosts harnessd (IMPLEMENTATION-PLAN §2 item 10,
+  §3 on-disk tree L450; DAEMON §2.2/§7).
+
+  The daemon is ALWAYS-ON; relaunch = recovery (DAEMON §7). The three load-bearing keys:
+    * KeepAlive=true      — relaunch on ANY exit (including OOM/crash); a missing KeepAlive would let
+                            the daemon stay dead (gap-review #1 SPOF).
+    * RunAtLoad=true      — start at load (login) — the genesis boot trigger; survives machine reboot
+                            (the gap-review #1 SPOF).
+    * ThrottleInterval=10 — the crash-loop / relaunch-backoff floor (DAEMON §7 step 2,
+                            ThrottleInterval>=10) so a wedge-relaunch storm cannot thrash.
+
+  ProgramArguments invokes the harnessd daemon entry. The CWD of a launchd-spawned process is NOT the
+  repo root (DAEMON §2.2 / config.py note), so the daemon resolves HARNESS_ROOT itself; the argv here
+  names the harnessd.daemon module entry as the launchd-hosted program.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.harness.daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>-m</string>
+        <string>harnessd.daemon</string>
+    </array>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.harness.daemon.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.harness.daemon.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
