@@ -51,7 +51,7 @@ import uuid
 from pathlib import Path
 
 from harnessd import config
-from harnessd.spawn import oauth_guard, sandbox
+from harnessd.spawn import oauth_guard, sandbox, cc_config
 
 from .base import RuntimeAdapter, SpawnResult
 
@@ -196,13 +196,23 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         # config.PINNED_BINARY_HASH is None in v1 (gitignored install): the sha256 verification is
         # the documented commissioning seam, not skippable silence — see FORK-VERIFY in the docstring.
 
-    def _deterministic_trust(self, env: dict) -> None:
-        """Deterministic first-boot trust — pre-seeded clean CLAUDE_CONFIG_DIR, NOT a send-keys race.
+    def _deterministic_trust(self, env: dict, containment=None) -> None:
+        """Deterministic first-boot trust — pre-seed CLAUDE_CONFIG_DIR so NO startup dialog /
+        permission prompt appears, NOT a send-keys race (SECURITY.md §deterministic-trust).
 
-        The pinned ``.cc-pinned/config`` the env's CLAUDE_CONFIG_DIR points at is pre-trusted /
-        non-interactive, so there is no trust dialog to race. v1 is a no-op marker (the config dir
-        IS the mechanism); kept as an explicit seam so the recipe documents WHY no send-keys runs.
+        A real interactive spawn hits BLOCKING dialogs (workspace trust, the bypass-permissions
+        warning, per-tool prompts) that would FREEZE an unattended agent. ``cc_config.seed_trust``
+        writes the acceptance keys for the agent's WORKSPACE (the jailed WORKROOT = the agent's cwd)
+        into ``.claude.json``/``settings.json`` BEFORE launch, so the agent boots straight to working.
+        Verified live: a fresh workspace pre-seeded this way shows zero dialogs.
+
+        Only meaningful for a real (jailed) spawn — the WORKROOT is the agent's workspace. The
+        unjailed dry-run never runs a model, so there is nothing to pre-trust (no-op).
         """
+        config_dir = env.get("CLAUDE_CONFIG_DIR")
+        workroot = (containment or {}).get("WORKROOT")
+        if config_dir and workroot:
+            cc_config.seed_trust(config_dir, workroot)
         return None
 
     def _write_profile(self, env, containment, session_name, profile_text) -> str:
@@ -241,10 +251,21 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         # (1) Pin the binary (model+runtime) before anything child-facing runs (E32).
         self.verify_binary(level_config)
 
+        # (1a) Resolve the §2.5a containment block FIRST — it decides both the jail AND the
+        #      permission posture: --dangerously-skip-permissions is added ONLY for a jailed spawn
+        #      (the safety invariant — auto-approve is safe ONLY because the seatbelt jail is the
+        #      structural bound, SECURITY.md constraint 4; an UNJAILED dry-run never auto-approves).
+        containment = _resolve_containment(neutral_brief, level_config)
+
         # (2) Assemble argv: the SHARED system-prompt, identical L1..L5 — the per-level role is
-        #     NEVER in argv. No --bare/--append-system-prompt/--agents/--agent.
+        #     NEVER in argv. No --bare/--append-system-prompt/--agents/--agent. When jailed, add
+        #     --dangerously-skip-permissions so the unattended agent auto-approves its own tool calls
+        #     (the jail bounds the blast radius; every permission prompt is superfluous and would only
+        #     FREEZE the agent with no human at the pane — SECURITY.md §362).
         cc = str(_harness_root() / _PINNED_CC)
         argv = [cc, "--system-prompt-file", config.SYSTEM_PROMPT_FILE]
+        if containment is not None:
+            argv.append("--dangerously-skip-permissions")
 
         # (3) The from-empty pane (the SAME isolator seam the wrapper uses). The adapter builds
         #     the EXACT pane it hands to create_detached so the guard checks the real pane vector;
@@ -260,12 +281,11 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         #     not a model outage). Lives in this path, NOT the shared gate.
         oauth_guard.check_credential_health(env)
 
-        # (6) Resolve the §2.5a containment block. When present, the pane is JAILED (§2.3 profile
-        #     + sandbox-exec wrap, §7.1) and its env legitimately carries the §2.3 containment vars
-        #     (CLAUDE_CODE_TMPDIR/HOME + the cache-redirection set) ON TOP of the 4 isolation vars.
-        #     When absent (the dry-run boundary), the pane is the bare `env -i` isolator and the
-        #     env MUST be EXACTLY the 4 isolation vars.
-        containment = _resolve_containment(neutral_brief, level_config)
+        # (6) The §2.5a containment block was resolved at (1a). When present, the pane is JAILED
+        #     (§2.3 profile + sandbox-exec wrap, §7.1) and its env legitimately carries the §2.3
+        #     containment vars (CLAUDE_CODE_TMPDIR/HOME + the cache-redirection set) ON TOP of the 4
+        #     isolation vars. When absent (the dry-run boundary), the pane is the bare `env -i`
+        #     isolator and the env MUST be EXACTLY the 4 isolation vars.
 
         # (6a) ENFORCE the OAuth-only isolation floor. UNJAILED: the env must be EXACTLY the 4
         #      isolation vars (any extra widens the pane — the precise leak `env -i` prevents).
@@ -289,8 +309,11 @@ class ClaudeCodeAdapter(RuntimeAdapter):
                     f"missing={sorted(missing)}"
                 )
 
-        # (7) Deterministic first-boot trust (pre-seeded config dir; no send-keys race).
-        self._deterministic_trust(env)
+        # (7) Deterministic first-boot trust (pre-seeded config dir; no send-keys race) — KILLS every
+        #     startup dialog/permission prompt for the agent's workspace (trust dialog + bypass warning
+        #     + per-tool prompts) so an unattended agent boots straight to working, never frozen on a
+        #     dialog (SECURITY.md §deterministic-trust; the jail is the bound, prompts are superfluous).
+        self._deterministic_trust(env, containment)
 
         # (8) Render the §2.3 seatbelt profile and wrap the env-i pane with sandbox-exec (§7.1) when
         #     a containment block is resolved. The wrapped vector — `sandbox-exec -f <profile>.sb
