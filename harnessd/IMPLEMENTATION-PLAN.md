@@ -836,9 +836,10 @@ shape 6/7 were written against.
 > the delivery destination captured at intake in the frozen intent-spec (a filesystem user-path or a git
 > remote). Agents CANNOT do this — every agent is write-jailed to its `/runtime/` node subtree and the
 > destination is OUTSIDE every jail; only the control plane (harnessd) may cross it, and only on the
-> accept signal. The promote step writes `deliverable_state`/`write_targets` on the binding via the
-> single writer (`executor.transition` — no second mutation path), so the delivery is journaled in the
-> WAL like any other state change. The intake→L2 stages (KICKOFF through FINAL-ACCEPTANCE) ride EXISTING
+> accept signal. The promote step writes `deliverable_state` + `delivery_destination` on the binding via
+> the single writer (`executor.deliver` — an own-slice write, no second mutation path; `write_targets` is
+> NEVER touched — it stays the in-jail source surface, DAEMON §3.2 distinct fields), so the delivery is
+> journaled in the WAL like any other state change. The intake→L2 stages (KICKOFF through FINAL-ACCEPTANCE) ride EXISTING
 > increments — the chokepoint spawn (10/14) and L1 writing `client-brief/` WITHIN its own jail (a node
 > below the L1-root) — plus the new intent-spec delivery-destination field; only this promotion step is
 > NEW harness code. Project teardown/reclaim of the `/runtime/` tree after delivery is a DEFERRED

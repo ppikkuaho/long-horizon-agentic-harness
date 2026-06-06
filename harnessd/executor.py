@@ -503,9 +503,11 @@ def _own_slice_write(
                 binding=None,
             )
 
-        # Fencing: owner_token REQUIRED on every mutator (§4.5). A stale token is journaled and the
-        # live binding left UNCHANGED.
-        if binding["owner_token"] != expected_owner_token:
+        # Fencing: owner_token required on a leased actor's own-slice write (§4.5) — a stale token is
+        # journaled and the live binding left UNCHANGED. An UNFENCED control-plane own-slice write
+        # (expected_owner_token=None — the deliver() promote path, where the daemon is the trusted
+        # single writer and no actor presents a lease) skips the fence.
+        if expected_owner_token is not None and binding["owner_token"] != expected_owner_token:
             fenced_entry = ledger.build_wal_record(
                 node_address=node_address,
                 event="stale_return_ignored",
@@ -555,6 +557,56 @@ def _own_slice_write(
         whole_map[node_address] = candidate
         ledger.write_binding(whole_map, _lock_held=True)
         return TransitionResult(ok=True, errors=[], warnings=[], binding=candidate)
+
+
+# ---------------------------------------------------------------------------
+# deliver() — the deliverable-block write (§3.2 deliverable_state / delivery_destination), routed
+# through the SINGLE writer. Increment 17 (control-plane promotion) calls this — and ONLY this — to
+# record a delivery outcome on the binding; promote.py NEVER touches ledger.write_binding directly.
+#
+# Shape: an own-slice-style write (like heartbeat/release_lease). The deliverable block lives ALONGSIDE
+# the lifecycle `state` (§3.2: state | deliverable_state are distinct axes); a promote does NOT advance
+# the lifecycle state (the accepted project stays `done` — a terminal lifecycle state), it only stamps
+# the deliverable block. So this is deliberately NOT a lifecycle transition(): it runs no legality gate
+# (a `done` node has no legal forward edge — a transition() would abort) and bumps no per-node
+# generation. It IS the single writer: it journals a WAL row (actor='harnessd', hard-coded by the
+# ledger) and advances last_applied_seq via commit-equivalent intent-first ordering, so the delivery is
+# audited like every other state change and is attributable to harnessd, never a jailed agent.
+# ---------------------------------------------------------------------------
+
+def deliver(
+    node_address: str,
+    *,
+    deliverable_state: str,
+    delivery_destination: Optional[str] = None,
+    expected_owner_token: Optional[str] = None,
+    event: str,
+    summary: str,
+) -> TransitionResult:
+    """Record a deliverable-block outcome (§3.2) via the single writer — own-slice, fenced-when-asked.
+
+    Writes ``deliverable_state`` (and, when given, ``delivery_destination``) into the node's OWN slice
+    under the one EX lock, journaling a WAL row (``actor='harnessd'``) and advancing ``last_applied_seq``
+    (intent-first ordering, §4.4). The lifecycle ``state`` is UNCHANGED — a delivery is orthogonal to the
+    lifecycle axis (§3.2), so no legality gate runs and no generation bumps (mirrors the own-slice
+    discipline of ``heartbeat``/``release_lease``). ``write_targets`` is NEVER touched here: the out-of-jail
+    destination belongs ONLY in ``delivery_destination`` (DAEMON §3.2 — distinct fields, jail boundary legible).
+
+    Fencing is OPTIONAL: the control plane (the promote op) drives this, not a jailed actor presenting a
+    lease. When ``expected_owner_token`` is given it fences exactly like the other mutators (a stale token
+    journals ``stale_return_ignored`` and leaves the binding UNCHANGED); when None it is an unfenced
+    control-plane write (the daemon is the trusted single writer — §4.3).
+    """
+    delta: dict = {"deliverable_state": deliverable_state}
+    if delivery_destination is not None:
+        delta["delivery_destination"] = delivery_destination
+    return _own_slice_write(
+        node_address,
+        expected_owner_token=expected_owner_token,
+        delta=delta,
+        event=event,
+        summary=summary,
+    )
 
 
 # ---------------------------------------------------------------------------
