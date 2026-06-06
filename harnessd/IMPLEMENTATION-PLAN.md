@@ -858,6 +858,14 @@ shape 6/7 were written against.
 
 ---
 
+> **BUILD STATUS (2026-06-06) — single source of truth: `design/working-notes/BRIDGE-2026-06-06.md`.**
+> Phase 5 substrate: **Increments 0–16 BUILT + committed + mutation-verified** (commits `bb00093`…`8a0cfbc`).
+> **Increment 17 BUILT but UNCOMMITTED** — it FAILED the verification gate (uncaught ValueError, accept-gate
+> not bound to the node, a flaky test, an executor fence change to scrutinize); fix-then-commit per the bridge.
+> Suite: 503 passed + 1 skipped (the skip = Inc-16 real-boot, **blocked on an expired pinned OAuth token** —
+> see the bridge's credential-refresh thread). **Phase 6 (below) is PLANNED, not built**; Inc 18 (pieces-present)
+> is un-blocked; 19–24 need a working real boot (the token). The behavioural contracts in 19–24 are the user's to set.
+
 ## Phase 6 — Behavioural validation (the trace-through)
 
 > Phase 5 (increments 0–17) verifies the substrate is **mechanically correct** (the stage works). Phase 6

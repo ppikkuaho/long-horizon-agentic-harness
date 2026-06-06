@@ -1,6 +1,6 @@
 # Working Notes — Index
 
-> **▶ RESUMING A COMPACTED SESSION? START AT [`BRIDGE-2026-06-05.md`](BRIDGE-2026-06-05.md)** — current build state, what's in flight (a background workflow), what's next, and how we work.
+> **▶ RESUMING A COMPACTED SESSION? START AT [`BRIDGE-2026-06-06.md`](BRIDGE-2026-06-06.md)** — the CURRENT bridge: build state (Phase-5 substrate 16/18 committed, Inc 17 in-flight via workflow `wd7vdmgv9`), the build loop, the two live blockers (the OAuth-token/credential-refresh thread + the Phase-6 behavioural contracts), and what's next. *(The older `BRIDGE-2026-06-05.md` is the prior, pre-build bridge — superseded.)*
 
 **Canon-precedence:** the LIVE decision notes below are SOURCE OF TRUTH for the runtime / liveness / transport / scale model and **override the Jun-02 design specs wherever they conflict**. The Jun-02 specs remain canonical for the semantics they already cover.
 
