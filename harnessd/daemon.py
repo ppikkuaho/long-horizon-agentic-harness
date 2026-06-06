@@ -53,6 +53,7 @@ from harnessd import genesis as _genesis_mod
 from harnessd import ledger, store
 from harnessd import reconcile as _reconcile_mod
 from harnessd.spawn import chokepoint
+from harnessd.spawn import outbox as _outbox_mod
 
 
 # ---------------------------------------------------------------------------
@@ -127,9 +128,24 @@ def poll_once(executor, tmux, detector) -> None:
     re-derives liveness via the detector and applies the §5.1 resolutions edge-triggered — only a
     state/condition CHANGE appends a run-ledger row. poll_loop calls this on the timer; a test drives
     it exactly once.
+
+    The SAME tick also drains the spawn-request OUTBOXES (FORK-SPAWN-CHANNEL): every live non-leaf
+    node's pending child-spawn requests are adjudicated + spawned through the chokepoint. This is how a
+    PARENT AGENT's spawn-request becomes a live child — the agent drops a request in its workroot, the
+    next poll services it. Best-effort + isolated: an outbox error NEVER aborts the reconcile sweep
+    (the supervision tree's liveness must keep advancing even if one node's request is malformed).
     """
     _reconcile_mod.reconcile_tick(executor, tmux, detector)
+    _service_outboxes_best_effort()
     return None
+
+
+def _service_outboxes_best_effort() -> None:
+    """Drain all spawn-request outboxes; swallow any error so it never aborts the reconcile sweep."""
+    try:
+        _outbox_mod.service_all_outboxes()
+    except Exception:  # noqa: BLE001 — the reconcile sweep must advance regardless of one bad outbox
+        pass
 
 
 def poll_loop(interval_s, executor=None, tmux=None, detector=None) -> NoReturn:

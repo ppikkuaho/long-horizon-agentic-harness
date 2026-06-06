@@ -153,6 +153,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="the terminal signal (DONE / FAILED / DIED / DEAD); default FAILED",
     )
 
+    # service-outbox: drain a node's spawn-request OUTBOX (FORK-SPAWN-CHANNEL). The daemon adjudicates
+    # each request (compose child address from the parent's address + spawn under the parent's token).
+    # With --node -> one node's outbox; without -> EVERY live non-leaf node (the operator/loop sweep).
+    svc = subparsers.add_parser(
+        "service-outbox", help="drain spawn-request outboxes -> register+brief+spawn children (-> daemon)"
+    )
+    svc.add_argument(
+        "--node", dest="addr", default=None,
+        help="service ONLY this node's outbox; omit to service every live non-leaf node",
+    )
+
     return parser
 
 

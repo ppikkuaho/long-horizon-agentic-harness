@@ -573,11 +573,12 @@ def _brief_payload(neutral) -> dict:
 #     an address-prefix can be spoofed by sibling naming — the recorded edge is authoritative, the
 #     same reasoning as ancestors_inclusive's FORK-ANCESTORS).
 #
-#   * FORK-PARENT-TOKEN — ``expected_parent_owner_token`` is threaded for the live-parent precondition
-#     (the parent presents its own token to authorize spawning a child). v1's load-bearing gate is the
-#     parent's LIVENESS (non-terminal); the token, when given AND the parent exists, is a best-effort
-#     cross-check that does NOT reject a live parent on a mismatch (a later cluster can harden it into
-#     a hard fence). It is NEVER the child's claim precondition — the child claim uses the CHILD's
+#   * FORK-PARENT-TOKEN — ``expected_parent_owner_token`` authorizes spawning a child under a parent.
+#     Two gates: (1) the parent's LIVENESS (non-terminal) is always required; (2) the token, WHEN
+#     PRESENTED (non-None), is now a HARD fence — a mismatch is REFUSED before any child register
+#     (STEP 1a returns ``_result_failed("parent_fence")``), so a caller can only spawn under a parent
+#     it owns. A None token is the daemon-internal/genesis-style unfenced path (the EX lock + local IPC
+#     are the bound). It is NEVER the child's claim precondition — the child claim uses the CHILD's
 #     freshly-minted registered owner_token (the §6.1 claim CAS).
 # ---------------------------------------------------------------------------
 

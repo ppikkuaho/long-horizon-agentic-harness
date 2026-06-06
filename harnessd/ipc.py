@@ -57,6 +57,7 @@ from . import config, ledger, store, validate
 from . import executor as _executor
 from . import reconcile as _reconcile
 from .spawn import chokepoint
+from .spawn import outbox as _outbox
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +231,33 @@ def _handle_spawn(request: dict) -> dict:
     }
 
 
+def _handle_service_outbox(request: dict) -> dict:
+    """Service a node's spawn-request OUTBOX (FORK-SPAWN-CHANNEL) — routed through the chokepoint.
+
+    The agent dropped spawn-requests into its own jail-writable workroot; this drains them. The daemon
+    (NOT the agent) composes each child address from the parent's own address and spawns under the
+    parent's live owner_token (the parent-fence). With ``addr`` -> service that one node's outbox; with
+    no ``addr`` -> service EVERY live non-leaf node (the daemon-loop sweep). Each spawn is a REAL
+    register_and_spawn_child through the single writer.
+    """
+    addr = request.get("addr")
+    outcomes = _outbox.service_outbox(addr) if addr else _outbox.service_all_outboxes()
+    serviced = [
+        {"request": o.request_path, "status": o.status,
+         "child_address": o.child_address, "reason": o.reason}
+        for o in outcomes
+    ]
+    spawned = [o for o in serviced if o["status"] == "spawned"]
+    return {
+        "ok": True,
+        "command": "service-outbox",
+        "addr": addr,
+        "serviced": serviced,
+        "spawned_count": len(spawned),
+        "rejected_count": len(serviced) - len(spawned),
+    }
+
+
 def _transition_response(command: str, addr, result) -> dict:
     """Shape a TransitionResult into the JSON response (ok / errors / warnings / binding)."""
     return {
@@ -307,6 +335,7 @@ _DISPATCH = {
     "transition": _handle_transition,
     "kill": _handle_kill,
     "spawn": _handle_spawn,
+    "service-outbox": _handle_service_outbox,
     # Read-only (shared lock — §4.5).
     "show": _handle_show,
     "next": _handle_next_seq,
