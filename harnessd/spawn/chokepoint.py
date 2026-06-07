@@ -7,7 +7,7 @@ Authoritative sources:
         resume(node_address, *, expected_state, expected_generation,
                expected_owner_token, delta_inputs, level_config) -> SpawnResult
         release_claim(node_address, *, expected_owner_token) -> None
-        collapse(node_address, terminal_signal, *, expected_owner_token, ...) -> None
+        collapse(node_address, terminal_signal, *, expected_owner_token, ...) -> Optional[TransitionResult]
   - IMPLEMENTATION-PLAN §3 module table (chokepoint.py row): "NOT a writer — calls
     executor.transition() for every state change. On any post-claim failure, CAS-releases the claim
     (claimed->planned, bump epoch)."
@@ -969,7 +969,11 @@ def collapse(
     # The terminal transition carries the in_flight RELEASE-DECREMENT (the slot the §6.1 claim
     # reserved is released here). We record the terminal_signal into the binding alongside the
     # lifecycle collapse, symmetric to STEP1's claim-increment seat.
-    executor.transition(
+    #
+    # RETURN the TransitionResult (review chokepoint-2): a FAILED terminal transition (a CAS miss /
+    # fencing rejection) must NOT be reported as success. Callers (the watchdog, the kill IPC) route the
+    # result; a `return None` here silently swallowed a fenced abort and told every caller it collapsed.
+    return executor.transition(
         node_address,
         expected_state=live["state"],
         expected_generation=live["generation"],
@@ -985,4 +989,3 @@ def collapse(
             "(carries ④ in_flight RELEASE-DECREMENT, symmetric to STEP1 claim-increment; §6.1/§3.6)"
         ),
     )
-    return None

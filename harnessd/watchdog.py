@@ -226,11 +226,21 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
             )
         if signal in ("DONE", "FAILED"):
             # Route the terminal collapse through the REAL chokepoint/executor (running -> done/failed).
-            chokepoint.collapse(
+            # ROUTE THE RESULT (review watchdog-2): a FAILED terminal transition (a CAS miss / fencing
+            # rejection) must NOT be reported as a clean COLLAPSE — that would tell the daemon the node
+            # is gone when it is not. On a failed collapse we return a NOOP (collapse_failed) so the next
+            # tick retries against the still-present .signal.json; only a SUCCESSFUL collapse is a COLLAPSE.
+            result = chokepoint.collapse(
                 node_address,
                 signal,
                 expected_owner_token=binding.get("owner_token"),
             )
+            if result is not None and getattr(result, "ok", True) is False:
+                return WatchdogAction(
+                    kind=NOOP, node=node_address,
+                    detail={"reason": "collapse_failed", "terminal_signal": signal,
+                            "errors": list(getattr(result, "errors", []) or [])},
+                )
             return WatchdogAction(
                 kind=COLLAPSE, node=node_address,
                 detail={"terminal_signal": signal, "evidence": sig.get("evidence")},
