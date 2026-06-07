@@ -283,6 +283,12 @@ def _handle_show(request: dict) -> dict:
     return {"ok": True, "command": "show", "addr": addr, "binding": binding}
 
 
+def _handle_tree(request: dict) -> dict:
+    """Return the WHOLE binding map — the operator fleet/tree read (§4.5 read-only; review COMP-4). The
+    CLI renders it as an indented supervision tree for situational awareness during a run."""
+    return {"ok": True, "command": "tree", "nodes": ledger.all_nodes()}
+
+
 def _handle_next_seq(request: dict) -> dict:
     """Return the next monotonic WAL ``seq`` (read-only — derived from the WAL on load, §4.5)."""
     return {"ok": True, "command": "next-seq", "next_seq": ledger.next_seq()}
@@ -338,6 +344,7 @@ _DISPATCH = {
     "service-outbox": _handle_service_outbox,
     # Read-only (shared lock — §4.5).
     "show": _handle_show,
+    "tree": _handle_tree,
     "next": _handle_next_seq,
     "next-seq": _handle_next_seq,
     "validate": _handle_validate,

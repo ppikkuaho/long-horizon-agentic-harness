@@ -64,6 +64,44 @@ SOCKET_ENV_VAR: str = "HARNESSD_SOCKET"
 # ---------------------------------------------------------------------------
 
 
+def render_tree(nodes: dict) -> str:
+    """Render the binding map as an indented supervision TREE (the operator fleet view, COMP-4).
+
+    Each line: ``<indent><address>  [<level>] <state>/<liveness>``. Children are indented under their
+    ``parent_address``; roots (parentless) are the top level. An ORPHAN (parent not in the map) is shown
+    at the top level with a marker — never silently dropped (a missing node would hide a real gap). Sorted
+    by address for stable output.
+    """
+    if not nodes:
+        return "(no nodes)"
+    children: dict = {}
+    roots = []
+    for addr, b in nodes.items():
+        parent = (b or {}).get("parent_address")
+        if parent and parent in nodes:
+            children.setdefault(parent, []).append(addr)
+        else:
+            roots.append(addr)  # a true root (parent None) OR an orphan (parent absent from the map)
+
+    lines: list[str] = []
+
+    def _emit(addr: str, depth: int) -> None:
+        b = nodes.get(addr) or {}
+        level = b.get("level", "?")
+        state = b.get("state", "?")
+        liveness = b.get("liveness_state", "?")
+        parent = b.get("parent_address")
+        orphan = bool(parent) and parent not in nodes
+        marker = "  ⚠orphan(parent missing)" if orphan else ""
+        lines.append(f"{'  ' * depth}{addr}  [{level}] {state}/{liveness}{marker}")
+        for child in sorted(children.get(addr, [])):
+            _emit(child, depth + 1)
+
+    for root in sorted(roots):
+        _emit(root, 0)
+    return "\n".join(lines)
+
+
 def _add_addr(subparser) -> None:
     """Attach the node-address positional shared by every node-addressed subcommand (parse+route)."""
     subparser.add_argument(
@@ -101,6 +139,10 @@ def build_parser() -> argparse.ArgumentParser:
     # --- Read-only surface (§4.5) ---------------------------------------------------------------
     show = subparsers.add_parser("show", help="print the ledger state for a node (read-only)")
     _add_addr(show)
+
+    subparsers.add_parser(
+        "tree", help="print the whole supervision tree (address / level / state / liveness; read-only)"
+    )
 
     next_seq = subparsers.add_parser(
         "next-seq", help="print the next monotonic WAL seq (read-only)"
@@ -295,6 +337,11 @@ def main(argv: Optional[list] = None, *, socket_path: Optional[str] = None) -> i
         print(json.dumps({"ok": False, "command": args.command, "errors": [f"daemon unreachable: {exc}"]}))
         return 3
 
+    # The `tree` read is rendered as a human-readable supervision tree (the operator fleet view, COMP-4);
+    # every other command prints the raw JSON response (the machine surface).
+    if args.command == "tree" and response.get("ok"):
+        print(render_tree(response.get("nodes") or {}))
+        return 0
     print(json.dumps(response))
     return 0 if response.get("ok", False) else 2
 
