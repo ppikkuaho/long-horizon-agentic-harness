@@ -341,11 +341,27 @@ def make_ipc_listener(runtime_root) -> "socket.socket":
 # the __main__ guard so ``python3 -m harnessd.daemon`` actually runs the resident daemon.
 # ---------------------------------------------------------------------------
 
+def _apply_global_seams(runtime) -> None:
+    """Bind the process-global seams the substrate READS but ``boot`` does not set: ``ledger.RUNTIME_ROOT``
+    (the genesis/executor/ledger anchor) + the dedicated tmux-server socket (so harness panes land on the
+    daemon's OWN tmux server, isolated from the user's default — and the operator attaches there to watch:
+    ``tmux -L <socket> attach -t harness:<addr>``). Must run BEFORE boot (genesis raises without
+    RUNTIME_ROOT). Idempotent.
+    """
+    runtime_root = _runtime_root(runtime)
+    ledger.RUNTIME_ROOT = runtime_root
+    tmux_socket = getattr(runtime, "tmux_socket", None)
+    if tmux_socket:
+        from harnessd.spawn import tmux as _tmux
+        _tmux.set_socket(tmux_socket)
+
+
 def run(runtime, *, interval_s: float = 5.0) -> NoReturn:
-    """Assemble + run the resident daemon: (1) ``boot(runtime)`` (runtime.json + genesis end-to-end);
-    (2) bind the IPC listener + serve it forever in a DAEMON THREAD (the CLI->daemon control plane);
-    (3) enter the unbounded ``poll_loop`` (reconcile + watchdog + outbox on the timer). NoReturn — the
-    always-on resident process (relaunch is recovery, §2.2).
+    """Assemble + run the resident daemon: (0) bind the global seams (RUNTIME_ROOT + tmux socket);
+    (1) ``boot(runtime)`` (runtime.json + genesis end-to-end); (2) bind the IPC listener + serve it
+    forever in a DAEMON THREAD (the CLI->daemon control plane); (3) enter the unbounded ``poll_loop``
+    (reconcile + watchdog + outbox on the timer). NoReturn — the always-on resident process (relaunch is
+    recovery, §2.2).
 
     The IPC serve runs in a separate thread so a blocking ``accept()`` never stalls the reconcile/watchdog
     sweep, and the sweep never stalls request handling. Both route every MUTATION through the ONE
@@ -354,6 +370,7 @@ def run(runtime, *, interval_s: float = 5.0) -> NoReturn:
     """
     import threading
 
+    _apply_global_seams(runtime)
     boot(runtime)
 
     runtime_root = _runtime_root(runtime)
@@ -371,14 +388,9 @@ def run(runtime, *, interval_s: float = 5.0) -> NoReturn:
 
 
 if __name__ == "__main__":  # pragma: no cover — the launchd-hosted process entry
-    # `python3 -m harnessd.daemon`: assemble the runtime descriptor from config + run the daemon. The
-    # concrete RuntimeAdapter + config wiring is the commissioning seam; run() boots, serves, and loops.
-    from harnessd import config as _config
+    # `python3 -m harnessd.daemon`: assemble the runtime descriptor (real adapter + OAuth env + L1
+    # config, read from the pinned install) and run the daemon. run() binds the global seams, boots
+    # genesis, serves IPC, and enters poll_loop.
+    from harnessd import commissioning as _commissioning
 
-    _runtime_descriptor = _config.build_runtime_descriptor() if hasattr(_config, "build_runtime_descriptor") else None
-    if _runtime_descriptor is None:
-        raise SystemExit(
-            "harnessd.daemon: no runtime descriptor — commissioning must supply config.build_runtime_descriptor() "
-            "(the OAuth env + L1 address/level + pinned binary + adapter). See DAEMON §2.12 / genesis."
-        )
-    run(_runtime_descriptor)
+    run(_commissioning.build_runtime())
