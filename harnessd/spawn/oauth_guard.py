@@ -57,11 +57,19 @@ _OAUTH_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 class SpawnFailure(Exception):
     """A spawn was refused for a classifiable reason (§2.13).
 
-    The ``class`` is one of {auth_expired, model_unavailable, override_rejected,
-    runtime_down}. Subclasses carry the specific semantics; the generic class is
-    here so an auth lapse can be classified SEPARATELY from a model outage
-    (DAEMON §6.3 — a token lapse is not a fleet-wide outage storm).
+    Carries a ``failure_class`` (one of {auth_expired, model_unavailable, override_rejected,
+    runtime_down, api_key_forbidden}) so the chokepoint can escalate the SPECIFIC class that fired
+    (DAEMON §6.3 — a token lapse is not a fleet-wide outage storm). The base default is
+    ``model_unavailable`` (a generic spawn refusal reads as a model/runtime outage unless a subclass or
+    an explicit ``failure_class=`` override says otherwise); subclasses set their own class below.
     """
+
+    failure_class: str = "model_unavailable"
+
+    def __init__(self, message: str = "", *, failure_class: str = None):
+        super().__init__(message)
+        if failure_class is not None:
+            self.failure_class = failure_class
 
 
 class ApiKeyForbidden(Exception):
@@ -70,18 +78,22 @@ class ApiKeyForbidden(Exception):
 
     Deliberately a direct ``Exception`` subclass — NOT a ``SpawnFailure`` and NOT
     related to ``AuthExpired`` — so the forbidden-api-key path and the
-    credential-lapse path are independently catchable.
+    credential-lapse path are independently catchable. Carries ``failure_class`` so the chokepoint
+    escalates it as the alarming hard-invariant breach it is, rather than letting it leak uncaught.
     """
+
+    failure_class: str = "api_key_forbidden"
 
 
 class AuthExpired(SpawnFailure):
     """The OAuth subscription token is absent or expired (DAEMON §7, §6.3).
 
-    A DISTINCT spawn-failure class: subclasses ``SpawnFailure`` (so it is
-    classified as a spawn failure, separate from ``model_unavailable``) but is
-    NOT an ``ApiKeyForbidden`` — a token lapse must read as "refresh the token",
-    not "a raw API key leaked" and not "the model is down".
+    A DISTINCT spawn-failure class: ``failure_class='auth_expired'`` (separate from
+    ``model_unavailable``) — a token lapse must read as "refresh the token", not "a raw API key
+    leaked" and not "the model is down".
     """
+
+    failure_class: str = "auth_expired"
 
 
 # --------------------------------------------------------------------------------------------------

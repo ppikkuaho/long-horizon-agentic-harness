@@ -67,7 +67,7 @@ from typing import Optional
 from harnessd import addressing, config, executor, fencing, ledger, states, store
 from harnessd.spawn import brief, sandbox
 from harnessd.spawn.adapters.base import SpawnResult
-from harnessd.spawn.oauth_guard import SpawnFailure
+from harnessd.spawn.oauth_guard import ApiKeyForbidden, SpawnFailure
 
 # ---------------------------------------------------------------------------
 # The adapter injection seam (§2.11 carries no adapter param — see module docstring).
@@ -260,8 +260,12 @@ def _spawn_after_claim(
     # STEP3 — pin + open the actor. The claim is STRICTLY before this (the F-024 ordering).
     try:
         spawn_result = adapter.pin_and_open(spawn_brief, level_config, node_address, pane_env)
-    except SpawnFailure as exc:
-        # POST-claim failure (§6.3): release the claim and escalate to L1 with the class that fired.
+    except (SpawnFailure, ApiKeyForbidden) as exc:
+        # POST-claim failure (§6.3): release the claim and escalate to L1 with the SPECIFIC class that
+        # fired. ApiKeyForbidden is caught here too (it is NOT a SpawnFailure but is a post-claim spawn
+        # refusal) — else it leaks UNCAUGHT past the chokepoint, crashing the spawn path AND leaving the
+        # claim committed (review claude_code-3). Each exception now carries its own failure_class
+        # (auth_expired / api_key_forbidden / …) so an auth lapse no longer masquerades as a model outage.
         failure_class = getattr(exc, "failure_class", None) or "model_unavailable"
         model_used = getattr(exc, "model_used", "")
         release_claim(node_address, expected_owner_token=post_claim_token)
