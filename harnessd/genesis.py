@@ -64,6 +64,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from harnessd import addressing
 from harnessd import config as _config_mod
 from harnessd import fencing, ledger, states, store
 from harnessd import reconcile as _reconcile_mod
@@ -206,6 +207,10 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
         "terminal_signal_at": None,
         "gate_crossed_at": None,
         "paused_at": None,
+        # The L1 root's workspace = its canonical nested node dir (mirror _register_child). Without it
+        # service_outbox short-circuits to [] and L1 can never spawn L2 — the cascade dies at edge 1
+        # (REMEDIATION F7 / review CFW-01).
+        "workspace": str(addressing.node_dir(l1_address, runtime_root)),
     }
     # Merge into the live map (preserve any pre-existing siblings) and write under a BRIEFLY-held EX
     # lock — released on exit, before claim_and_spawn re-takes it per-mutation (no re-entrant deadlock).
