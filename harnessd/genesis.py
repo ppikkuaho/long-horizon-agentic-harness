@@ -72,6 +72,12 @@ from harnessd.spawn import chokepoint
 from harnessd.spawn import oauth_guard
 
 
+class GenesisError(RuntimeError):
+    """First-boot failed fatally. L1 is the ROOT — there is no parent to escalate to (DAEMON §7), so a
+    failed L1 spawn cannot be a silent clean boot: it raises here, naming the failure_class, so the
+    operator (and the launchd-hosted process) sees a loud, debuggable boot failure (review genesis-1)."""
+
+
 # ---------------------------------------------------------------------------
 # Step 1 — the EX serialization lock (the single serialization domain, §4.3 / §7 step 3).
 # The lock file co-locates with the WAL/binding under RUNTIME_ROOT (executor.LOCK_FILENAME).
@@ -309,11 +315,22 @@ def run_genesis(executor, tmux, config) -> None:
     # No live/resumable L1 -> first boot (or a necro'd prior root): register the parentless root
     # planned slot, then SPAWN it in-role through the ONE spawn chokepoint (claim-before-spawn, F-024).
     registered = _register_l1_root(l1_address, l1_level, role_variant, runtime_root)
-    chokepoint.claim_and_spawn(
+    result = chokepoint.claim_and_spawn(
         l1_address,
         expected_state="planned",
         expected_generation=registered["generation"],
         expected_owner_token=registered["owner_token"],
         level_config=level_config,
     )
+    # SURFACE a failed L1 boot (review genesis-1): claim_and_spawn returns ok=False (it does NOT raise)
+    # on claim_lost / paused_subtree / a post-claim SpawnFailure (auth_expired / model_unavailable /
+    # runtime_down / api_key_forbidden). Discarding it would report a clean boot with NO L1 actor — a
+    # silent dead boot. L1 is the root (no parent to escalate to), so a failed L1 spawn is FATAL: raise.
+    if not getattr(result, "ok", False):
+        failure_class = getattr(result, "failure_class", None) or "unknown"
+        raise GenesisError(
+            f"first-boot L1 spawn FAILED (failure_class={failure_class}, address={l1_address!r}): no L1 "
+            "actor opened. L1 is the root — there is no parent to escalate to; boot cannot proceed. "
+            "Resolve the cause (e.g. auth_expired -> refresh the pinned OAuth token) and relaunch."
+        )
     return None
