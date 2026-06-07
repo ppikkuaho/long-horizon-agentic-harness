@@ -49,9 +49,12 @@ import time
 from pathlib import Path
 from typing import NoReturn, Optional
 
+from harnessd import clock as _clock
 from harnessd import genesis as _genesis_mod
-from harnessd import ledger, store
+from harnessd import ipc as _ipc_mod
+from harnessd import ledger, states, store
 from harnessd import reconcile as _reconcile_mod
+from harnessd import watchdog as _watchdog_mod
 from harnessd.spawn import chokepoint
 from harnessd.spawn import outbox as _outbox_mod
 
@@ -136,6 +139,7 @@ def poll_once(executor, tmux, detector) -> None:
     (the supervision tree's liveness must keep advancing even if one node's request is malformed).
     """
     _reconcile_mod.reconcile_tick(executor, tmux, detector)
+    _watchdog_tick(executor, tmux, detector)
     _service_outboxes_best_effort()
     return None
 
@@ -146,6 +150,67 @@ def _service_outboxes_best_effort() -> None:
         _outbox_mod.service_all_outboxes()
     except Exception:  # noqa: BLE001 — the reconcile sweep must advance regardless of one bad outbox
         pass
+
+
+# ---------------------------------------------------------------------------
+# _watchdog_tick — the §2.9 watchdog as a verdict+policy invoked by ①'s in-process sweep (WATCHDOG.md
+# L214: "② is a verdict + policy function invoked by ①'s in-process sweep, NOT a separate polling
+# daemon"). THE keystone wiring the review found missing: without this, no node ever auto-collapses on
+# sign-off, no idle leaf ever fails-loud, no coordinator-death is probed.
+# ---------------------------------------------------------------------------
+
+def _is_coordinator(node_address: str, bindings: dict) -> bool:
+    """A COORDINATOR has at least one (live-or-any) descendant binding (§5.4). Mirrors reconcile's split:
+    primary = another binding names this node as ``parent_address``; fallback = address-prefix arithmetic
+    on the one-spine path (a descendant's path begins with ``<this-path>/``)."""
+    this_path = node_address.split("#", 1)[0]
+    for other_address, other in bindings.items():
+        if other_address == node_address:
+            continue
+        if other.get("parent_address") == node_address:
+            return True
+        other_path = other_address.split("#", 1)[0]
+        if other_path.startswith(this_path + "/"):
+            return True
+    return False
+
+
+def _watchdog_tick(executor, tmux, detector) -> None:
+    """Run the §2.9 watchdog verdict+policy over every LIVE node, edge-triggered, leaf/coordinator-split.
+
+    LEAF (ephemeral L5/L5+): ``watchdog.check_leaf`` — terminal-signal-FIRST collapse (a fenced DONE/
+    FAILED ``.signal.json`` routes through ``chokepoint.collapse`` -> the REAL executor) then the
+    idle->prod->FAILED ladder. ``check_leaf`` ENACTS its action and returns a WatchdogAction.
+    COORDINATOR (persistent): ``watchdog.check_coordinator_death`` — the dead-pid+live-children ->
+    ESCALATE probe (never blind-collapsed; the full evidence-lease recovery machine is DEFERRED, per
+    WATCHDOG.md §1). A coordinator is NOT run through the leaf sign-off/ladder (the §5.4 split: do not
+    auto-fail a coordinator for idle — it may be waiting on children).
+
+    Liveness is injected into the watchdog via its ``set_liveness`` seam so ``check_leaf`` reads THIS
+    sweep's detector verdict. Each node is isolated: one node's watchdog error never aborts the sweep
+    (the supervision tree must keep advancing — the same best-effort discipline as the outbox drain).
+    """
+    if detector is not None:
+        _watchdog_mod.set_liveness(lambda addr: detector.liveness(addr))
+    try:
+        now = _clock.now_utc()
+        bindings = ledger.all_nodes()
+        for address, binding in list(bindings.items()):
+            if states.is_terminal(binding.get("state")):
+                continue
+            # The watchdog's ``node`` arg is the node OBJECT (a dict carrying node_address / tmux_target /
+            # transcript_path — read by read_terminal_signal + pane_alive), NOT the bare address string.
+            # The binding dict carries those fields, so it serves as both ``node`` and ``binding``.
+            try:
+                if _is_coordinator(address, bindings):
+                    _watchdog_mod.check_coordinator_death(binding, binding, ledger)
+                else:
+                    _watchdog_mod.check_leaf(binding, binding, now=now)
+            except Exception:  # noqa: BLE001 — one node's watchdog fault must not abort the whole sweep
+                continue
+    finally:
+        if detector is not None:
+            _watchdog_mod.set_liveness(None)  # restore the default detector.liveness seam
 
 
 def poll_loop(interval_s, executor=None, tmux=None, detector=None) -> NoReturn:
@@ -216,3 +281,104 @@ def write_status(runtime_root, status: Optional[dict] = None) -> Optional[Path]:
     # LOCK-FREE: atomic_replace is tmp+fsync+os.replace — it NEVER takes store.file_lock (§4.4).
     store.atomic_replace(path, render)
     return path
+
+
+# ---------------------------------------------------------------------------
+# IPC listener — bind+serve the AF_UNIX control socket the CLI dials (FORK-IPC / FORK-SOCKET-PATH). The
+# review found serve_forever had NO production caller: the whole CLI->daemon path was dead. The daemon
+# binds the listener at boot and serves it in a thread alongside poll_loop.
+# ---------------------------------------------------------------------------
+
+# Mirror harnessctl's resolution so client + daemon agree on the path WITHOUT importing the CLI here.
+_IPC_DIRNAME = ".harnessd"
+_IPC_SOCKET_FILENAME = "harnessd.sock"
+
+
+def ipc_socket_path(runtime_root) -> Path:
+    """The canonical IPC socket path: ``<runtime_root>/.harnessd/harnessd.sock`` (harnessctl's default)."""
+    if runtime_root is None:
+        runtime_root = ledger.RUNTIME_ROOT
+    return Path(runtime_root) / _IPC_DIRNAME / _IPC_SOCKET_FILENAME
+
+
+def make_ipc_listener(runtime_root) -> "socket.socket":
+    """Bind + listen the AF_UNIX control socket at the canonical path; return the listening socket.
+
+    A STALE socket file (a prior daemon's leftover after a crash) is unlinked before bind (AF_UNIX bind
+    fails EADDRINUSE on an existing path even if no listener holds it). The caller owns the socket
+    lifecycle (close on shutdown); ``serve_forever`` loops ``serve_one`` over it.
+    """
+    import os
+    import socket
+
+    path = ipc_socket_path(runtime_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if path.exists():
+            os.unlink(path)  # clear a stale leftover socket file so bind() succeeds
+    except OSError:
+        pass
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sp = str(path)
+    # AF_UNIX sun_path is ~104 bytes (FORK-IPC-SOCKET-LEN). A deeply-nested RUNTIME_ROOT can exceed it.
+    # Fallback: chdir to the socket's parent + bind the BASENAME (a short relative path), then restore.
+    # Safe here because make_ipc_listener runs ONCE at boot, single-threaded, before the serve thread.
+    if len(sp.encode("utf-8")) < 100:
+        listener.bind(sp)
+    else:
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(str(path.parent))
+            listener.bind(path.name)
+        finally:
+            os.chdir(old_cwd)
+    listener.listen(64)
+    return listener
+
+
+# ---------------------------------------------------------------------------
+# run — THE process entrypoint body (the keystone): boot -> serve IPC (thread) -> poll_loop. Invoked by
+# the __main__ guard so ``python3 -m harnessd.daemon`` actually runs the resident daemon.
+# ---------------------------------------------------------------------------
+
+def run(runtime, *, interval_s: float = 5.0) -> NoReturn:
+    """Assemble + run the resident daemon: (1) ``boot(runtime)`` (runtime.json + genesis end-to-end);
+    (2) bind the IPC listener + serve it forever in a DAEMON THREAD (the CLI->daemon control plane);
+    (3) enter the unbounded ``poll_loop`` (reconcile + watchdog + outbox on the timer). NoReturn — the
+    always-on resident process (relaunch is recovery, §2.2).
+
+    The IPC serve runs in a separate thread so a blocking ``accept()`` never stalls the reconcile/watchdog
+    sweep, and the sweep never stalls request handling. Both route every MUTATION through the ONE
+    executor under the ONE EX lock (the single-writer invariant holds across the two threads — fcntl
+    serializes them).
+    """
+    import threading
+
+    boot(runtime)
+
+    runtime_root = _runtime_root(runtime)
+    listener = make_ipc_listener(runtime_root)
+    serve_thread = threading.Thread(
+        target=_ipc_mod.serve_forever, args=(listener,), name="harnessd-ipc", daemon=True
+    )
+    serve_thread.start()
+
+    # Resolve the sweep collaborators (production defaults; a test never calls run()).
+    from harnessd import executor as _executor
+    from harnessd.spawn import tmux as _tmux
+    from harnessd import detector as _detector
+    poll_loop(interval_s, executor=_executor, tmux=_tmux, detector=_detector)
+
+
+if __name__ == "__main__":  # pragma: no cover — the launchd-hosted process entry
+    # `python3 -m harnessd.daemon`: assemble the runtime descriptor from config + run the daemon. The
+    # concrete RuntimeAdapter + config wiring is the commissioning seam; run() boots, serves, and loops.
+    from harnessd import config as _config
+
+    _runtime_descriptor = _config.build_runtime_descriptor() if hasattr(_config, "build_runtime_descriptor") else None
+    if _runtime_descriptor is None:
+        raise SystemExit(
+            "harnessd.daemon: no runtime descriptor — commissioning must supply config.build_runtime_descriptor() "
+            "(the OAuth env + L1 address/level + pinned binary + adapter). See DAEMON §2.12 / genesis."
+        )
+    run(_runtime_descriptor)
