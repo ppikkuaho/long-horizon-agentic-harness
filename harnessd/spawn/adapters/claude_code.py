@@ -190,21 +190,24 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         # config.PINNED_BINARY_HASH is None in v1 (gitignored install): the sha256 verification is
         # the documented commissioning seam, not skippable silence — see FORK-VERIFY in the docstring.
 
-    def _deterministic_trust(self, env: dict, containment=None) -> None:
+    def _deterministic_trust(self, env: dict, containment=None, cwd=None) -> None:
         """Deterministic first-boot trust — pre-seed CLAUDE_CONFIG_DIR so NO startup dialog /
         permission prompt appears, NOT a send-keys race (SECURITY.md §deterministic-trust).
 
         A real interactive spawn hits BLOCKING dialogs (workspace trust, the bypass-permissions
         warning, per-tool prompts) that would FREEZE an unattended agent. ``cc_config.seed_trust``
-        writes the acceptance keys for the agent's WORKSPACE (the jailed WORKROOT = the agent's cwd)
-        into ``.claude.json``/``settings.json`` BEFORE launch, so the agent boots straight to working.
-        Verified live: a fresh workspace pre-seeded this way shows zero dialogs.
+        writes the acceptance keys for the agent's WORKSPACE into ``.claude.json``/``settings.json``
+        BEFORE launch, so the agent boots straight to working. Verified live: a fresh workspace
+        pre-seeded this way shows zero dialogs.
 
-        Only meaningful for a real (jailed) spawn — the WORKROOT is the agent's workspace. The
-        unjailed dry-run never runs a model, so there is nothing to pre-trust (no-op).
+        Seeded for the ACTUAL pane cwd on EVERY spawn (the transport increment) — jailed (the
+        WORKROOT) AND unjailed (the node-workspace cwd the pane now boots in, F18 ``-c``): an
+        untrusted cwd freezes an UNJAILED agent on the trust dialog exactly the same way.
+        ``seed_trust`` itself skips cleanly when CLAUDE_CONFIG_DIR is not a real on-disk dir
+        (the dry-run placeholder), so the pure-assembly tests stay side-effect-free.
         """
         config_dir = env.get("CLAUDE_CONFIG_DIR")
-        workroot = (containment or {}).get("WORKROOT")
+        workroot = (containment or {}).get("WORKROOT") or cwd
         if config_dir and workroot:
             cc_config.seed_trust(config_dir, workroot)
         return None
@@ -256,8 +259,21 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         #     --dangerously-skip-permissions so the unattended agent auto-approves its own tool calls
         #     (the jail bounds the blast radius; every permission prompt is superfluous and would only
         #     FREEZE the agent with no human at the pane — SECURITY.md §362).
+        #
+        #     The --system-prompt-file value is ABSOLUTE (resolved against HARNESS_ROOT — the
+        #     config.py NOTE's resolution contract): the pane now boots in the NODE's workspace
+        #     (cwd below), so a repo-relative path would dangle. The recorded
+        #     SpawnResult.system_prompt_file stays the canonical config CONSTANT (intent).
+        #
+        #     --model is derived from level_config.model via config.CC_MODEL_FLAGS (probed live:
+        #     the pinned CC defaults to Sonnet without it — the recorded "opus-4.8" was a lie).
+        #     An unmapped model adds NO flag (explicit mapping, never a guessed id); model_used
+        #     below remains the recorded INTENT (the E32 fact-checker is deferred F17 territory).
         cc = str(_harness_root() / _PINNED_CC)
-        argv = [cc, "--system-prompt-file", config.SYSTEM_PROMPT_FILE]
+        argv = [cc, "--system-prompt-file", str(_harness_root() / config.SYSTEM_PROMPT_FILE)]
+        cc_model = config.CC_MODEL_FLAGS.get(getattr(level_config, "model", None))
+        if cc_model:
+            argv += ["--model", cc_model]
         if containment is not None:
             argv.append("--dangerously-skip-permissions")
 
@@ -303,11 +319,32 @@ class ClaudeCodeAdapter(RuntimeAdapter):
                     f"missing={sorted(missing)}"
                 )
 
+        # (6b) Resolve the PANE CWD: the node's workspace (the brief's ``workspace`` pointer — the
+        #      nested addressing.node_dir the chokepoint registered). The agent boots WHERE its
+        #      brief lands, so the kickoff pointer's relative reads (brief.md, .inbox.<seat>.jsonl)
+        #      agree with the pane cwd. Ensured on disk (a `-c` into a missing dir fails the
+        #      new-session). Absent workspace (the bare adapter-level dry-run) -> no cwd, the pane
+        #      inherits the server default exactly as before.
+        cwd = _brief_get(neutral_brief, "workspace")
+        if cwd:
+            cwd = str(cwd)
+            try:
+                Path(cwd).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass  # an un-creatable workspace surfaces at create_detached, loudly
+            # REALPATH-canonicalize (probed live): CC keys its trust map by the REALPATH the
+            # session opens (e.g. macOS /var/... -> /private/var/...). A symlinked cwd seeded
+            # under the logical path MISSES the trust lookup and the agent freezes on the
+            # trust dialog — so the cwd handed to seed_trust AND to tmux -c is the realpath.
+            cwd = os.path.realpath(cwd)
+
         # (7) Deterministic first-boot trust (pre-seeded config dir; no send-keys race) — KILLS every
         #     startup dialog/permission prompt for the agent's workspace (trust dialog + bypass warning
         #     + per-tool prompts) so an unattended agent boots straight to working, never frozen on a
         #     dialog (SECURITY.md §deterministic-trust; the jail is the bound, prompts are superfluous).
-        self._deterministic_trust(env, containment)
+        #     Seeded for the ACTUAL pane cwd on EVERY spawn — unjailed included (the trust dialog
+        #     freezes an unjailed agent just the same).
+        self._deterministic_trust(env, containment, cwd)
 
         # (8) Render the §2.3 seatbelt profile and wrap the env-i pane with sandbox-exec (§7.1) when
         #     a containment block is resolved. The wrapped vector — `sandbox-exec -f <profile>.sb
@@ -322,11 +359,15 @@ class ClaudeCodeAdapter(RuntimeAdapter):
             profile_path = self._write_profile(env, containment, session_name, profile_text)
             launch_argv = sandbox.wrap(pane_argv, profile_path)
 
-        # (9) Open the detached actor with the pane vector (wrapped when jailed, bare env -i when not).
-        #     create_detached returns the CANONICAL live target '<session>:<window>.<pane>' (tmux's own
-        #     post-rename report, F18/OSA-01) — THAT is the recorded tmux_target, never the requested
-        #     name (which tmux may rewrite) and never a guessed ':0.0' suffix (base-index may differ).
-        canonical_target = self.tmux.create_detached(session_name, launch_argv, env)
+        # (9) Open the detached actor with the pane vector (wrapped when jailed, bare env -i when not),
+        #     booting in the node workspace when one is contracted (-c cwd). create_detached returns
+        #     the CANONICAL live target '<session>:<window>.<pane>' (tmux's own post-rename report,
+        #     F18/OSA-01) — THAT is the recorded tmux_target, never the requested name (which tmux
+        #     may rewrite) and never a guessed ':0.0' suffix (base-index may differ).
+        if cwd:
+            canonical_target = self.tmux.create_detached(session_name, launch_argv, env, cwd=cwd)
+        else:
+            canonical_target = self.tmux.create_detached(session_name, launch_argv, env)
 
         # (8) Record the facts (config = intent, model_used = fact).
         session_uuid = str(uuid.uuid4())

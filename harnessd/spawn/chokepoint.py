@@ -388,7 +388,72 @@ def _spawn_after_claim(
         _emit_spawn_failure_escalation(node_address, "runtime_down", spawn_result.model_used)
         return _result_failed("runtime_down", tmux_target=node_address)
 
+    # STEP6 — the KICKOFF (the transport increment): deliver the agent's starting instruction.
+    # Durable-artifact-FIRST then best-effort nudge (the architecture's own pattern): the kickoff
+    # line lands in the node's .inbox.<seat>.jsonl (the multi-writer append log the ③-wake tails),
+    # THEN the pointer is typed into the live pane. A lost keystroke is HEALED by the watchdog's
+    # ③-wake: the inbox line sits unacked past the watermark, so the next poll re-nudges. Pointer,
+    # never payload (the wake_keystroke discipline — the brief content stays in brief.md).
+    # Best-effort by construction: a kickoff hiccup never rolls back a successfully RUNNING node.
+    _deliver_kickoff(node_address, spawn_result, adapter)
+
     return spawn_result
+
+
+def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
+    """STEP6: append the kickoff pointer to the node's inbox, then best-effort send-keys it.
+
+    (1) DURABLE FIRST — one JSON line in ``addressing.inbox_path`` (the same line discipline the
+        F16 answer verb uses: from/type/message/ts). This is the artifact the ③-wake edge-trigger
+        reads: as long as it sits past ``last_inbox_acked_offset``, the watchdog keeps re-nudging,
+        so the kickoff cannot be lost to a dropped keystroke.
+    (2) BEST-EFFORT NUDGE — ``tmux.send_keys(<canonical tmux_target>, pointer)`` through the
+        adapter's OWN tmux seam (the same transport that opened the pane; mocks without
+        ``send_keys`` simply skip — the dry-run never types). The pointer names WHO the agent is,
+        WHERE its brief lands (the workspace it booted in, F18 cwd), and WHICH inbox messages
+        arrive in — never the brief/task content itself.
+    """
+    from harnessd import clock
+
+    if ledger.RUNTIME_ROOT is None:
+        return  # no runtime tree (a bare adapter-level dry-run) -> nothing durable to land
+
+    seat = addressing.split_address(node_address)[1]
+    node_dir = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
+    inbox = addressing.inbox_path(node_address, ledger.RUNTIME_ROOT)
+    pointer = (
+        f"You are {node_address}. Read brief.md in your workspace at {node_dir} and begin. "
+        f"Messages arrive in .inbox.{seat}.jsonl."
+    )
+
+    # (1) the durable kickoff line (multi-writer append log — NOT the single-writer ledger).
+    line = {"from": "harnessd", "type": "kickoff", "message": pointer, "ts": clock.now_utc()}
+    try:
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+        with inbox.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(line) + "\n")
+    except OSError:
+        # Journal best-effort; the spawn itself is already running and must not be rolled back.
+        try:
+            ledger.append_wal(ledger.build_wal_record(
+                node_address=node_address, event="kickoff_append_failed",
+                from_state="running", to_state="running", expected_generation=None,
+                generation=None, lease_epoch=None, owner_token=None,
+                binding_delta={"inbox": str(inbox)},
+                summary=f"kickoff inbox append failed for {node_address} (inbox {inbox})",
+                artifacts=[], seq=ledger.next_seq(),
+            ))
+        except Exception:  # noqa: BLE001
+            pass
+        return  # no durable line -> do not type a nudge the wake could never heal/repeat
+
+    # (2) the best-effort pane nudge. A lost keystroke is healed by the ③-wake on the unacked line.
+    send = getattr(getattr(adapter, "tmux", None), "send_keys", None)
+    if send is not None and getattr(spawn_result, "tmux_target", None):
+        try:
+            send(spawn_result.tmux_target, pointer)
+        except Exception:  # noqa: BLE001 — fire-and-forget; the unacked inbox line re-nudges
+            pass
 
 
 def _rollback_spawning(node_address: str, expected_owner_token: str) -> None:

@@ -131,11 +131,29 @@ def _liveness(node_address: str):
 
 
 # ===========================================================================
-# The golden idle-prompt gate string (FORK-PROMPT). Placeholder until the CC-version
-# string is measured at commissioning (WATCHDOG §4.3 / §8 KNOWN-OPEN).
+# The golden idle-prompt gate string (FORK-PROMPT) — MEASURED on the pinned CC v2.1.152
+# (commissioning probe 2026-06-10; captured fixture tests/fixtures/cc-2.1.152-idle-pane.txt).
+# The idle pane renders an input line beginning '❯' with a '? for shortcuts' status line
+# below. Pinned per CC version (WATCHDOG §4.3 / §8): a CC bump re-measures this string.
 # ===========================================================================
 
-FORK_PROMPT: str = "FORK_PROMPT"  # the CC idle-input-prompt marker (measured at commissioning)
+FORK_PROMPT: str = "❯"  # the CC v2.1.152 idle-input-prompt marker (measured, fixture-pinned)
+
+# CC renders the '❯' input box even WHILE GENERATING (steering is allowed mid-run), so the
+# prompt char alone cannot distinguish idle from busy. The working marker below is the busy
+# signal CC shows during generation/tool-calls — its presence CLOSES the gate (§4.3
+# Precondition 1: a send-keys nudge mid-turn corrupts the input line). Mirrors the proven
+# interactive_eval._WORKING_MARKERS member.
+_WORKING_MARKER: str = "esc to interrupt"
+
+# CC's blocking DIALOGS (trust prompt, tool-approval prompt, bypass warning, selection menus)
+# ALSO render '❯' as the selection cursor (probed live: the trust dialog shows '❯ 1. Yes, I
+# trust this folder' / 'Enter to confirm · Esc to cancel'; the tool-approval dialog shows
+# '❯ 1. Yes' / 'Esc to cancel · Tab to amend'). A nudge typed into a dialog would press Enter
+# ON the selection — confirming whatever is highlighted. Deterministic trust + the jail's
+# skip-permissions make dialogs structurally absent in production, but the gate refuses them
+# anyway (belt-and-braces; both dialogs fixture-pinned).
+_DIALOG_MARKERS: tuple[str, ...] = ("Enter to confirm", "Esc to cancel")
 
 
 # ===========================================================================
@@ -173,14 +191,25 @@ def _age_beyond_w(last_progress_at: Optional[str], window: int, *, now: Optional
 
 
 def _capture_pane(node) -> str:
-    """Capture the node's pane text (the prod-gate evidence). ③'s wire — a stub seam in v1.
+    """Capture the node's pane text (the prod-gate evidence) — the REAL ③ wire.
 
-    The real capture-pane send is cluster ③'s transport (not wired until the ③ increment); the
-    tests drive ``prod_precondition`` through the module seam, so this returns an empty pane in v1
-    (the gate reads NOT-at-prompt by default — the conservative default: never prod un-gated). A
-    later increment binds the real ``tmux capture-pane`` here behind this one seam.
+    Reads the live pane buffer via ``tmux.capture_pane(node["tmux_target"])`` — the canonical
+    ``<session>:<window>.<pane>`` triple the F18 fix records on the binding. This stays the ONE
+    module-level seam the tests monkeypatch (same name, same ``node -> str`` shape as the v1
+    stub), so the existing prod-gate tests drive it unchanged.
+
+    CONSERVATIVE on every failure mode: a node with no tmux_target, a gone pane, or a capture
+    error reads as an EMPTY pane -> the gate stays CLOSED (never prod un-gated). The local
+    import keeps the module import-light (the daemon binds the tmux socket seam at boot).
     """
-    return ""
+    target = node.get("tmux_target") if isinstance(node, dict) else None
+    if not target:
+        return ""
+    try:
+        from .spawn import tmux as _tmux
+        return _tmux.capture_pane(target) or ""
+    except Exception:  # noqa: BLE001 — an unreadable pane is gate-closed evidence, not a crash
+        return ""
 
 
 # ===========================================================================
@@ -416,15 +445,29 @@ def _fail_and_escalate(node_address: str, binding: dict) -> WatchdogAction:
 # ===========================================================================
 
 def prod_precondition(node) -> bool:
-    """The prod gate (§4.3 Precondition 1): True iff the captured pane shows the idle input prompt.
+    """The prod gate (§4.3 Precondition 1): True iff the captured pane shows the IDLE input prompt.
 
     A send-keys prod can land mid-tool-call and corrupt the input line; the prompt-string gate is
-    what stops a nudge interleaving with an in-flight tool call. We match the golden idle-prompt
-    marker (FORK_PROMPT — the CC-version string, KNOWN-OPEN) as a substring of the captured pane.
-    The real capture-pane wire is ③'s; v1 reads an empty pane here (gate CLOSED by default — the
-    conservative no-prod-un-gated posture), and the tests drive this through the module seam.
+    what stops a nudge interleaving with an in-flight tool call. Two-part match against the REAL
+    captured pane (the ③ wire behind ``_capture_pane``):
+
+      * the golden idle-prompt marker (``FORK_PROMPT`` — the '❯' input line, MEASURED on the
+        pinned CC v2.1.152, fixture-pinned) must be PRESENT, and
+      * the working marker (``_WORKING_MARKER`` — 'esc to interrupt', what CC shows while
+        generating) must be ABSENT — CC renders the '❯' box even mid-generation, so the prompt
+        char alone would open the gate on a busy pane.
+
+    An empty/unreadable pane reads gate-CLOSED (the conservative no-prod-un-gated posture), and
+    so does a pane showing a blocking DIALOG (``_DIALOG_MARKER`` — a nudge's Enter would press
+    the highlighted dialog option; probed live on the trust dialog, which also renders '❯').
     """
     pane = _capture_pane(node)
+    if not pane:
+        return False
+    if _WORKING_MARKER in pane:
+        return False  # mid-generation/tool-call — never type into an in-flight turn (§4.3 P1)
+    if any(marker in pane for marker in _DIALOG_MARKERS):
+        return False  # a blocking dialog — Enter would CONFIRM the highlighted option
     return FORK_PROMPT in pane
 
 

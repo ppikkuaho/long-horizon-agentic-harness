@@ -107,13 +107,15 @@ def build_pane_argv(env: dict, argv: list[str]) -> list[str]:
 # create_detached — open a detached session whose pane is the from-empty isolator.
 # ---------------------------------------------------------------------------
 
-def create_detached(session_name: str, argv: list[str], env: dict) -> str:
+def create_detached(session_name: str, argv: list[str], env: dict, cwd: str | None = None) -> str:
     """Open a DETACHED tmux session running the from-empty ``env -i`` pane; return the
     CANONICAL live target ``<session>:<window>.<pane>`` (F18 / finding OSA-01).
 
     The pane command is ``build_pane_argv(env, argv)`` — ``env -i <K=V…> <argv…>`` — handed to
     ``new-session`` as distinct argv tokens. ``-d`` keeps the session detached (the daemon owns
-    it, not an attached terminal).
+    it, not an attached terminal). ``cwd`` (optional) boots the pane in that directory
+    (``-c <cwd>``) — the adapter passes the node's workspace so the agent starts where its
+    brief lands and its relative reads agree with the kickoff pointer.
 
     THE RETURN CONTRACT (revised by F18): tmux ITSELF reports the created target via
     ``-P -F '#{session_name}:#{window_index}.#{pane_index}'`` — never an echo of the requested
@@ -133,15 +135,43 @@ def create_detached(session_name: str, argv: list[str], env: dict) -> str:
         pane_argv = list(argv)
     else:
         pane_argv = build_pane_argv(env, argv)
-    # `new-session -d -s <session> -P -F '#{session_name}:#{window_index}.#{pane_index}'`
+    # `new-session -d -s <session> [-c <cwd>] -P -F '#{session_name}:#{window_index}.#{pane_index}'`
     # opens detached and prints the CANONICAL target triple (the post-rename session name +
     # the real indices). The pane_argv tokens follow as the command (NOT a re-quoted string).
-    args = [
-        "new-session", "-d", "-s", session_name,
-        "-P", "-F", "#{session_name}:#{window_index}.#{pane_index}",
-    ] + pane_argv
+    args = ["new-session", "-d", "-s", session_name]
+    if cwd:
+        # The pane boots IN the node's workspace (-c) so the agent's relative reads (brief.md,
+        # .inbox.<seat>.jsonl) agree with the kickoff pointer — and the trust seed covers this dir.
+        args += ["-c", str(cwd)]
+    args += ["-P", "-F", "#{session_name}:#{window_index}.#{pane_index}"] + pane_argv
     proc = _run(args)
     return proc.stdout.strip()
+
+
+# ---------------------------------------------------------------------------
+# send_keys — the keystroke delivery channel (the transport increment).
+# ---------------------------------------------------------------------------
+
+def send_keys(target: str, text: str) -> None:
+    """Type ``text`` LITERALLY into the pane, then Enter — the one keystroke-delivery seam.
+
+    Two send-keys calls, mirroring the proven interactive_eval precedent (eval/interactive_eval
+    Pane.send_text): first the literal text (``-l`` — no key-name lookup, no shell expansion;
+    the pointer string is delivered byte-for-byte), a short settle pause (Claude Code's input
+    box needs the text rendered before the submit), then ``Enter`` to submit.
+
+    ``target`` accepts the canonical ``<session>:<window>.<pane>`` triple ``create_detached``
+    returns (the recorded ``tmux_target``) or a bare session name. Best-effort at the transport
+    layer (``check=False``): send-keys is fire-and-forget by design — the watchdog confirms a
+    nudge "worked" ONLY by observing forward progress (confirm_prod_worked), and a lost kickoff
+    is healed by the ③-wake on the unacked inbox line. Callers that must journal a failed send
+    inspect the pane/transcript, not this return.
+    """
+    import time as _time
+
+    _run(["send-keys", "-t", target, "-l", text], check=False)
+    _time.sleep(0.3)  # let the input box render the literal before submitting (eval precedent)
+    _run(["send-keys", "-t", target, "Enter"], check=False)
 
 
 # ---------------------------------------------------------------------------

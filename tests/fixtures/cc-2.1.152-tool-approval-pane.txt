@@ -1,0 +1,15 @@
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   /bin/ls -la /private/var/folders/ts/9klglq0967gfrw65b29x8_rh0000gn/T/f18-e
+   2e-node-y_z9fsgl
+   List workspace contents with full path
+
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: /bin/ls *
+   3. No
+
+ Esc to cancel · Tab to amend · ctrl+e to explain

@@ -276,15 +276,28 @@ def _watchdog_tick(executor, tmux, detector) -> None:
 
     LEAF (ephemeral L5/L5+): ``watchdog.check_leaf`` — terminal-signal-FIRST collapse (a fenced DONE/
     FAILED ``.signal.json`` routes through ``chokepoint.collapse`` -> the REAL executor) then the
-    idle->prod->FAILED ladder. ``check_leaf`` ENACTS its action and returns a WatchdogAction.
+    idle->prod->FAILED ladder. ``check_leaf`` ENACTS its ledger-side action and returns a
+    WatchdogAction; THIS sweep enacts the action's KEYSTROKE half — a PROD's
+    ``detail['keystroke']`` is actually delivered via ``tmux.send_keys(binding tmux_target)``
+    (the transport increment: an un-enacted PROD nudges nobody).
     COORDINATOR (persistent): ``watchdog.check_coordinator_death`` — the dead-pid+live-children ->
     ESCALATE probe (never blind-collapsed; the full evidence-lease recovery machine is DEFERRED, per
     WATCHDOG.md §1). A coordinator is NOT run through the leaf sign-off/ladder (the §5.4 split: do not
     auto-fail a coordinator for idle — it may be waiting on children).
 
+    THE ③-WAKE (previously unwired — F16 noted the gap): EVERY live node (leaf AND coordinator —
+    the answer verb wakes the PARENT's inbox) with a line appended past its acked watermark
+    (``watchdog.inbox_has_unacked``) gets ONE pointer nudge (``watchdog.wake_keystroke`` — never
+    the payload), gated by ``prod_precondition`` (never type into a mid-turn pane) and skipped
+    for a PAUSED subtree (§3.4 STEP 0: no recovery actions). Only a DELIVERED nudge advances the
+    edge-trigger watermark (``executor.ack_inbox``); a suppressed/failed send leaves it unmoved
+    so the next tick retries — deferred, never lost.
+
     Liveness is injected into the watchdog via its ``set_liveness`` seam so ``check_leaf`` reads THIS
     sweep's detector verdict. Each node is isolated: one node's watchdog error never aborts the sweep
     (the supervision tree must keep advancing — the same best-effort discipline as the outbox drain).
+    A failed keystroke SEND is never swallowed silently: it is journaled to the run-ledger
+    (``prod_send_failed`` / ``wake_send_failed``) per the result-routing convention.
     """
     if detector is not None:
         _watchdog_mod.set_liveness(lambda addr: detector.liveness(addr))
@@ -301,12 +314,89 @@ def _watchdog_tick(executor, tmux, detector) -> None:
                 if _is_coordinator(address, bindings):
                     _watchdog_mod.check_coordinator_death(binding, binding, ledger)
                 else:
-                    _watchdog_mod.check_leaf(binding, binding, now=now)
+                    action = _watchdog_mod.check_leaf(binding, binding, now=now)
+                    # ENACT the keystroke half of a PROD (the ledger half — the stale-counter
+                    # advance — check_leaf already routed through the executor).
+                    if getattr(action, "kind", None) == _watchdog_mod.PROD:
+                        keystroke = (getattr(action, "detail", None) or {}).get("keystroke")
+                        if keystroke:
+                            _deliver_keystroke(tmux, binding, keystroke, kind="prod")
+                # The ③-wake runs for EVERY live node (the answer verb wakes the PARENT inbox).
+                _wake_on_unacked_inbox(executor, tmux, address, binding)
             except Exception:  # noqa: BLE001 — one node's watchdog fault must not abort the whole sweep
                 continue
     finally:
         if detector is not None:
             _watchdog_mod.set_liveness(None)  # restore the default detector.liveness seam
+
+
+def _deliver_keystroke(tmux, binding, keystroke: str, *, kind: str) -> bool:
+    """Deliver a watchdog keystroke into the binding's pane; journal a failed send (never silent).
+
+    Best-effort transport: ``tmux.send_keys(tmux_target, keystroke)`` — the canonical F18 target.
+    A transport without ``send_keys`` (the older test fakes) is a no-op miss, and any raised send
+    error is journaled as a ``<kind>_send_failed`` run-ledger row (the result-routing convention:
+    a lost nudge must be visible, even though the ③-wake/next-tick retry is the actual healer).
+    Returns True iff the send call completed.
+    """
+    target = binding.get("tmux_target")
+    send = getattr(tmux, "send_keys", None)
+    if not target or send is None:
+        return False
+    try:
+        send(target, keystroke)
+        return True
+    except Exception as exc:  # noqa: BLE001 — journal, never crash the sweep
+        try:
+            record = ledger.build_wal_record(
+                node_address=binding.get("node_address"),
+                event=f"{kind}_send_failed",
+                from_state=binding.get("state"),
+                to_state=binding.get("state"),
+                expected_generation=None,
+                generation=None,
+                lease_epoch=binding.get("lease_epoch"),
+                owner_token=None,
+                binding_delta={"tmux_target": target, "error": str(exc)},
+                summary=f"{kind} keystroke send to {target} failed: {exc} (retried next tick)",
+                artifacts=[],
+                seq=ledger.next_seq(),
+            )
+            ledger.append_wal(record)
+        except Exception:  # noqa: BLE001 — the journal itself is best-effort
+            pass
+        return False
+
+
+def _wake_on_unacked_inbox(executor, tmux, address: str, binding: dict) -> None:
+    """The ③-wake delivery: unacked inbox line -> ONE gated pointer nudge -> ack the watermark.
+
+    EDGE-TRIGGERED: ``inbox_has_unacked`` compares the inbox size to the binding's
+    ``last_inbox_acked_offset``; only a DELIVERED nudge advances the watermark (executor.ack_inbox,
+    the single writer), so a gate-closed pane or a failed send is retried next tick and an acked
+    line is never re-nudged. PAUSED subtrees get no nudge (§3.4 STEP 0 — no recovery actions);
+    the pointer (``wake_keystroke``) names the inbox re-read, NEVER the message payload.
+    """
+    from harnessd.spawn import chokepoint as _chokepoint
+
+    try:
+        if not _watchdog_mod.inbox_has_unacked(binding, binding):
+            return
+    except Exception:  # noqa: BLE001 — an unreadable inbox is "nothing to wake", not a crash
+        return
+    if _chokepoint.subtree_paused(address):
+        return  # a paused subtree gets NO recovery nudge (WATCHDOG §3.4 STEP 0)
+    if not _watchdog_mod.prod_precondition(binding):
+        return  # pane mid-turn / unreadable -> defer; the un-acked watermark retries next tick
+    if not _deliver_keystroke(tmux, binding, _watchdog_mod.wake_keystroke(binding), kind="wake"):
+        return  # failed/unsupported send -> watermark unmoved -> next tick retries
+    # Delivered: advance the edge-trigger watermark to the inbox end-of-file (one nudge per line).
+    try:
+        inbox = _watchdog_mod._inbox_path(binding)
+        size_now = inbox.stat().st_size
+    except OSError:
+        return
+    executor.ack_inbox(address, acked_offset=size_now)
 
 
 def poll_loop(interval_s, executor=None, tmux=None, detector=None) -> NoReturn:
@@ -502,15 +592,22 @@ def _apply_global_seams(runtime) -> None:
     """Bind the process-global seams the substrate READS but ``boot`` does not set: ``ledger.RUNTIME_ROOT``
     (the genesis/executor/ledger anchor) + the dedicated tmux-server socket (so harness panes land on the
     daemon's OWN tmux server, isolated from the user's default — and the operator attaches there to watch:
-    ``tmux -L <socket> attach -t harness:<addr>``). Must run BEFORE boot (genesis raises without
-    RUNTIME_ROOT). Idempotent.
+    ``tmux -L <socket> attach -t harness-<collapsed-addr>``) + the detector's §2.11 tmux seam
+    (``detector_signals._tmux`` — pane_alive RAISES un-bound; before this binding the seam was only
+    ever bound inside tests, so a real tick could never read pane liveness). Must run BEFORE boot
+    (genesis raises without RUNTIME_ROOT). Idempotent.
     """
     runtime_root = _runtime_root(runtime)
     ledger.RUNTIME_ROOT = runtime_root
+    from harnessd import detector_signals as _detector_signals
+    from harnessd.spawn import tmux as _tmux
+
     tmux_socket = getattr(runtime, "tmux_socket", None)
     if tmux_socket:
-        from harnessd.spawn import tmux as _tmux
         _tmux.set_socket(tmux_socket)
+    # The Increment-9 binding detector_signals' docstring promised: pane_alive reads the REAL
+    # wrapper (on whatever socket is bound above). Without this, production liveness raises.
+    _detector_signals._tmux = _tmux
 
 
 def run(runtime, *, interval_s: float = 5.0) -> NoReturn:

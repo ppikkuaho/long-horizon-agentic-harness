@@ -89,7 +89,7 @@ class RecordingTmux:
         pane += list(argv)
         return pane
 
-    def create_detached(self, session_name, pane_argv, env):
+    def create_detached(self, session_name, pane_argv, env, cwd=None):
         self.created.append((session_name, list(pane_argv), dict(env)))
         # Post-F18 contract (mirrors the real wrapper): return the CANONICAL live target.
         return f"{session_name}:0.0"
@@ -283,11 +283,14 @@ def test_create_detached_carries_the_fully_assembled_real_pane(runtime):
 
     # ---- the SHARED system-prompt constant, NOT a per-level role path ----
     # The real argv (after the env -i K=V prefix) carries [CC, --system-prompt-file, <shared>].
+    # ABSOLUTE since the transport increment (the pane boots in the node workspace, -c) — the
+    # value resolves the ONE shared constant against HARNESS_ROOT (config.py's NOTE contract).
+    import os as _os
     assert "--system-prompt-file" in pane_argv, "the boot MUST pass --system-prompt-file (H40 recipe)"
     spf = pane_argv[pane_argv.index("--system-prompt-file") + 1]
-    assert spf == config.SYSTEM_PROMPT_FILE == "operational/shared/system-prompt.md", (
-        "argv must carry the SHARED constant operational/shared/system-prompt.md (identical L1..L5), "
-        f"NOT a per-level role path; got {spf!r}"
+    assert _os.path.isabs(spf) and spf.endswith(config.SYSTEM_PROMPT_FILE), (
+        "argv must carry the ABSOLUTE resolution of the SHARED constant "
+        f"operational/shared/system-prompt.md (identical L1..L5), NOT a per-level role path; got {spf!r}"
     )
 
     # ---- NO H40 foot-guns in argv (--bare forces API-key auth; the others break role-as-documents) ----
@@ -301,9 +304,10 @@ def test_create_detached_carries_the_fully_assembled_real_pane(runtime):
         "role-as-documents: the per-seat role rides the brief load-manifest, never the argv "
         f"(no role.md in argv); got {pane_argv!r}"
     )
-    # The shared prompt path is the ONLY operational/* path in argv (a per-level role path would leak here).
-    op_paths = [tok for tok in pane_argv if tok.startswith("operational/")]
-    assert op_paths == [config.SYSTEM_PROMPT_FILE], (
+    # The shared prompt path is the ONLY operational/* path in argv (a per-level role path would
+    # leak here). The value is ABSOLUTE since the transport increment, so match on the suffix.
+    op_paths = [tok for tok in pane_argv if "operational/" in tok]
+    assert op_paths and all(tok.endswith(config.SYSTEM_PROMPT_FILE) for tok in op_paths), (
         "the ONLY operational/* path in argv must be the shared system-prompt; a per-level role path "
         f"in argv is a role-in-argv leak; got {op_paths!r}"
     )
@@ -401,9 +405,12 @@ def test_role_delivered_via_brief_manifest_not_argv(runtime):
         "the child argv must be identical across role_variants L3/L4 (the role is NEVER in argv — "
         f"role-as-documents); got L3={child_a!r} vs L4={child_b!r}"
     )
-    # And the shared system-prompt flag/value is the only operational/* path in BOTH.
-    assert child_a[1:3] == ["--system-prompt-file", config.SYSTEM_PROMPT_FILE], (
-        f"the child argv must carry the shared --system-prompt-file constant; got {child_a!r}"
+    # And the shared system-prompt flag/value is the only operational/* path in BOTH (ABSOLUTE
+    # since the transport increment — the pane boots in the node workspace, -c).
+    import os as _os2
+    assert child_a[1] == "--system-prompt-file" and _os2.path.isabs(child_a[2]) \
+        and child_a[2].endswith(config.SYSTEM_PROMPT_FILE), (
+        f"the child argv must carry the shared --system-prompt-file constant (absolute); got {child_a!r}"
     )
 
 

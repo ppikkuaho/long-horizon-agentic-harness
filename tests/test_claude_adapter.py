@@ -196,7 +196,14 @@ def test_claude_adapter_is_a_runtime_adapter():
 # ===========================================================================
 
 def test_argv_uses_shared_system_prompt_file_flag(no_real_exec):
-    """argv == [CC, '--system-prompt-file', <shared system-prompt.md>]."""
+    """argv == [CC, '--system-prompt-file', <ABSOLUTE shared system-prompt.md>, ...].
+
+    The transport increment made the flag value ABSOLUTE (resolved against HARNESS_ROOT — the
+    config.py NOTE's resolution contract): the pane now boots in the NODE's workspace (-c), so a
+    repo-relative path would dangle. Still the ONE shared prompt, identical L1..L5.
+    """
+    import os as _os
+
     tmux = _MockTmux()
     adapter = _make_adapter(tmux)
     result = _spawn(adapter)
@@ -206,8 +213,9 @@ def test_argv_uses_shared_system_prompt_file_flag(no_real_exec):
     assert "--system-prompt-file" in argv, "the boot MUST pass --system-prompt-file (H40 recipe)"
     idx = argv.index("--system-prompt-file")
     spf = argv[idx + 1]
-    assert spf == config.SYSTEM_PROMPT_FILE == "operational/shared/system-prompt.md", (
-        "the flag value MUST be the CONSTANT shared operational/shared/system-prompt.md, "
+    assert _os.path.isabs(spf), f"--system-prompt-file must be ABSOLUTE (survives any pane cwd); got {spf!r}"
+    assert spf.endswith(config.SYSTEM_PROMPT_FILE), (
+        "the flag value MUST resolve the CONSTANT shared operational/shared/system-prompt.md, "
         f"not {spf!r} — the per-level role is NEVER in argv (DAEMON §6.2, H40)"
     )
 
@@ -223,7 +231,9 @@ def test_system_prompt_is_not_a_per_level_role_path(no_real_exec):
         "the system-prompt-file must NOT be a per-level role path (e.g. operational/L3/role.md) — "
         f"it is the shared constant; got {spf!r}"
     )
-    assert spf == "operational/shared/system-prompt.md"
+    # ABSOLUTE since the transport increment (the pane boots in the node workspace); still the
+    # ONE shared constant path underneath.
+    assert spf.endswith("operational/shared/system-prompt.md")
 
 
 def test_argv_identical_across_role_variants(no_real_exec):

@@ -66,6 +66,23 @@ PINNED_BINARY: PinnedBinary = PinnedBinary()
 
 
 # ---------------------------------------------------------------------------
+# The spec-model -> Claude-Code --model flag mapping (the transport increment).
+#
+# PROBED LIVE on the pinned CC v2.1.152 (2026-06-10): `--model claude-opus-4-8` boots clean and
+# the banner names the model; with NO --model the pinned CC defaults to Sonnet — i.e. without
+# this flag every "opus-4.8" LevelConfig silently ran a different model while SpawnResult
+# recorded "opus-4.8 / claude-code" as fact. NOTE: CC does NOT validate --model at boot (a
+# bogus id banners and only fails on the first API turn), so the mapping is EXPLICIT — an
+# unmapped model adds NO flag (never guess an id). model_used remains the recorded INTENT;
+# the E32 configured-vs-actual fact-checker is deferred F17 territory.
+# ---------------------------------------------------------------------------
+
+CC_MODEL_FLAGS: dict[str, str] = {
+    "opus-4.8": "claude-opus-4-8",  # the canonical alias (no date suffix) — probed to boot+banner
+}
+
+
+# ---------------------------------------------------------------------------
 # W(state) suspicion-window placeholder constants (FORK-W / WATCHDOG §3.3, §8).
 #
 # A renewal is overdue when `now - last_progress_at > W(state)`. The numbers are

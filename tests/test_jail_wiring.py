@@ -251,9 +251,10 @@ class CapturingTmux:
         # so the assembled pane is byte-for-byte what production assembles).
         return tmux_mod.build_pane_argv(env, argv)
 
-    def create_detached(self, session_name, pane_argv, env):
+    def create_detached(self, session_name, pane_argv, env, cwd=None):
         self.created.append((session_name, list(pane_argv), dict(env)))
-        return "%fake-pane-jailwire-1"
+        # Post-F18 contract (mirrors the real wrapper): return the CANONICAL live target.
+        return f"{session_name}:0.0"
 
     def server_env(self):
         return {}

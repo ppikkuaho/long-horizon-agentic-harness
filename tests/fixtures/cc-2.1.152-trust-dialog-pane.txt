@@ -1,0 +1,18 @@
+────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /private/var/folders/ts/9klglq0967gfrw65b29x8_rh0000gn/T/f18-peek-node-74ootit
+ i
+
+ Quick safety check: Is this a project you created or one you trust? (Like your
+  own code, a well-known open source project, or work from your team). If not,
+ take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to cancel

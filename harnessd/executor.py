@@ -696,6 +696,36 @@ def post_answer(
     )
 
 
+def ack_inbox(
+    node_address: str,
+    *,
+    acked_offset: int,
+    expected_owner_token: Optional[str] = None,
+) -> TransitionResult:
+    """Advance ``last_inbox_acked_offset`` — the ③-wake edge-trigger watermark (TRANSPORTS §2).
+
+    The daemon's wake path calls this AFTER a wake nudge is actually delivered: the watermark
+    moves to the inbox's end-of-file so the SAME line is never re-nudged on the next poll
+    (``inbox_has_unacked`` is edge-triggered — one nudge per NEW line, no per-poll storm).
+    A suppressed/failed send deliberately does NOT ack, so the next tick retries.
+
+    An own-slice CONTROL-PLANE write (the deliver()/pause() discipline): the lifecycle ``state``
+    is unchanged, no legality gate runs, no generation bumps; one WAL row journals the ack.
+    ``expected_owner_token=None`` is the daemon-internal unfenced posture (the EX lock is the
+    serialization) — the daemon, not an agent lease, owns the wake watermark.
+    """
+    return _own_slice_write(
+        node_address,
+        expected_owner_token=expected_owner_token,
+        delta={"last_inbox_acked_offset": int(acked_offset)},
+        event="inbox_acked",
+        summary=(
+            f"③-wake delivered: last_inbox_acked_offset -> {int(acked_offset)} "
+            "(edge-trigger watermark; one nudge per new line)"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # watchdog_checkpoint() — own-slice liveness write + ONE run-ledger row, EDGE-TRIGGERED (§4.5 /
 # WATCHDOG §3.5). No append on a steady-healthy poll; resets the stale-counter on a healthy observation.
