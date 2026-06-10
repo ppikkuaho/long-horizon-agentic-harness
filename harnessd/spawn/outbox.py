@@ -81,6 +81,10 @@ class ServiceOutcome:
     status: str  # "spawned" | "rejected"
     child_address: Optional[str] = None
     reason: Optional[str] = None
+    # True when the request resolved to a child that ALREADY exists live (idempotent re-service) —
+    # status stays "spawned" for the agent, but the sweep must NOT count it against the in-sweep
+    # fan-out cap (the child is already in the _live_child_count base).
+    already_live: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -192,6 +196,14 @@ def _live_child_count(parent_address: str) -> int:
                if b.get("parent_address") == parent_address and not states.is_terminal(b.get("state")))
 
 
+def _child_already_live(child_address: str) -> bool:
+    """True when a binding ALREADY exists live (non-terminal) at the composed child address — the
+    idempotent re-service predicate, shared by the pre-cap check AND the post-spawn backstop in
+    ``_service_one`` so the two cannot drift apart."""
+    existing = ledger.read_binding(child_address)
+    return existing is not None and not states.is_terminal(existing.get("state"))
+
+
 def _consume(path: Path, status: str, reason: str = "") -> None:
     """Rename a serviced request to its terminal name (.done / .rejected) so it is never re-processed.
 
@@ -226,15 +238,19 @@ def service_outbox(node_address: str) -> list[ServiceOutcome]:
     outcomes: list[ServiceOutcome] = []
     for req_path in _pending_requests(outbox_dir):
         outcome = _service_one(node_address, parent_token, parent_level, live_children, req_path)
-        if outcome.status == "spawned":
-            live_children += 1  # admit against the running count within this sweep
+        # Only a genuinely-NEW child admits against the running in-sweep count — an already-live
+        # idempotent .done is in the _live_child_count base already (counting it twice would
+        # prematurely trip the cap for fresh requests this sweep).
+        if outcome.status == "spawned" and not outcome.already_live:
+            live_children += 1
         outcomes.append(outcome)
     return outcomes
 
 
 def _service_one(node_address: str, parent_token: Optional[str], parent_level: Optional[str],
                  live_children: int, req_path: Path) -> ServiceOutcome:
-    """Adjudicate a single request file: parse, validate, descent + fan-out checks, then the REAL spawn.
+    """Adjudicate a single request file: parse -> validate -> descent (fail-loud if the parent's level
+    is unknown) -> ALREADY-LIVE idempotent resolution -> fan-out cap -> the REAL spawn.
 
     EVERY exit consumes the request (renames it .done or .rejected-with-reason) — there is no path
     where a request stays a pending ``.json`` and silently does nothing. An UNEXPECTED spawn error is
@@ -253,19 +269,38 @@ def _service_one(node_address: str, parent_token: Optional[str], parent_level: O
         return ServiceOutcome(str(req_path), "rejected", reason=reason)
 
     # DESCENT — a child must be STRICTLY deeper than its parent (block same-level + up-level/escalation).
+    # An unknown/missing parent level is a FAIL-LOUD refusal: mapping it to a default rank would wave
+    # ANY child level through the system's ONLY descent gate (the chokepoint has no gate of its own) —
+    # fail-open on corrupt ledger data. An unverifiable descent must refuse visibly, never admit.
     child_level = obj["child_level"]
-    if _LEVEL_ORDER.get(child_level, 0) <= _LEVEL_ORDER.get(parent_level, 0):
+    parent_rank = _LEVEL_ORDER.get(parent_level)
+    if parent_rank is None:
+        msg = (f"parent level {parent_level!r} is not a known level {list(_LEVEL_ORDER)} — "
+               "descent cannot be verified (refusing: fail-loud, not fail-open)")
+        _consume(req_path, "rejected", msg)
+        return ServiceOutcome(str(req_path), "rejected", reason=msg)
+    if _LEVEL_ORDER[child_level] <= parent_rank:  # direct index is safe: validate_request pinned
         msg = f"child_level {child_level!r} is not deeper than parent level {parent_level!r}"
         _consume(req_path, "rejected", msg)
         return ServiceOutcome(str(req_path), "rejected", reason=msg)
 
+    child_address = compose_child_address(node_address, obj["child_name"])
+
+    # ALREADY-LIVE idempotent resolution — BEFORE the fan-out cap. The prior spawn succeeded and only
+    # the .done rename was lost (the crash window the module docstring promises to replay safely).
+    # Resolving it here means (a) no misleading .rejected-at-cap for a child that actually exists and
+    # (b) no double-count — this child is already in the _live_child_count base.
+    if _child_already_live(child_address):
+        _consume(req_path, "spawned")
+        return ServiceOutcome(str(req_path), "spawned", child_address=child_address, already_live=True)
+
     # FAN-OUT BACKSTOP — refuse once the parent already holds the cap of live children (visible reject).
+    # Reached only by genuinely-NEW children (the already-live pre-check resolved replays above).
     if live_children >= MAX_CHILDREN_PER_PARENT:
         msg = f"parent holds {live_children} live children (cap {MAX_CHILDREN_PER_PARENT})"
         _consume(req_path, "rejected", msg)
         return ServiceOutcome(str(req_path), "rejected", reason=msg)
 
-    child_address = compose_child_address(node_address, obj["child_name"])
     try:
         level_config = config.get_level_config(child_level)
         res = chokepoint.register_and_spawn_child(
@@ -283,14 +318,13 @@ def _service_one(node_address: str, parent_token: Optional[str], parent_level: O
         _consume(req_path, "spawned")
         return ServiceOutcome(str(req_path), "spawned", child_address=child_address)
 
-    # IDEMPOTENT RE-SERVICE — a not-ok result whose child is ALREADY live (a crash between a prior
-    # spawn and its .done rename, or a concurrent sweep) is a SUCCESS, not a rejection. The register's
-    # single-owner guard lost the claim BECAUSE the child already exists; mark it .done, don't mislead
-    # the agent with a "rejected" for a child that actually spawned.
-    existing = ledger.read_binding(child_address)
-    if existing is not None and not states.is_terminal(existing.get("state")):
+    # CONCURRENT-WINDOW BACKSTOP — the pre-check above covers the crash-replay case, but a child
+    # registered BETWEEN our pre-check and register (an interleaved IPC service-outbox or sweep) makes
+    # register lose its single-owner claim BECAUSE the child already exists. Still a SUCCESS, not a
+    # rejection — mark it .done, flag it already_live so it is not counted against the in-sweep cap.
+    if _child_already_live(child_address):
         _consume(req_path, "spawned")
-        return ServiceOutcome(str(req_path), "spawned", child_address=child_address)
+        return ServiceOutcome(str(req_path), "spawned", child_address=child_address, already_live=True)
 
     failure = getattr(res, "failure_class", None) or "spawn_failed"
     _consume(req_path, "rejected", f"spawn refused: {failure}")

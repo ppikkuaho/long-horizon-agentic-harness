@@ -423,3 +423,145 @@ def test_per_tick_cap_limits_requests_serviced(runtime):
     assert len(outcomes) == outbox.MAX_REQUESTS_PER_SWEEP, "at most one sweep's worth serviced per tick"
     od = __import__("pathlib").Path(workspace) / outbox.OUTBOX_DIRNAME
     assert len(list(od.glob("*.json"))) == 5, "the remainder stay pending (visible) for the next tick"
+
+
+# --------------------------------------------------------------------------- #
+# FAN-OUT ORDERING — already-live resolves ABOVE the cap (outbox-1), only a
+# genuinely-NEW spawn counts in-sweep (outbox-2), and an unknown parent level
+# refuses descent fail-LOUD, not fail-open (outbox-3)
+# --------------------------------------------------------------------------- #
+
+def _seed_live_children(parent_address, names, level="L3"):
+    """Seed live child bindings under the parent in ONE whole-map write.
+
+    NB: ledger.write_binding REPLACES the whole binding map (the footgun documented at the
+    starvation-isolation test above) — merge with all_nodes() and write ONCE, never one-by-one.
+    """
+    nodes = ledger.all_nodes()
+    for name in names:
+        addr = outbox.compose_child_address(parent_address, name)
+        tok = fencing.mint_owner_token(addr, "csa", "cuuid", 1)
+        nodes[addr] = {"node_address": addr, "parent_address": parent_address, "level": level,
+                       "state": "running", "generation": 1, "lease_epoch": 1,
+                       "owner_token": tok, "last_applied_seq": 0,
+                       "session_uuid": "cuuid", "subagent_id": "csa",
+                       "tmux_target": "harness:" + addr}
+    ledger.write_binding(nodes, _lock_held=True)
+
+
+def test_already_live_child_at_cap_is_done_not_rejected(runtime):
+    """outbox-1: at the fan-out cap, a request whose child ALREADY spawned (a crash before the prior
+    .done rename) must resolve .done — NOT a misleading cap-.rejected for a child that actually
+    exists. The already-live check must sit ABOVE the cap, exactly where it is hardest to debug."""
+    _, workspace = _seed_live_node(runtime, PARENT)
+    fake = _FakeAdapter(); _install(fake)
+    names = [f"c{i:03d}" for i in range(outbox.MAX_CHILDREN_PER_PARENT - 1)] + ["parser"]
+    _seed_live_children(PARENT, names)  # parent sits exactly AT the cap, "parser" among the live
+    outbox.request_child_spawn(workspace, child_name="parser", child_level="L3", brief="x")
+
+    outcomes = outbox.service_outbox(PARENT)
+
+    assert len(outcomes) == 1 and outcomes[0].status == "spawned", \
+        "the crash-recovery replay of an already-live child is a SUCCESS even at the cap"
+    assert outcomes[0].already_live is True
+    od = __import__("pathlib").Path(workspace) / outbox.OUTBOX_DIRNAME
+    assert list(od.glob("*.done")), "the replayed request is consumed .done"
+    assert not list(od.glob("*.rejected")) and not list(od.glob("*.reason")), \
+        "no misleading cap-rejection for a child that actually exists"
+    assert len(fake.calls) == 0, "no SECOND actor opened"
+
+
+def test_already_live_reservice_does_not_double_count_against_the_cap(runtime):
+    """outbox-2: an idempotent .done is ALREADY in the _live_child_count base — counting it AGAIN
+    against the in-sweep counter would prematurely trip the cap for a fresh request this sweep."""
+    _, workspace = _seed_live_node(runtime, PARENT)
+    fake = _FakeAdapter(); _install(fake)
+    names = [f"c{i:03d}" for i in range(outbox.MAX_CHILDREN_PER_PARENT - 2)] + ["parser"]
+    _seed_live_children(PARENT, names)  # cap - 1 live children, one of them "parser"
+    outbox.request_child_spawn(workspace, child_name="parser", child_level="L3", brief="x")  # already live
+    outbox.request_child_spawn(workspace, child_name="fresh", child_level="L3", brief="x")   # genuinely new
+
+    outcomes = outbox.service_outbox(PARENT)
+
+    assert [o.status for o in outcomes] == ["spawned", "spawned"], \
+        "the idempotent .done must not eat the last cap slot the fresh request needs"
+    assert outcomes[0].already_live is True and outcomes[1].already_live is False
+    assert len(fake.calls) == 1, "only the fresh child opened an actor"
+    assert ledger.read_binding("proj/widget/fresh#exec") is not None
+
+
+def test_fresh_spawns_still_count_against_the_in_sweep_cap(runtime):
+    """Mutation guard for the surviving half of the counter: a genuinely-NEW spawn still admits
+    against the running in-sweep count, so the next fresh request in the same sweep hits the cap."""
+    _, workspace = _seed_live_node(runtime, PARENT)
+    fake = _FakeAdapter(); _install(fake)
+    _seed_live_children(PARENT, [f"c{i:03d}" for i in range(outbox.MAX_CHILDREN_PER_PARENT - 1)])
+    outbox.request_child_spawn(workspace, child_name="first", child_level="L3", brief="x")
+    outbox.request_child_spawn(workspace, child_name="second", child_level="L3", brief="x")
+
+    outcomes = outbox.service_outbox(PARENT)
+
+    assert [o.status for o in outcomes] == ["spawned", "rejected"]
+    assert "cap" in outcomes[1].reason
+    assert len(fake.calls) == 1, "exactly one actor opened (the second request was refused at cap)"
+    od = __import__("pathlib").Path(workspace) / outbox.OUTBOX_DIRNAME
+    assert list(od.glob("*-second*.rejected")) and list(od.glob("*-second*.reason")), \
+        "the at-cap refusal is a visible reject-with-reason, never a silent drop"
+
+
+_DELETED = object()  # sentinel: remove the parent binding's level key entirely
+
+
+@pytest.mark.parametrize("corrupt_level", [None, "L9", _DELETED], ids=["none", "unknown", "missing"])
+def test_unknown_parent_level_refuses_descent_fail_loud_not_fail_open(runtime, corrupt_level):
+    """outbox-3: a None/unknown parent level must REFUSE descent visibly (reject-with-reason), not
+    map to rank 0 and wave ANY child level through the system's ONLY descent gate (the chokepoint
+    has no descent gate of its own — fail-open here is fail-open everywhere)."""
+    _, workspace = _seed_live_node(runtime, PARENT)
+    fake = _FakeAdapter(); _install(fake)
+    b = ledger.read_binding(PARENT)
+    if corrupt_level is _DELETED:
+        del b["level"]
+    else:
+        b["level"] = corrupt_level
+    ledger.write_binding({**ledger.all_nodes(), PARENT: b}, _lock_held=True)
+    outbox.request_child_spawn(workspace, child_name="parser", child_level="L3", brief="x")
+
+    outcomes = outbox.service_outbox(PARENT)
+
+    assert len(outcomes) == 1 and outcomes[0].status == "rejected"
+    expected = None if corrupt_level is _DELETED else corrupt_level
+    assert repr(expected) in outcomes[0].reason and "descent" in outcomes[0].reason, \
+        "the reason names the unverifiable parent level and the descent guarantee"
+    assert ledger.read_binding("proj/widget/parser#exec") is None, \
+        "an unverifiable descent must NOT register the child (fail-loud, not fail-open)"
+    assert len(fake.calls) == 0
+    od = __import__("pathlib").Path(workspace) / outbox.OUTBOX_DIRNAME
+    assert list(od.glob("*.rejected")) and list(od.glob("*.reason")), "never a silent drop"
+
+
+def test_concurrent_register_loss_still_marks_done_with_already_live_flag(runtime, monkeypatch):
+    """Pins the post-spawn backstop as LOAD-BEARING (not dead code): a child registered BETWEEN the
+    pre-check and register (an interleaved IPC service-outbox or sweep) makes register lose its
+    claim — still a success (.done, already_live), never a misleading reject through the race window."""
+    _, workspace = _seed_live_node(runtime, PARENT)
+    fake = _FakeAdapter(); _install(fake)
+    outbox.request_child_spawn(workspace, child_name="parser", child_level="L3", brief="x")
+
+    def _concurrent_winner(parent, child, **kwargs):
+        # the interleaved actor registers the child live; OUR register loses its single-owner claim
+        _seed_live_children(PARENT, ["parser"])
+        from harnessd.spawn.adapters.base import SpawnResult
+        return SpawnResult(ok=False, session_uuid=None, model_used="", role_variant="",
+                           system_prompt_file="", system_prompt_file_hash="", tmux_target="",
+                           transcript_path=None, failure_class="claim_lost")
+    monkeypatch.setattr(chokepoint, "register_and_spawn_child", _concurrent_winner)
+
+    outcomes = outbox.service_outbox(PARENT)
+
+    assert len(outcomes) == 1 and outcomes[0].status == "spawned", \
+        "losing the claim BECAUSE the child already exists is a success, not a rejection"
+    assert outcomes[0].already_live is True, "the backstop must flag already_live for the cap accounting"
+    od = __import__("pathlib").Path(workspace) / outbox.OUTBOX_DIRNAME
+    assert list(od.glob("*.done")) and not list(od.glob("*.rejected"))
+    assert len(fake.calls) == 0
