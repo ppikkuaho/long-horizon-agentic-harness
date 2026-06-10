@@ -28,6 +28,9 @@ BUILDER DECISIONS (the §2.x details the frozen tests leave open — stated in t
       - transition/kill: ``ok``, ``errors`` (the executor's SPECIFIC abort reason — a CAS miss /
         fencing rejection / illegal edge / no-such-node; empty on success), ``warnings``, ``binding``
         (post-state). ``kill`` additionally echoes ``terminal_signal``.
+      - promote:         ``ok``, ``addr``, ``delivered``, ``deliverable_state``,
+        ``delivery_destination``, ``errors`` — EVERY PromoteResult field routed into the response
+        (no result-swallowing). The gate opens ONLY on an explicit ``decision == 'accept'`` field.
       - show:            ``ok``, ``addr``, ``binding`` (the node's ledger slice, or ``null`` if absent).
       - next/next-seq:   ``ok``, ``next_seq``.
       - validate:        ``ok``, ``errors``, ``warnings`` (the whole-ledger admission scan).
@@ -57,6 +60,7 @@ from typing import Optional
 
 from . import addressing, clock, config, detector_signals, ledger, store, validate
 from . import executor as _executor
+from . import promote as _promote
 from . import reconcile as _reconcile
 from .spawn import chokepoint
 from .spawn import outbox as _outbox
@@ -270,6 +274,40 @@ def _handle_service_outbox(request: dict) -> dict:
     }
 
 
+def _handle_promote(request: dict) -> dict:
+    """The F8 delivery-terminus caller (CRIT-3) — routed THROUGH promote() -> executor.deliver.
+
+    L1's Stage-5 final-accept (INTAKE-TO-DELIVERY Stage 5→6) arrives as a FLAT explicit
+    ``decision`` request field (the ipc style — the _handle_transition precedent); the handler
+    synthesizes the node-bound accept signal ITSELF, binding ``node_address=addr`` by
+    construction, so a synthesized signal cannot cross-promote another node. An OMITTED decision
+    ships ``accept_signal=None`` so promote's gate HOLDS — never default-accept (a bare request
+    must never speculatively cross the jail boundary). promote() performs the cross-jail
+    copy/push and stamps the binding via ``executor.deliver`` (the single writer, locks
+    internally — the _handle_transition pattern, no extra lock wrapper here). EVERY PromoteResult
+    field is routed into the response — the no-result-swallowing rule.
+    """
+    addr = request.get("addr")
+    decision = request.get("decision")
+    accept_signal = None if decision is None else {
+        "decision": decision,
+        "level": "L1",
+        "node_address": addr,
+        "acceptance_ref": request.get("acceptance_ref"),
+        "note": request.get("note"),
+    }
+    result = _promote.promote(addr, accept_signal=accept_signal)
+    return {
+        "ok": bool(result.ok),
+        "command": "promote",
+        "addr": addr,
+        "delivered": result.delivered,
+        "deliverable_state": result.deliverable_state,
+        "delivery_destination": result.delivery_destination,
+        "errors": list(result.errors),
+    }
+
+
 def _handle_pause(request: dict) -> dict:
     """The F16 pause WRITE verb — routed THROUGH executor.pause (the single writer).
 
@@ -460,6 +498,7 @@ _DISPATCH = {
     "kill": _handle_kill,
     "spawn": _handle_spawn,
     "service-outbox": _handle_service_outbox,
+    "promote": _handle_promote,
     "pause": _handle_pause,
     "resume": _handle_resume,
     "answer": _handle_answer,

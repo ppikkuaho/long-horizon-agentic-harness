@@ -16,7 +16,7 @@ Authoritative sources (transcribed, not recalled):
 
 THE INCREMENT (the one sanctioned cross-write-jail action):
   promote() is a harnessd op, GATED on L1 final-accept for a project, that copies the finished
-  deliverable OUT of the gitignored /runtime/proj/{project}/ node TO the delivery destination
+  deliverable OUT of the node's gitignored nodes/<path>/ workspace (addressing.node_dir) TO the delivery destination
   captured at intake in the frozen intent-spec (a filesystem user-path or a git remote). Agents
   CANNOT do this — every agent is write-jailed to its /runtime/ node subtree and the destination
   is OUTSIDE every jail; only the control plane (harnessd) may cross it, and only on accept.
@@ -31,7 +31,7 @@ THE INCREMENT (the one sanctioned cross-write-jail action):
 
   Project teardown/reclaim of /runtime/ AFTER delivery is DEFERRED (register D7) — NOT tested here.
 
-BIAS TO REAL (Lesson 7): a real on-disk /runtime/proj/{project}/ tree; a real temp-dir filesystem
+BIAS TO REAL (Lesson 7): a real on-disk nodes/<path>/ deliverable tree; a real temp-dir filesystem
 destination (assert the deliverable BYTES land there); the REAL executor records deliverable_state;
 the git-remote variant uses a REAL local bare git repo (real `git init --bare` + real `git push`)
 so the push is genuinely exercised. No mock of the file/git boundary. No model usage.
@@ -45,7 +45,7 @@ import subprocess
 
 import pytest
 
-from harnessd import executor, fencing, ledger
+from harnessd import addressing, executor, fencing, ledger
 
 
 # ===========================================================================
@@ -209,9 +209,11 @@ def _read(node=NODE):
 
 # ===========================================================================
 # Real on-disk /runtime/ tree builder. The finished deliverable lives INSIDE the
-# gitignored /runtime/proj/{project}/ node subtree (the in-jail source surface).
-# We synthesize a real multi-file tree with distinctive bytes so the copy-out /
-# push is asserted on the ACTUAL bytes, not a placeholder.
+# node's gitignored nodes/<path>/ workspace (addressing.node_dir — the canonical
+# in-jail source surface every agent actually writes; F8 de-mask of the stale
+# pre-FORK-NODE-NESTING proj/{project} layout). We synthesize a real multi-file
+# tree with distinctive bytes so the copy-out / push is asserted on the ACTUAL
+# bytes, not a placeholder.
 # ===========================================================================
 
 DELIVERABLE_FILES = {
@@ -223,8 +225,8 @@ DELIVERABLE_FILES = {
 
 
 def _build_runtime_tree(runtime_root, project=PROJECT, files=DELIVERABLE_FILES):
-    """Synthesize a REAL /runtime/proj/{project}/ deliverable tree on disk. Returns its path."""
-    proj_dir = runtime_root / "proj" / project
+    """Synthesize the node's REAL nodes/<path>/ deliverable workspace on disk. Returns its path."""
+    proj_dir = addressing.node_dir(NODE, runtime_root)
     for rel, content in files.items():
         target = proj_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -641,4 +643,59 @@ def test_git_remote_no_accept_is_noop_remote_empty(runtime, tmp_path):
     )
     assert _read()["deliverable_state"] != "delivered", (
         "deliverable_state advanced to delivered on a no-accept git-remote promote"
+    )
+
+
+# ===========================================================================
+# 7. THE LEGACY-PATH MUTATION KILL (F8 / JSF-03) — promote must NOT read the
+#    stale pre-FORK-NODE-NESTING /runtime/proj/{project}/ layout. The deliverable
+#    tree is built ONLY at the LEGACY location (the canonical nodes/<path>/
+#    workspace absent): a correct impl finds NO source and routes to the journaled
+#    delivery-failed + §6.3 escalation path; an impl that still (or again) reads
+#    /runtime/proj/ would deliver from a path no agent ever writes.
+# ===========================================================================
+
+def test_promote_does_not_read_the_legacy_proj_layout(runtime, tmp_path):
+    promote = _promote_callable()
+
+    # Build the deliverable ONLY at the LEGACY flat location — no nodes/<path>/ tree exists.
+    legacy = runtime / "proj" / PROJECT
+    for rel, content in DELIVERABLE_FILES.items():
+        target = legacy / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    assert not addressing.node_dir(NODE, runtime).exists(), (
+        "precondition: the canonical nodes/<path>/ workspace must be ABSENT for this kill to bite"
+    )
+
+    dest = tmp_path / "delivery-out" / "demo-widget"
+    binding, _ = _binding(delivery_destination=str(dest), delivery_kind="filesystem-path")
+    _seed(binding)
+
+    result = promote(NODE, accept_signal=_accept_signal(NODE))
+
+    # The op did NOT deliver — the legacy location is dead, never read.
+    assert not getattr(result, "ok", True), (
+        "promote reported success with the deliverable ONLY at the legacy /runtime/proj/ location — "
+        "it is reading a path no agent ever writes (the revert-to-/runtime/proj/ mutant)"
+    )
+    assert not dest.exists(), (
+        "bytes landed at the destination from the LEGACY /runtime/proj/ tree — promote must source "
+        "the canonical nodes/<path>/ workspace (addressing.node_dir) only"
+    )
+
+    # The absent canonical source is a JOURNALED delivery-failed (+ the §6.3 escalation row).
+    after = _read()
+    assert after["deliverable_state"] == "delivery-failed", (
+        "an absent canonical source tree must be a journaled delivery-failed, got "
+        f"{after['deliverable_state']!r}"
+    )
+    rows = _wal_rows_for(NODE)
+    escalation_rows = [r for r in rows if r.get("event") == "delivery_failed_escalation"]
+    assert escalation_rows, (
+        "an absent-source promote must emit the §6.3 'delivery_failed_escalation' WAL row — found "
+        f"events: {[r.get('event') for r in rows]}"
+    )
+    assert all(r.get("actor") == "harnessd" for r in escalation_rows), (
+        "the escalation row must be attributable to harnessd (the control plane)"
     )

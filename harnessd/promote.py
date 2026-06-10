@@ -25,7 +25,8 @@ THE INCREMENT — ``promote(node_address, *, accept_signal)``:
   GATE       — proceeds ONLY on an L1 final-accept (``accept_signal`` with decision == 'accept').
                With NO accept signal (None) or a REJECT decision -> NO-OP: the destination is
                untouched and ``/runtime/`` is left intact (gated, never speculative).
-  ON ACCEPT  — copy the finished deliverable OUT of ``/runtime/proj/{project}/`` to
+  ON ACCEPT  — copy the finished deliverable OUT of the node's ``nodes/<path>/`` workspace
+               (``addressing.node_dir``) to
                ``delivery_destination``: a filesystem copy-out (``delivery_kind='filesystem-path'``)
                or a real ``git push`` (``delivery_kind='git-remote'``). Then record
                ``deliverable_state=delivered`` + ``delivery_destination`` on the binding via the
@@ -40,13 +41,16 @@ orchestrator — see the module-return + this docstring):
     ``ok`` + structured fields), matching the test's ``_promote_callable`` contract and its
     ``getattr(result, "ok", ...)`` probe.
 
-  * THE DELIVERABLE SUBTREE — the WHOLE ``/runtime/proj/{project}/`` tree (every file under it) IS
-    the deliverable. The ``{project}`` is derived from the binding's ``write_targets`` (the in-jail
-    source surface, e.g. ``proj/demo-widget/`` -> project ``demo-widget``), which is exactly the
-    node's own write-jail subtree under ``/runtime/``. Sourcing the project from ``write_targets``
-    keeps the source surface single — the same field the jail allow-list scopes — rather than
-    re-deriving it from the node_address string. FORK: if ``write_targets`` is empty/non-conforming,
-    the project falls back to the node_address's ``proj/<name>`` segment.
+  * THE DELIVERABLE SUBTREE — the source IS ``addressing.node_dir(node_address)``: the node's
+    canonical ``<RUNTIME_ROOT>/nodes/<path>/`` workspace — the SAME dir the jail WORKROOT, the
+    chokepoint brief-landing, the detector, and the watchdog all derive (addressing.py's charter:
+    ONE nested derivation shared by every consumer so they cannot drift; F8/JSF-03 reconciled
+    promote onto it — the old ``proj/{project}`` re-derivation read a path no agent ever writes).
+    ``write_targets`` is no longer used for path resolution: it remains the §3.2 in-jail
+    jail-surface field, never written (and now never read) by promote. The control-plane dotfiles
+    the daemon/agent exchange inside that workspace (``.sign-off.*`` / ``.signal.*`` / ``.inbox.*``,
+    F19) are harness machinery, not product — the filesystem copy-out EXCLUDES them (the git-remote
+    variant ships the committed tree, which never contains them: the harness seeds them unstaged).
 
   * GATE SEMANTICS — the gate is on an ACCEPT *decision*, not mere presence: ``accept_signal`` must be
     a mapping carrying ``decision == 'accept'``. None, a non-mapping, or any non-'accept' decision
@@ -80,7 +84,7 @@ import subprocess
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from . import executor, ledger
+from . import addressing, executor, ledger
 
 
 # ---------------------------------------------------------------------------
@@ -130,36 +134,27 @@ def _is_accept(accept_signal, node_address) -> bool:
 # Source-tree resolution — the in-jail deliverable subtree under /runtime/.
 # ---------------------------------------------------------------------------
 
-def _project_from_binding(node_address: str, binding: dict) -> str:
-    """Derive the project name from the binding's in-jail ``write_targets`` (fallback: node_address).
+def _source_tree(node_address: str) -> Path:
+    """The in-jail deliverable subtree: ``addressing.node_dir(node_address)`` — the node's canonical
+    ``<RUNTIME_ROOT>/nodes/<path>/`` workspace, the ONE dir every agent actually writes (F8/JSF-03).
 
-    ``write_targets`` is the in-jail source surface (e.g. ``['proj/demo-widget/']``) — the same field
-    the jail allow-list scopes — so the project is read from it, keeping the source surface single.
-    Falls back to the ``proj/<name>`` segment of ``node_address`` if write_targets is unusable.
+    Address-shape-agnostic by construction: ``node_dir`` nests whatever path the address carries
+    (``proj/demo-widget#exec`` and ``L1/demo#exec`` both resolve), so promote does not care which
+    composition produced the project address. Fail-loud absent-source guard: a workspace no agent
+    ever wrote is a precise, journaled fault (the caller routes it to delivery-failed + §6.3) —
+    never an opaque copytree FileNotFoundError or a git push from a nonexistent cwd.
     """
-    targets = binding.get("write_targets") or []
-    for target in targets:
-        parts = [p for p in str(target).strip("/").split("/") if p]
-        if len(parts) >= 2 and parts[0] == "proj":
-            return parts[1]
-    # Fallback: node_address like "proj/demo-widget#exec" -> "demo-widget".
-    head = node_address.split("#", 1)[0]
-    parts = [p for p in head.strip("/").split("/") if p]
-    if len(parts) >= 2 and parts[0] == "proj":
-        return parts[1]
-    raise ValueError(
-        f"cannot resolve the deliverable project from node {node_address!r} "
-        f"(write_targets={targets!r}): expected a 'proj/<name>/' in-jail source surface"
-    )
-
-
-def _source_tree(project: str) -> Path:
-    """The in-jail deliverable subtree: ``RUNTIME_ROOT/proj/{project}/`` (the whole tree is the deliverable)."""
     if ledger.RUNTIME_ROOT is None:
         raise RuntimeError(
             "promote source path is not configured: bind ledger.RUNTIME_ROOT (the /runtime/ jail root)"
         )
-    return Path(ledger.RUNTIME_ROOT) / "proj" / project
+    source = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
+    if not source.is_dir():
+        raise ValueError(
+            f"deliverable source tree {source} does not exist — no agent ever wrote this node's "
+            "workspace (nodes/<path>/, addressing.node_dir)"
+        )
+    return source
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +175,18 @@ def _git_env(source_tree: Path) -> dict:
     }
 
 
+# The F19 control-plane dotfiles the daemon/agent exchange INSIDE the node workspace — the sign-off
+# handshake, the per-seat terminal signal, the wake inbox. Harness machinery, NOT product: the
+# copy-out excludes them (basename-matched at every level, so a child node's dotfiles nested under
+# a coordinator's deliverable are excluded too).
+_CONTROL_PLANE_DOTFILE_PATTERNS = (".sign-off.*", ".signal.*", ".inbox.*")
+
+
 def _copy_out_filesystem(source_tree: Path, destination: str) -> None:
     """Real recursive copy-out of the deliverable tree to a filesystem destination (parents created).
 
+    EXCLUDES the F19 control-plane dotfiles (``.sign-off.*`` / ``.signal.*`` / ``.inbox.*``) — they
+    live in the same node dir the copy sources but are harness machinery, never deliverable bytes.
     Raises on a genuine OS failure (e.g. the destination's parent is a regular file) — the caller
     routes that to the delivery-failed path. No failure is mocked.
     """
@@ -190,7 +194,12 @@ def _copy_out_filesystem(source_tree: Path, destination: str) -> None:
     # copytree (Python 3.8+: dirs_exist_ok) writes the WHOLE subtree. A failure to create the
     # destination (parent is a file) raises NotADirectoryError/OSError — the genuine failure the
     # delivery-failed path is for.
-    shutil.copytree(source_tree, dest, dirs_exist_ok=True)
+    shutil.copytree(
+        source_tree,
+        dest,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(*_CONTROL_PLANE_DOTFILE_PATTERNS),
+    )
 
 
 def _push_git_remote(source_tree: Path, destination: str) -> None:
@@ -297,7 +306,8 @@ def promote(node_address: str, *, accept_signal) -> PromoteResult:
         )
 
     # --- ON ACCEPT: cross the jail boundary (copy-out / push), then record via the single writer. ---
-    # EVERYTHING that can fail (project resolution, a missing destination, the copy-out/push) lives
+    # EVERYTHING that can fail (source resolution / an absent workspace, a missing destination, the
+    # copy-out/push) lives
     # INSIDE the try, so a precondition fault routes to the delivery-failed path + escalation — NEVER
     # an uncaught crash out of the gated promote (a delivery crash must be a journaled failure, not a
     # raised exception the daemon has to catch).
@@ -308,8 +318,7 @@ def promote(node_address: str, *, accept_signal) -> PromoteResult:
             raise ValueError(
                 "no delivery_destination captured at intake (intent-spec §8) — cannot promote"
             )
-        project = _project_from_binding(node_address, binding)
-        source_tree = _source_tree(project)
+        source_tree = _source_tree(node_address)
         _promote_out(source_tree, destination, delivery_kind)
     except Exception as exc:  # a GENUINE precondition / copy-out / push failure (no mock)
         # ON FAILURE: record delivery-failed via the single writer + escalate (the §6.3 seam).

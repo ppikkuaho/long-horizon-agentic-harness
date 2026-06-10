@@ -240,6 +240,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to a file whose contents are the answer",
     )
 
+    # The F8 delivery-terminus caller (INTAKE-TO-DELIVERY Stage 5→6): L1's final-accept made
+    # concrete. Pure serialization here — the DAEMON performs the cross-jail copy/push and the
+    # executor.deliver stamp (promotion stays a harnessd action; the CLI stays a client).
+    # --decision is REQUIRED so a fat-fingered bare `promote <addr>` cannot speculatively deliver.
+    promote_p = subparsers.add_parser(
+        "promote",
+        help=(
+            "L1 final-accept -> control-plane delivery of a project node out of /runtime/ "
+            "(mutation -> daemon)"
+        ),
+    )
+    _add_addr(promote_p)
+    promote_p.add_argument(
+        "--decision", dest="decision", required=True, choices=["accept", "reject"],
+        help=(
+            "the Stage-5 decision; only 'accept' opens the gate — a reject round-trips as a "
+            "recorded no-op (exit 2)"
+        ),
+    )
+    promote_p.add_argument(
+        "--acceptance-ref", dest="acceptance_ref", default=None,
+        help="the frozen intent-spec the accept was judged against",
+    )
+    promote_p.add_argument("--note", dest="note", default=None)
+
     return parser
 
 
@@ -267,6 +292,7 @@ _REQUEST_FIELDS = {
     "pause": (),
     "resume": (),
     "answer": (),
+    "promote": ("decision", "acceptance_ref", "note"),
 }
 
 

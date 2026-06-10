@@ -6,8 +6,9 @@ new load-bearing properties so a regression is caught:
      promote this one (was: gated on decision=='accept' alone — an accept for A could promote B).
   2. NONE-destination precondition — the gate passed but intake captured no delivery_destination ->
      delivery-failed + escalate, NOT an uncaught crash / a None-destination copy.
-  3. RESOLUTION fault is JOURNALED, not raised — a project-resolution failure (no write_targets, no
-     proj/<name> in the address) routes to delivery-failed, never an uncaught ValueError out of promote.
+  3. ABSENT-SOURCE fault is JOURNALED, not raised — an absent node workspace (no agent ever wrote
+     nodes/<path>/) routes to delivery-failed, never an uncaught ValueError out of promote (F8: the
+     successor fault class to the deleted write_targets project-resolution fault).
   4. The §6.3 escalation row is INDEPENDENTLY assertable (a DISTINCT event from the state-stamp).
 """
 
@@ -17,7 +18,7 @@ import copy
 
 import pytest
 
-from harnessd import fencing, ledger
+from harnessd import addressing, fencing, ledger
 import harnessd.promote as promote_mod
 
 
@@ -55,7 +56,7 @@ def _seed(*, node_address=NODE, delivery_destination=None, delivery_kind="filesy
 
 
 def _build_tree(runtime_root, project=PROJECT):
-    d = runtime_root / "proj" / project
+    d = addressing.node_dir(f"proj/{project}#exec", runtime_root)  # the canonical nodes/<path>/ workspace
     (d / "src").mkdir(parents=True, exist_ok=True)
     (d / "README.md").write_text("deliverable\n", encoding="utf-8")
     (d / "src" / "widget.py").write_text("X = 'MARKER-17s'\n", encoding="utf-8")
@@ -113,21 +114,22 @@ def test_accept_with_no_destination_is_delivery_failed_not_crash(runtime):
         "a missing delivery_destination must set delivery-failed (a real precondition fault), not crash"
 
 
-# --- 3. RESOLUTION fault is JOURNALED, not raised (the HIGH: uncaught ValueError) -----------------
+# --- 3. ABSENT-SOURCE fault is JOURNALED, not raised (F8 successor of the resolution fault) -------
 
-def test_unresolvable_project_is_delivery_failed_not_uncaught(runtime, tmp_path):
-    """A binding with NO usable write_targets AND a node_address with no proj/<name> segment makes
-    project-resolution fail. It must route to delivery-failed (journaled), NOT raise an uncaught
-    ValueError out of promote (the HIGH the gate found)."""
-    weird_node = "rootless#exec"  # no 'proj/<name>' segment
+def test_absent_source_tree_is_delivery_failed_not_uncaught(runtime, tmp_path):
+    """An absent node workspace (no agent ever wrote this node's nodes/<path>/ dir) is a journaled
+    delivery-failed, never an uncaught crash out of promote. The successor fault class to the
+    now-deleted write_targets project-resolution fault (F8: source resolution is addressing.node_dir,
+    which always RESOLVES — the failure mode is the resolved dir not existing on disk)."""
+    weird_node = "rootless#exec"  # its nodes/rootless/ workspace was never written
     _seed(node_address=weird_node, delivery_destination=str(tmp_path / "out"), write_targets=[])
 
-    # Must NOT raise — a resolution fault is a journaled delivery-failed, not a crash.
+    # Must NOT raise — an absent source tree is a journaled delivery-failed, not a crash.
     result = promote_mod.promote(weird_node, accept_signal=_accept(weird_node))
 
-    assert not getattr(result, "ok", True), "an unresolvable project must not report success"
+    assert not getattr(result, "ok", True), "an absent source tree must not report success"
     assert ledger.read_binding(weird_node)["deliverable_state"] == "delivery-failed", \
-        "an unresolvable project must be journaled delivery-failed, not crash uncaught"
+        "an absent node workspace must be journaled delivery-failed, not crash uncaught"
 
 
 # --- 4. The §6.3 escalation row is INDEPENDENTLY assertable (distinct event from the state-stamp) ---
