@@ -129,13 +129,23 @@ def _runtime_root(cfg) -> Path:
 # Step 2 — runtime.json (the §2.3 daemon runtime descriptor: build-id / started_at / pid).
 # ---------------------------------------------------------------------------
 
-def write_runtime_json(runtime_root: Path, *, build_id: Optional[str], pid: Optional[int] = None) -> Path:
+def write_runtime_json(
+    runtime_root: Path, *, build_id: Optional[str], pid: Optional[int] = None,
+    lock_path: Optional[str] = None,
+) -> Path:
     """Write the §2.3 daemon runtime descriptor (``runtime.json``) durably (tmp + fsync + replace).
 
-    Carries ``build_id`` / ``started_at`` (the single canonical UTC clock, §4.6) / ``pid`` / the
-    ``runtime_root`` for legibility. A daemon-runtime descriptor, NOT control state — it does NOT
-    route through the executor and appends no WAL row (only durable bindings + the WAL are control
-    truth). Returns the written path.
+    Carries ``build_id`` / ``started_at`` (the single canonical UTC clock, §4.6) / ``pid`` /
+    ``lock_path`` (the §2.3 self-report field — it names the INSTANCE lock; both production
+    callers, ``daemon.boot`` and run_genesis STEP 2, pass ``instance_lock_path(runtime_root)``) /
+    the ``runtime_root`` for legibility. A daemon-runtime descriptor, NOT control state — it does
+    NOT route through the executor and appends no WAL row (only durable bindings + the WAL are
+    control truth). Returns the written path.
+
+    NOTE: this is a WHOLESALE rewrite — on a daemon relaunch it DROPS the previous
+    ``last_tick_at`` until the first poll tick re-stamps it (``daemon.stamp_last_tick``, §2.6);
+    the §2.6 pinger must read "last_tick_at missing but started_at fresh" as just-booted, not
+    wedged.
     """
     import os
 
@@ -147,6 +157,7 @@ def write_runtime_json(runtime_root: Path, *, build_id: Optional[str], pid: Opti
         "build_id": build_id,
         "started_at": clock.now_utc(),
         "pid": pid if pid is not None else os.getpid(),
+        "lock_path": lock_path,
         "runtime_root": str(runtime_root),
     }
 
@@ -298,7 +309,11 @@ def run_genesis(executor, tmux, config) -> None:
     # would re-enter fcntl LOCK_EX on the same path and DEADLOCK.
     with store.file_lock(_lock_path(runtime_root), shared=False):
         # STEP 2 — write the daemon runtime descriptor (§2.3). Not control state; no WAL row.
-        write_runtime_json(runtime_root, build_id=build_id)
+        # lock_path names the INSTANCE lock (the §2.3 self-report; deferred from F6 into F14).
+        write_runtime_json(
+            runtime_root, build_id=build_id,
+            lock_path=str(instance_lock_path(runtime_root)),
+        )
 
         # STEP 3 — PRECONDITION CHECK (FAIL-LOUD). Raises BEFORE any spawn on a bad precondition
         # (an absent OAuth token -> AuthExpired) — the fail-loud gate is ahead of the spawn (§7 step 4).

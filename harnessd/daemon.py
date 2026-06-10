@@ -14,7 +14,9 @@ module table, daemon.py row):
   * ``write_status`` — the lock-FREE status sidecar (the ONE deliberate atomicity carve-out, §4.4):
     a best-effort liveness mirror written every poll WITHOUT the EX lock (taking the lock would
     serialize a non-event against real mutations every tick). Recovery NEVER trusts it (the ledger is
-    truth).
+    truth). The SAME carve-out covers ``stamp_last_tick``: ``poll_once`` stamps
+    ``runtime.json.last_tick_at`` lock-free every tick — the §2.6 hang-detector surface the external
+    harnessd-pinger reads (best-effort, zero WAL rows, recovery never trusts it).
 
 Authoritative sources:
   - IMPLEMENTATION-PLAN §2.12 (``boot(runtime) -> None`` / ``poll_loop(interval_s) -> NoReturn``),
@@ -190,8 +192,11 @@ def boot(runtime) -> None:
     if adapter is not None:
         chokepoint.set_adapter(adapter)
 
-    # (b) Write the §2.3 runtime descriptor.
-    _genesis_mod.write_runtime_json(runtime_root, build_id=build_id)
+    # (b) Write the §2.3 runtime descriptor (lock_path names the INSTANCE lock acquired in (0)).
+    _genesis_mod.write_runtime_json(
+        runtime_root, build_id=build_id,
+        lock_path=str(_genesis_mod.instance_lock_path(runtime_root)),
+    )
 
     # (c) Run genesis end-to-end (the REAL chokepoint + reconcile + on-disk ledger).
     executor = getattr(runtime, "executor", None)
@@ -222,10 +227,16 @@ def poll_once(executor, tmux, detector) -> None:
     PARENT AGENT's spawn-request becomes a live child — the agent drops a request in its workroot, the
     next poll services it. Best-effort + isolated: an outbox error NEVER aborts the reconcile sweep
     (the supervision tree's liveness must keep advancing even if one node's request is malformed).
+
+    The tick's LAST act stamps ``runtime.json.last_tick_at`` lock-free (§4.4) — the §2.6 hang-detector
+    surface the external harnessd-pinger reads. End-of-body placement = completed-tick semantics: a
+    wedge inside the tick body stops the stamp advancing IMMEDIATELY. Best-effort (the same isolation
+    as the outbox drain), zero WAL rows; recovery never trusts it.
     """
     _reconcile_mod.reconcile_tick(executor, tmux, detector)
     _watchdog_tick(executor, tmux, detector)
     _service_outboxes_best_effort()
+    _stamp_last_tick_best_effort()
     return None
 
 
@@ -366,6 +377,67 @@ def write_status(runtime_root, status: Optional[dict] = None) -> Optional[Path]:
     # LOCK-FREE: atomic_replace is tmp+fsync+os.replace — it NEVER takes store.file_lock (§4.4).
     store.atomic_replace(path, render)
     return path
+
+
+def stamp_last_tick(runtime_root=None) -> Optional[Path]:
+    """Stamp ``runtime.json.last_tick_at`` — the §2.6 hang-detector surface, LOCK-FREE (§4.4).
+
+    Called at the END of every ``poll_once`` (completed-tick semantics): the external
+    harnessd-pinger (§2.6) reads ``last_tick_at`` and kills a wedged-but-alive daemon when the
+    stamp is older than the staleness bound (~3 missed ticks) — the third death mode (hang) that
+    launchd's exit-only KeepAlive cannot see (findings daemon-1 / COMP-5).
+
+    READ-MERGE, not a wholesale rewrite: the §2.3 boot descriptor genesis wrote (build_id /
+    started_at / pid / lock_path) is preserved; only ``last_tick_at`` is OVERWRITTEN (never
+    setdefault — a write-once stamp would look permanently fresh-then-stale and defeat the §2.6
+    staleness math). A missing/corrupt runtime.json is self-healed to a minimal descriptor — it
+    is a liveness mirror, not control state. The lock-free read-modify-write is safe because the
+    daemon's poll thread is the SOLE runtime.json writer post-boot (the instance lock excludes a
+    second daemon; the IPC thread never writes it) — a future second writer would make this
+    last-writer-wins, acceptable for a best-effort mirror.
+
+    The same §4.4 carve-out as ``write_status``: written via the lock-free ``store.atomic_replace``
+    (never torn), NEVER enters ``store.file_lock``, appends ZERO WAL rows (recovery never trusts
+    it). Failures are swallowed by the best-effort wrapper: a daemon that persistently cannot
+    write its runtime root looks wedged to the pinger and gets killed/relaunched — degraded IS
+    the correct verdict there (relaunch = recovery, ThrottleInterval >= 10 keeps it benign).
+    Returns the written path, or None when no runtime_root is resolvable (best-effort).
+    """
+    import json
+    import os
+
+    if runtime_root is None:
+        runtime_root = ledger.RUNTIME_ROOT
+    if runtime_root is None:
+        return None
+    runtime_root = Path(runtime_root)
+    path = runtime_root / "runtime.json"
+
+    try:
+        descriptor = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(descriptor, dict):
+            descriptor = {}  # coerce a non-dict liveness mirror back to a descriptor (self-heal)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        descriptor = {}  # self-heal a missing/corrupt mirror — it is NOT control state
+    descriptor.setdefault("pid", os.getpid())
+    descriptor.setdefault("runtime_root", str(runtime_root))
+    descriptor["last_tick_at"] = _clock.now_utc()  # OVERWRITE — the stamp must ADVANCE every tick
+
+    def render(handle):
+        json.dump(descriptor, handle, ensure_ascii=True, sort_keys=True, indent=2)
+        handle.write("\n")
+
+    # LOCK-FREE: atomic_replace is tmp+fsync+os.replace — it NEVER takes store.file_lock (§4.4).
+    store.atomic_replace(path, render)
+    return path
+
+
+def _stamp_last_tick_best_effort() -> None:
+    """Stamp last_tick_at; swallow any error so a sidecar hiccup never aborts the reconcile sweep."""
+    try:
+        stamp_last_tick(ledger.RUNTIME_ROOT)
+    except Exception:  # noqa: BLE001 — §4.4 best-effort: the sweep must advance past a stamp failure
+        pass
 
 
 # ---------------------------------------------------------------------------

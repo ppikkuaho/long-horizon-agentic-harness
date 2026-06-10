@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import fcntl
 import importlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -308,4 +309,25 @@ def test_boot_twice_same_root_is_idempotent_not_self_refusing(runtime):
     assert _flock_nb_conflicts(lock_file), (
         "after the idempotent second boot the instance lock must STILL be held (the no-op path "
         "must not release the live hold)"
+    )
+
+
+# ===========================================================================
+# F14 fold-in (the F6-deferred descriptor-schema change, commit 355feae): the §2.3
+# self-report names lock_path — and it names the INSTANCE lock, not the per-mutation
+# domain. Both write_runtime_json call sites (daemon.boot + genesis STEP 2) pass it.
+# ===========================================================================
+
+def test_boot_stamps_lock_path_into_runtime_json(runtime):
+    daemon = _daemon()
+    rt = _boot_runtime(runtime)
+
+    daemon.boot(rt)
+
+    data = json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))
+    expected = str(genesis.instance_lock_path(runtime))
+    assert data.get("lock_path") == expected, (
+        "runtime.json must carry lock_path naming the INSTANCE lock (DAEMON §2.3 self-report: "
+        "'lock_path names the INSTANCE lock') — the descriptor-schema change F6 deferred into "
+        f"F14; got {data.get('lock_path')!r}, expected {expected!r}"
     )

@@ -13,6 +13,8 @@ the assembly:
      chokepoint.collapse -> executor). This is the autonomous spine the green suite was masking.
   4. COORDINATOR DEATH-PROBE — `poll_once` runs the coordinator branch (a dead coordinator over live
      children escalates, never blind-collapsed).
+  5. F14 (daemon-1 / COMP-5) — `poll_once` stamps `runtime.json.last_tick_at` every tick, lock-free
+     (§4.4) and best-effort: the §2.6 hang-detector surface the external harnessd-pinger reads.
 
 BIAS TO REAL (Lesson 7): the REAL ledger, REAL watchdog, REAL chokepoint.collapse -> REAL executor; the
 .signal.json is a REAL on-disk file (the agent's sign-off); only the actor-open adapter + tmux pane query
@@ -26,6 +28,7 @@ import json
 import os
 import socket
 import threading
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -37,9 +40,11 @@ import harnessd.config as config
 import harnessd.daemon as daemon
 import harnessd.executor as executor
 import harnessd.fencing as fencing
+import harnessd.genesis as genesis
 import harnessd.ipc as ipc
 import harnessd.ledger as ledger
 import harnessd.states as states
+import harnessd.store as store
 import harnessd.spawn.chokepoint as chokepoint
 
 
@@ -397,3 +402,153 @@ def test_poll_once_does_not_collapse_a_coordinator_with_a_live_child_even_on_DON
         "coordinator split prevents the leaf path from tearing down a node with live descendants)"
     )
     assert ledger.read_binding(child)["state"] == "running", "the live child is untouched"
+
+
+# --------------------------------------------------------------------------- #
+# 5. F14 — runtime.json.last_tick_at stamped on EVERY poll_once (findings daemon-1 / COMP-5).
+#    The DAEMON §2.6 hang-detector surface: the external harnessd-pinger reads last_tick_at and
+#    kills a wedged-but-alive daemon when the stamp goes stale (3 missed ticks). Without the
+#    stamp, the third death mode (hang: process alive, loop wedged) is INVISIBLE — launchd's
+#    exit-only KeepAlive never fires. The stamp follows the §4.4 lock-free sidecar carve-out
+#    exactly: read-merge the §2.3 boot descriptor, atomic_replace, NEVER store.file_lock,
+#    ZERO WAL rows, best-effort (a stamp hiccup never aborts the reconcile sweep).
+# --------------------------------------------------------------------------- #
+
+def _tick_fixture(runtime):
+    """One seeded live leaf + alive pane + working detector — the minimal drivable real tick."""
+    _install_adapter()
+    addr, token = _seed_running_leaf(runtime)
+    tmux = _Tmux({"harness:" + addr: {"pane_pid": 4242, "pane_dead": 0}})
+    det = _Detector(default="working")
+    return addr, token, tmux, det
+
+
+def test_poll_once_stamps_runtime_json_last_tick_at(runtime):
+    """THE headline F14 fact: ONE real poll_once tick leaves a tz-aware UTC last_tick_at in
+    <runtime_root>/runtime.json. Mutant killed: no stamp -> the §2.6 pinger has no surface — a
+    wedged-but-alive daemon is undetectable (daemon-1 / COMP-5)."""
+    addr, token, tmux, det = _tick_fixture(runtime)
+
+    daemon.poll_once(executor, tmux, det)  # ONE real tick
+
+    rj = runtime / "runtime.json"
+    assert rj.is_file(), (
+        "poll_once must stamp runtime.json (self-healing a missing descriptor) — the §2.6 "
+        "hang-detector surface the external harnessd-pinger reads"
+    )
+    data = json.loads(rj.read_text(encoding="utf-8"))
+    assert "last_tick_at" in data, (
+        "runtime.json must carry last_tick_at after a tick (DAEMON §2.3/§2.6 — the field the "
+        "pinger keys its staleness bound on)"
+    )
+    stamped = datetime.fromisoformat(data["last_tick_at"])
+    assert stamped.tzinfo is not None, (
+        "last_tick_at must be a tz-AWARE UTC instant (the single canonical clock, DAEMON §4.6)"
+    )
+
+
+def test_last_tick_stamp_preserves_the_boot_descriptor_fields(runtime):
+    """The stamp is a READ-MERGE of the §2.3 boot descriptor, not a wholesale rewrite: build_id /
+    started_at / lock_path written by the REAL genesis.write_runtime_json must survive the tick
+    (the pinger and `service status` read them too). Also pins the F6-deferred descriptor-schema
+    change: write_runtime_json accepts + writes the lock_path field (§2.3 self-report; the kwarg
+    was deferred from commit 355feae into F14 per the conflict report). Mutant killed: a wholesale
+    {last_tick_at: ...} rewrite that clobbers the boot fields."""
+    lock_path = str(genesis.instance_lock_path(runtime))
+    genesis.write_runtime_json(runtime, build_id="b-14", lock_path=lock_path)
+    boot_descriptor = json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))
+    assert boot_descriptor.get("lock_path") == lock_path, (
+        "write_runtime_json must write the §2.3 lock_path field naming the INSTANCE lock (the "
+        "F6-deferred descriptor-schema change, folded into F14)"
+    )
+    started_at = boot_descriptor["started_at"]
+
+    addr, token, tmux, det = _tick_fixture(runtime)
+    daemon.poll_once(executor, tmux, det)
+
+    data = json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))
+    assert data.get("build_id") == "b-14", (
+        "the last_tick_at stamp must PRESERVE the boot descriptor's build_id (read-merge, not a "
+        "wholesale rewrite of runtime.json)"
+    )
+    assert data.get("started_at") == started_at, (
+        "the stamp must not disturb started_at — the pinger discriminates 'just-booted' from "
+        "'wedged' on it"
+    )
+    assert data.get("lock_path") == lock_path, (
+        "the stamp must preserve the §2.3 lock_path self-report field"
+    )
+    assert "last_tick_at" in data, "the stamp itself must land alongside the preserved boot fields"
+
+
+def test_last_tick_stamp_is_lock_free_and_appends_zero_wal_rows(runtime, monkeypatch):
+    """The §4.4 carve-out, held to the letter: the stamp NEVER enters store.file_lock (poisoned
+    here — any acquisition raises) and appends ZERO WAL rows (a liveness mirror, not control
+    state; recovery never trusts it). Mutant killed: stamping under the EX serialization lock
+    (serializes a non-event against real mutations every tick) or journaling the stamp."""
+    def _poisoned_lock(*_args, **_kwargs):
+        raise AssertionError(
+            "the last_tick_at stamp must be LOCK-FREE (DAEMON §4.4) — it must NOT take the EX "
+            "serialization lock (that would serialize a non-event against real mutations every tick)"
+        )
+
+    monkeypatch.setattr(store, "file_lock", _poisoned_lock)
+    wal_before = len(ledger.load_wal())
+
+    path = daemon.stamp_last_tick(runtime)  # must succeed with the lock poisoned
+
+    assert path == runtime / "runtime.json", "stamp_last_tick returns the written descriptor path"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "last_tick_at" in data, "the lock-free stamp must still land on disk (atomic_replace)"
+    assert len(ledger.load_wal()) == wal_before, (
+        "the stamp is a best-effort MIRROR, not the durable journal — it must append ZERO WAL "
+        "rows (DAEMON §4.4: recovery NEVER trusts the sidecar surfaces)"
+    )
+
+
+def test_last_tick_at_advances_on_every_tick(runtime, monkeypatch):
+    """The stamp OVERWRITES every tick (never setdefault/write-once): with the canonical clock
+    scripted to t1 then t2, runtime.json carries t1 after tick 1 and t2 after tick 2. Mutant
+    killed: write-once semantics — a stamp that never advances looks permanently fresh-then-stale
+    and defeats the §2.6 staleness-bound math (3 missed ticks)."""
+    t1 = "2026-06-10T12:00:00+00:00"
+    t2 = "2026-06-10T12:00:05+00:00"
+    cell = {"now": t1}
+    monkeypatch.setattr(clock, "now_utc", lambda: cell["now"])
+    addr, token, tmux, det = _tick_fixture(runtime)
+
+    daemon.poll_once(executor, tmux, det)  # tick 1 at t1
+    data1 = json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))
+    assert data1.get("last_tick_at") == t1, (
+        f"after tick 1 the stamp must be t1 ({t1}); got {data1.get('last_tick_at')!r}"
+    )
+
+    cell["now"] = t2
+    daemon.poll_once(executor, tmux, det)  # tick 2 at t2
+    data2 = json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))
+    assert data2.get("last_tick_at") == t2, (
+        f"the stamp must ADVANCE on every tick (overwrite, not setdefault): after tick 2 it must "
+        f"be t2 ({t2}); got {data2.get('last_tick_at')!r}"
+    )
+
+
+def test_poll_once_survives_a_failed_stamp(runtime, monkeypatch):
+    """Best-effort isolation (the same §4.4 discipline poll_loop applies to write_status): a stamp
+    that raises must NOT abort the tick — poll_once returns cleanly and the tick's REAL work (the
+    watchdog collapse of a DONE-signed leaf) still lands. Mutant killed: an unguarded stamp call
+    whose disk hiccup aborts the reconcile sweep."""
+    addr, token, tmux, det = _tick_fixture(runtime)
+    _write_signal(runtime, addr, signal="DONE", owner_token=token)
+
+    def _raising_stamp(*_args, **_kwargs):
+        raise OSError("disk hiccup — the runtime root is briefly unwritable")
+
+    monkeypatch.setattr(daemon, "stamp_last_tick", _raising_stamp)
+
+    daemon.poll_once(executor, tmux, det)  # must NOT raise
+
+    b = ledger.read_binding(addr)
+    assert b["state"] == "done", (
+        "the tick's reconcile/watchdog work must still land when the stamp fails — the stamp is "
+        "best-effort, never load-bearing for the sweep"
+    )
