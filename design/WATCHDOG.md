@@ -308,7 +308,7 @@ executor commands:
 2. OPEN SUSPICION (same-state, NOT a kill): watchdog-checkpoint sets condition=stale_suspect,
    suspect_since=now, appends stale_suspect_opened. Increment stale_check_count (the grace counter, §3.5).
 3. PROBE (observe): re-run liveness(node) + read the binding's terminal_signal + the live-descendant
-   roll-up. Evidence sources: JSONL-growth, pane_pid liveness, .signal.json presence.
+   roll-up. Evidence sources: JSONL-growth, pane_pid liveness, .signal.<seat>.json presence.
 4. ACTOR LIVE + canonical → RENEW: condition=healthy, append lease_renewed (§3.2). Reset
    stale_check_count (the grace counter); recovery_attempts is left intact unless this renewal
    confirms a recovery converged (§3.5). (The stale was transient — a long quiet turn.)
@@ -413,20 +413,23 @@ sign-off-or-fail sequence (`agent-lifecycle.md` §121–124), made concrete with
 ### 4.1 The sign-off the check reads — the JOURNAL, never the nudge
 
 > **The watchdog's liveness check is exactly:** *"is there a terminal-signal event for this node in
-> the journal?"* (`comms-protocol.md` §146). It reads the **durable journal** — the `signal_*`
+> the journal?"* (`comms-protocol.md`, Terminal Signal). It reads the **durable journal** — the `signal_*`
 > run-ledger event / the `terminal_signal` field stamped by the reconcile sweep from the durable
-> `<node>/.signal.json` (DAEMON.md §3.5) — **not** the transient bus nudge.
+> `<node-dir>/.signal.<seat>.json` (DAEMON.md §3.5) — **not** the transient bus nudge.
 
 A dropped bus nudge can therefore **never** cause a false sign-off failure; it only delays journaling
 to the next sweep (DAEMON.md §3.5). Any phrasing like "did we receive the terminal nudge" is a
 **direct contradiction** of the contract and is forbidden.
 
-The sign-off tags are exactly the strict 3-set (`comms-protocol.md` §138–142), cited verbatim:
+The sign-off tags are exactly the strict 3-set (`comms-protocol.md`, Terminal Signal), carried in
+the durable artifact the agent writes (atomic tmp+rename; the schema the daemon reads, DAEMON.md
+§3.5):
 
 ```
-signal:  DONE | FAILED | ESCALATED            # strict tag — the only field the sign-off check reads
-re:      <node>                               # the node signing off
-notes:   <optional, free text>                # DONE note / FAILED reason / ESCALATED question
+{"signal": "DONE" | "FAILED" | "ESCALATED",   # strict tag — the only field the sign-off check reads
+ "ts": "<ISO-8601 UTC>",
+ "owner_token": "<copied verbatim from .sign-off.<seat>.json>",   # the stale-actor fence
+ "evidence": {"report": "report.md", "notes": "<optional: DONE note / FAILED reason / ESCALATED question>"}}
 ```
 
 **`ESCALATED` does NOT collapse the leaf** (DAEMON.md §3.6): `terminal_signal` is set but lifecycle
@@ -481,8 +484,8 @@ On exhausted prods with no sign-off, ② records `FAILED` **through the executor
 running → failed, which sets `terminal_signal = FAILED`). Two disciplines:
 
 - **Distinguish watchdog-imposed FAILED from agent-self-emitted FAILED** (closing the audit-trail
-  conflation the corpus flags). An agent-emitted `FAILED` comes from a `<node>/.signal.json` the
-  agent wrote; a watchdog-imposed `FAILED` has **no `.signal.json`** and is stamped by the executor
+  conflation the corpus flags). An agent-emitted `FAILED` comes from a `<node-dir>/.signal.<seat>.json`
+  the agent wrote; a watchdog-imposed `FAILED` has **no `.signal.<seat>.json`** and is stamped by the executor
   on the leaf's behalf for **non-response**. The run-ledger row records `actor: harnessd` and a
   `reason: watchdog_nonresponse` note in `terminal_note`, so the journal does not conflate "agent
   said it failed" with "watchdog declared it failed for silence."
@@ -700,7 +703,8 @@ Resolution (locked by the gap-review):
 - **L4 owns the L5+ reviewer under the SAME watchdog** — the reviewer is an ephemeral leaf and gets
   the **light** sign-off-or-fail path (§4), watched exactly like the L5 it reviews.
 - **Its terminal artifact = the verdict file** — the verdict file is the reviewer's sign-off /
-  terminal signal (its `<node>#review/.signal.json` + the verdict artifact). The sign-off check
+  terminal signal (the `#review` seat's `.signal.review.json` in the shared node dir + the verdict
+  artifact). The sign-off check
   reads the journal for the `#review` seat's terminal signal, same as any leaf.
 - **On L5+ death → cold-respawn a fresh L5+ against the FROZEN RUBRIC.** Review is **stateless vs the
   spec** (the frozen acceptance rubric, `acceptance_ref`, DAEMON.md §3.2, is read-only), so a
@@ -709,14 +713,17 @@ Resolution (locked by the gap-review):
   (F-012) is the anti-pattern this **automates**: respawn through the §10 fencing path (new epoch),
   never a manual pointer edit.
 - **Partial/torn verdict from the dead incarnation — fenced, not adopted.** A reviewer that died
-  mid-write may have left a **torn or partial** verdict artifact (its `<node>#review/.signal.json` +
+  mid-write may have left a **torn or partial** verdict artifact (the `#review` seat's
+  `.signal.review.json` +
   the verdict file). Because the sign-off check reads the durable artifact via the sweep (§4.1), a
   stale/partial verdict is exactly the kind of artifact the sweep could mis-journal. The guard reuses
   the existing fencing seat: the **fresh** L5+ writes its verdict under the **new `lease_epoch` /
-  `owner_token`** (§10), and the sweep **fences verdict-artifact journaling by `session_uuid`** — the
-  same guard DAEMON.md §3.5 already applies to `.signal.json` (it validates the artifact's
-  `session_uuid` against the live binding before journaling). A partial verdict from the dead
-  incarnation carries the **old** session_uuid / epoch and is therefore **rejected, not adopted**. No
+  `owner_token`** (§10), and the reader **fences signal-artifact journaling by `owner_token`** — the
+  same guard DAEMON.md §3.5 already applies to `.signal.<seat>.json` (it validates the artifact's
+  `owner_token` against the live binding before journaling; the composite token embeds session_uuid
+  AND lease_epoch, so even a re-claim that kept the session_uuid is fenced). A partial verdict from
+  the dead
+  incarnation carries the **old** owner_token / epoch and is therefore **rejected, not adopted**. No
   new mechanism — the partial-artifact gap is closed by the fencing already in ①.
 
 ---
@@ -851,7 +858,7 @@ must satisfy:
   turn** (`send-keys` has no ack).
 - **The wake (best-effort):** a bus nudge that triggers an **immediate sweep** of a node (instead of
   waiting for the timer). **The durable fact is never on the wire** — the sign-off lives in
-  `<node>/.signal.json` → the journal (DAEMON.md §3.5); a dropped nudge only delays journaling, never
+  `<node-dir>/.signal.<seat>.json` → the journal (DAEMON.md §3.5); a dropped nudge only delays journaling, never
   loses it (§4.1). ③'s wire is an **optimization**, not a correctness dependency.
 - **The events ③ surfaces:** the watchdog-imposed `FAILED` (§4.4) and the recovery/escalation events
   (`stale_suspect_opened`, `recovery_probe_started`, `ownership_replaced`, `coordinator_died`,

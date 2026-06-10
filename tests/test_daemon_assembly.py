@@ -23,19 +23,23 @@ test-masking, W2 LOW-6).
 import copy
 import importlib
 import json
+import os
 import socket
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import harnessd.addressing as addressing
 import harnessd.clock as clock
+import harnessd.config as config
 import harnessd.daemon as daemon
 import harnessd.executor as executor
 import harnessd.fencing as fencing
 import harnessd.ipc as ipc
 import harnessd.ledger as ledger
+import harnessd.states as states
 import harnessd.spawn.chokepoint as chokepoint
 
 
@@ -303,6 +307,59 @@ def test_poll_once_ignores_a_stale_token_signoff(runtime):
     daemon.poll_once(executor, tmux, det)
 
     assert ledger.read_binding(addr)["state"] == "running", "a stale-token sign-off must not collapse the node"
+
+
+def test_agent_visible_signoff_collapses_through_real_tick(runtime):
+    """F19, the 'real agent writes what the daemon reads' end-to-end proof: the node is spawned
+    through the REAL chokepoint (which seeds the .sign-off.<seat>.json handshake post-claim), then a
+    helper signs off using ONLY agent-visible inputs — it reads the handshake in its own node dir,
+    writes .signal.<seat>.json {signal, ts, owner_token: <from handshake>, evidence} via tmp+rename,
+    and NEVER touches the ledger. ONE real poll_once tick collapses the node to done through the REAL
+    watchdog -> chokepoint.collapse -> executor, and the run-ledger row appears. Mirrors the
+    _write_signal keystone above but sources the token the way a real agent must (the keystone
+    helper reads the token off the ledger — a channel no real agent has)."""
+    _install_adapter()
+    addr = "proj/widget/task#exec"
+    registered_token = fencing.mint_owner_token(addr, "sa", "uuid", 1)
+    ws = addressing.node_dir(addr, runtime)
+    ws.mkdir(parents=True, exist_ok=True)
+    rec = {"node_address": addr, "parent_address": "proj/widget#exec", "level": "L5",
+           "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 0,
+           "lease_epoch": 1, "owner_token": registered_token, "last_applied_seq": 0,
+           "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
+           "tmux_target": "harness:" + addr, "workspace": str(ws),
+           "stale_check_count": 0, "stale_grace_checks": 2}
+    ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
+    spawn = chokepoint.claim_and_spawn(
+        addr, expected_state="planned", expected_generation=0,
+        expected_owner_token=registered_token, level_config=config.LevelConfig.for_level("L5"),
+    )
+    assert spawn.ok, "the real spawn path must succeed (it seeds the handshake)"
+
+    # ---- The "agent": ONLY agent-visible inputs (files in its own node dir; no ledger read). ----
+    handshake = json.loads((ws / ".sign-off.exec.json").read_text(encoding="utf-8"))
+    signal_path = Path(handshake["signal_path"])  # absolute, delivered by the handshake
+    tmp = signal_path.with_name(signal_path.name + ".tmp")
+    tmp.write_text(json.dumps({"signal": "DONE", "ts": clock.now_utc(),
+                               "owner_token": handshake["owner_token"],
+                               "evidence": {"report": "report.md"}}), encoding="utf-8")
+    os.replace(tmp, signal_path)  # the agent's atomic last act
+
+    tmux = _Tmux({"harness:" + addr: {"pane_pid": 4242, "pane_dead": 0}})
+    det = _Detector(default="working")
+    wal_before = len(ledger.load_wal())
+
+    daemon.poll_once(executor, tmux, det)  # ONE real tick
+
+    b = ledger.read_binding(addr)
+    assert b["state"] == "done", (
+        "an agent signing off from ONLY agent-visible files (handshake -> signal artifact) must "
+        "collapse through one real poll_once tick — the daemon must read what the agent wrote"
+    )
+    assert b.get("terminal_signal") == "DONE"
+    done_event = states.TERMINAL_VOCAB["signal_DONE"].event
+    events = [r.get("event") for r in ledger.load_wal()[wal_before:] if r.get("node_address") == addr]
+    assert done_event in events, f"the {done_event} run-ledger row must land; got {events!r}"
 
 
 # --------------------------------------------------------------------------- #

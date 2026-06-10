@@ -133,17 +133,31 @@ urgency: routine | needs-attention | blocking
 
 ## Terminal Signal — the Sign-Off
 
-Every agent's **last act before it ends is to emit exactly one terminal signal** on the bus. This is the system's **sign-off**: the durable record that the agent reached a terminal state, and the single thing the watchdog checks to answer *"did it sign off?"*. Strict, simple shape — a tag plus an optional notes field:
+Every agent's **last act before it ends is to write exactly one terminal-signal artifact** — a durable **file write into your own node directory**, not a bus message. This is the system's **sign-off**: the durable record that you reached a terminal state, and the single thing the watchdog reads to answer *"did it sign off?"*.
 
-```
-signal:  DONE | FAILED | ESCALATED            # strict tag — the only field the sign-off check reads
-re:      proj/payments/gateway/stripe-client  # the node signing off
-notes:   <optional, free text>                # completion note (DONE) / failure reason (FAILED) / the question (ESCALATED)
+**How to sign off.** Write `.signal.<seat>.json` into your node directory via an **atomic tmp+rename** (write the complete JSON to a temp file beside it, then rename it onto the final name — never write the final file in place; a torn half-written signal must be impossible). Your node directory already contains `.sign-off.<seat>.json` — a **handshake file the harness seeded when your session opened**. It carries your `owner_token` and the absolute `signal_path` to write to. Read it; copy the token **verbatim**.
+
+```json
+{
+  "signal": "DONE",                              // strict tag: "DONE" | "FAILED" | "ESCALATED"
+  "ts": "2026-06-10T12:00:00+00:00",             // ISO-8601 UTC — when you signed off
+  "owner_token": "<copied verbatim from .sign-off.<seat>.json in your node dir>",
+  "evidence": { "report": "report.md", "notes": "<optional: failure reason / the ESCALATED question>" }
+}
 ```
 
-- **The tag is the contract.** `DONE` = work complete (see `report.md`); `FAILED` = could not complete, reason in `notes`; `ESCALATED` = blocked, needs a decision — the question in `notes` feeds the answer-round-trip back down.
-- **Emission is journaled.** The moment it is sent, the single-writer executor records it to the run-ledger and stamps the node's terminal state. So *"the check is that it got sent"* reads the **durable journal**, not the transient nudge — a dropped live nudge can never cause a false sign-off failure. This is the one place a bus message's *fact-of-being-sent* is load-bearing, so it is journaled; the payload still lives in `report.md`.
-- **Then the lifecycle takes over** (`agent-lifecycle.md`): `DONE`/`FAILED` → the parent collapses the (ephemeral) leaf and reads `report.md`; `ESCALATED` → the agent keeps context and waits for the answer rather than dead-ending. The watchdog's liveness check is exactly *"is there a terminal-signal event for this node in the journal?"* — if absent and the session has gone idle, it prods, then records `FAILED` on no response.
+Field by field:
+
+- `signal` — **the tag is the contract.** `DONE` = work complete (see `report.md`); `FAILED` = could not complete, reason in `evidence.notes`; `ESCALATED` = blocked, needs a decision — the question in `evidence.notes` feeds the answer-round-trip back down.
+- `ts` — the sign-off moment, ISO-8601 UTC.
+- `owner_token` — **the fence.** The daemon accepts the artifact only if this token equals the live binding's token for *your* incarnation. A signal carrying a wrong or stale `owner_token` is **silently ignored** by the watchdog — your sign-off never lands and you will eventually be reaped as non-responsive. Copy it exactly from `.sign-off.<seat>.json`; never construct one, never reuse one from a prior session.
+- `evidence` — optional dict naming your completion artifacts: `report` points at the report doc; `notes` carries the free text (DONE note / FAILED reason / ESCALATED question).
+
+The lifecycle around the write:
+
+- **The artifact is journaled.** Each tick the daemon reads the durable file, validates the token, and the single-writer executor records it to the run-ledger and stamps the node's terminal state. So *"the check is that it got written"* reads the **durable artifact → journal** — never a transient message. The payload still lives in `report.md`.
+- **A bus nudge is optional, never required.** After the artifact is on disk you *may* post a bus nudge ("signed off — see `report.md`") as a fast-path wake; the artifact is the record, the nudge is only latency. A dropped nudge loses nothing — the next sweep reads the file.
+- **Then the lifecycle takes over** (`agent-lifecycle.md`): `DONE`/`FAILED` → the harness collapses the (ephemeral) leaf and the parent reads `report.md`; `ESCALATED` → the agent keeps context and waits for the answer rather than dead-ending. The watchdog's liveness check is exactly *"is there a terminal-signal event for this node in the journal?"* — if absent and the session has gone idle, it prods, then records `FAILED` on no response.
 
 ---
 
@@ -215,4 +229,4 @@ The bus is **runtime-neutral** — both Opus and Codex/GPT-5.5 seats write files
 ---
 
 *Operational reference — loaded at boot for all levels.*
-*Created: 2026-03-29 · Rewritten 2026-06-02 (bus + docs; station addressing F35; need-to-know visibility F34; pointer-not-payload F33; inbox retired).*
+*Created: 2026-03-29 · Rewritten 2026-06-02 (bus + docs; station addressing F35; need-to-know visibility F34; pointer-not-payload F33; inbox retired) · Terminal Signal rewritten 2026-06-10 (durable `.signal.<seat>.json` artifact + `.sign-off.<seat>.json` handshake; bus emission demoted to optional wake — F19).*

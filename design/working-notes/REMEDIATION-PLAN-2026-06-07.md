@@ -208,6 +208,24 @@ can't exist. After F1, the order is correctness-foundations → cascade edges �
   Stricter, not broken, but a drift that bites when the real agent writes the file. **Fix:** align the
   code schema to the spec (or update the spec + the agent role-doc instruction to match the code).
   **Effort:** small. **Call: NOW** (the real agent must write what the daemon reads).
+- **DONE (2026-06-10, the F19 commit).** Decision: the CODE schema is kept —
+  `<node-dir>/.signal.<seat>.json` `{signal: DONE|FAILED|ESCALATED, ts, owner_token, evidence}`,
+  fenced on `owner_token` equality against the live binding. The `owner_token` fence is strictly
+  stronger than the spec's `session_uuid` fence (the composite token embeds session_uuid AND
+  lease_epoch, so same-session epoch rotations — rollback, re-claim necro — are still fenced).
+  Aligned: DAEMON.md §3.5 (+ §3.2 comment + recap), WATCHDOG.md §3.4/§4.1/§4.4/§7/§11.1,
+  TRANSPORTS.md §1.1/§1.3/§2.1/§2.4, comms-protocol.md Terminal Signal (rewritten: durable
+  artifact write, bus nudge demoted to optional wake), L5 role/spawn-template,
+  agent-lifecycle.md, detector_signals.py docstrings, NeutralContract.reporting. Delivery gap
+  closed: the chokepoint now seeds `<node-dir>/.sign-off.<seat>.json` `{owner_token, signal_path,
+  schema}` strictly post-claim / pre-open (`_write_signoff_handshake`, refreshed per incarnation
+  via `_spawn_after_claim`; genesis + resume + parent-spawn all flow through it), plus a brief
+  "## Sign-off" manifest block. Reader/fence untouched. Pinned by tests/test_signoff_handshake.py
+  (post-claim token, lost-claim no-write/no-clobber, re-claim refresh + old-token fence,
+  seat-qualified + atomic, doc-drift guards) and the agent-realistic loop proof in
+  test_daemon_assembly.py. Out of scope, deliberately: sweep-vs-watchdog journaling reconciliation
+  (F5/SML-01 territory), pane-env token delivery (violates the 4-var isolation contract), F8's
+  promote copy-out now shipping the control-plane dotfiles (F8 excludes them).
 
 ---
 

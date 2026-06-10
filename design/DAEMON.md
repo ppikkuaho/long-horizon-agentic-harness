@@ -366,7 +366,7 @@ occupy one node via different suffixes. (FORK note below.)
   terminal_signal: null               # DONE|FAILED|ESCALATED|DIED_INFRA|DIED_METHODOLOGY|FENCED (§3.6 table)
   terminal_signal_at: null
   terminal_note: null                 # free text (e.g. ESCALATED question, FAILED reason)
-  signal_artifact_seen_at: null       # last <node>/.signal.json the sweep journaled (journal-once guard; §3.5)
+  signal_artifact_seen_at: null       # last <node-dir>/.signal.<seat>.json the sweep journaled (journal-once guard; §3.5)
 
   # --- verifiable spawn fact (H40 / runtime-and-model-map) ---
   model_used: "opus-4.8 / claude-code"  # ACTUAL model+runtime that ran (config=intent, this=fact)
@@ -535,14 +535,24 @@ in-process executor, and routing its terminal signal *only* over the best-effort
 **dropped nudge loses the durable row entirely** — the exact failure the design distrusts. So the
 signal is durable-by-write, journaled-by-sweep:
 
-1. **Agent writes the signal to a durable per-node artifact** — `<node>/.signal.json`
-   `{tag: DONE|FAILED|ESCALATED, at, notes, session_uuid}` (an atomic tmp+rename the agent does as
-   its last act, alongside `report.md`). This is the durable fact; the bus nudge is only an
-   *optional fast-path wake*.
+1. **Agent writes the signal to a durable per-seat artifact** — `<node-dir>/.signal.<seat>.json`
+   (the canonical per-seat path, `harnessd/addressing.signal_path` — seat-qualified so the L5/L5+
+   pair sharing one node dir don't clobber each other's sign-off)
+   `{signal: DONE|FAILED|ESCALATED, ts, owner_token, evidence}` (an atomic tmp+rename the agent
+   does as its last act, alongside `report.md`). The `owner_token` is copied **verbatim** from the
+   `<node-dir>/.sign-off.<seat>.json` handshake the chokepoint seeds strictly post-claim /
+   pre-open (the only agent-visible channel for the token — the brief payload omits it, brief.md
+   may be pre-authored before the claim mints it, and the pane env is contractually the 4
+   isolation vars). This is the durable fact; the bus nudge is only an *optional fast-path wake*.
+   (Accepted v1 window: a fenced prior incarnation that re-reads the *refreshed* handshake could
+   sign with the new token — the respawn kills the old pane, so the window is negligible.)
 2. **The reconcile sweep detects the artifact and the executor journals from the durable read** —
-   each tick, reconcile checks for a `.signal.json` newer than the node's `terminal_signal_at`; on
-   finding one it stamps `terminal_signal` + appends the `signal_*` run-ledger row (validating
-   `session_uuid` against the live binding to fence a stale-actor signal). A dropped bus nudge
+   each tick, reconcile checks for a `.signal.<seat>.json` newer than the node's
+   `terminal_signal_at`; on finding one it stamps `terminal_signal` + appends the `signal_*`
+   run-ledger row (validating the artifact's `owner_token` against the live binding's
+   `owner_token` to fence a stale-actor signal — the composite token embeds session_uuid AND
+   lease_epoch (§8), so even a re-claimed/rolled-back incarnation that KEPT its session_uuid is
+   fenced). A dropped bus nudge
    therefore only **delays journaling to the next sweep**, never loses it. The bus nudge, if it
    arrives, just triggers an *immediate* sweep of that node instead of waiting for the timer.
 
@@ -1201,12 +1211,14 @@ chokepoint defined above — so adding it later is a one-site change, not a re-p
   state-machine, written through the executor — never a second writer).
 
 **To cluster ③ (Transports):**
-- the **terminal-signal journaling** contract: the agent writes a durable `<node>/.signal.json` as
-  its last act; the reconcile sweep detects it and the executor journals from the durable read
+- the **terminal-signal journaling** contract: the agent writes a durable
+  `<node-dir>/.signal.<seat>.json` `{signal, ts, owner_token, evidence}` as its last act (the
+  `owner_token` copied verbatim from the chokepoint-seeded `.sign-off.<seat>.json` handshake); the
+  reconcile sweep detects it and the executor journals from the durable read
   (§3.5) — so the sign-off check reads the **journal**, and a dropped live bus nudge can at worst
   **delay** journaling to the next sweep, **never** lose the durable row or cause a false sign-off
   failure. The bus carries a best-effort *wake* (triggering an immediate sweep); the durable fact
-  lives in `.signal.json` → the ledger + the work-node `report.md`.
+  lives in `.signal.<seat>.json` → the ledger + the work-node `report.md`.
 - the human control surface attaches to the harness app (genesis path) and routes human-kill
   **through the executor's stamping path** (never raw tmux), and the answer-escalation slot rides
   the `terminal_signal = ESCALATED` + `terminal_note` carried in the binding.

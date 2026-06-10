@@ -18,7 +18,7 @@ the gap-review blockers it owns:
 - **IMPORTANT #5** — the pull-visibility read-path + its direct-children-vs-subtree scope.
 
 It **consumes** ①'s seats (the spawn chokepoint, the single-writer executor, the binding-ledger
-tree, the durable `.signal.json`→sweep→journal terminal-signal path, the fencing tokens, the
+tree, the durable `.signal.<seat>.json`→sweep→journal terminal-signal path, the fencing tokens, the
 genesis/harness-app path) and ②'s seats (the prod preconditions, the roll-up race rule, the closed
 gate-detection trigger set, the events it may carry). **It redesigns none of them.** Every seat is
 named at its exact ①/② address.
@@ -43,9 +43,9 @@ The model is fixed upstream (`ARCHITECTURE.md` §Communication-and-Visibility F3
   promoted. Vertical read-DOWN into a node's own subtree is open; lateral/upward coordination-WRITE
   stays scoped (F34).
 - **The one load-bearing best-effort exception is NOT ③'s to own.** The terminal-signal's
-  *fact-of-being-sent* is journaled — but that journaling is **cluster ①'s** (the sweep journals
-  from the durable `<node>/.signal.json`, `DAEMON.md` §3.5). The bus carries only the best-effort
-  **wake**. ③ must never re-own the sign-off.
+  *fact-of-being-written* is journaled — but that journaling is **cluster ①'s** (the sweep journals
+  from the durable `<node-dir>/.signal.<seat>.json`, `DAEMON.md` §3.5). The bus carries only the
+  best-effort **wake**. ③ must never re-own the sign-off.
 
 ### 1.2 What cluster ③ OWNS (v1 INCLUDE — the sufficiency cut)
 
@@ -68,7 +68,7 @@ the keystroke layer, the ledger, or the fencing.
 | (Re)spawn / carry an answer down to a collapsed child | the spawn chokepoint `spawn()` / `claim` / `transition` — resume is the §6.4 variant | DAEMON §6.1, §6.4 |
 | The only mutator (human-kill + any gate-state flip route THROUGH it) | the single-writer executor + one serialization domain | DAEMON §4.1 |
 | The substrate for nudge routing + pull-visibility | the binding-ledger tree keyed on the one-spine `node_address` (parent = truncate last segment; subtree = prefix) | DAEMON §3.1, §3.2 |
-| The terminal-signal truth (③ adds only the best-effort wake) | `<node>/.signal.json` → reconcile sweep → run-ledger `signal_*` row | DAEMON §3.5 |
+| The terminal-signal truth (③ adds only the best-effort wake) | `<node-dir>/.signal.<seat>.json` → reconcile sweep → run-ledger `signal_*` row | DAEMON §3.5 |
 | The nudge/kill-race interlock | the fencing CAS — `lease_epoch` / `owner_token` / `generation` | DAEMON §4.2, §8 |
 | The host for the human control surface | the genesis app → daemon → L1 path (the harness app) | DAEMON §7, §9 |
 | The detached pane to send-keys into | `tmux_target: harness:<collapsed-address>` + `tmux capture-pane` readback | DAEMON §6.2 |
@@ -133,7 +133,7 @@ the keystroke layer, the ledger, or the fencing.
 >   `<node>/.inbox.jsonl` is written by **many** senders, bypassing the executor — the **opposite** of
 >   ①'s run-ledger, which has exactly one writer (the single-writer executor, DAEMON §4.1: "one
 >   writer, no second mutator"). So the run-ledger's single-writer append discipline does **NOT**
->   transfer, and ①'s `<node>/.signal.json` `tmp+rename` does **not** fit either (rename-replace is
+>   transfer, and ①'s `<node-dir>/.signal.<seat>.json` `tmp+rename` does **not** fit either (rename-replace is
 >   for a single-author whole-file artifact, not a shared append log). The actual rule for a
 >   multi-writer append log: rely on **POSIX `O_APPEND` write atomicity**, which holds **only for a
 >   whole-line write whose byte length ≤ `PIPE_BUF`**. Two requirements on the writer make this
@@ -202,8 +202,10 @@ significant status change) — no "still working" pings; silence is correct.
 The wire carries **only a best-effort wake**. It is an **optimization, not a correctness
 dependency** (WATCHDOG §11.1). Concretely:
 
-- The durable terminal fact lives in `<node>/.signal.json` (the agent's atomic last act) → the
-  reconcile sweep journals it (validating `session_uuid` against the live binding, idempotent via
+- The durable terminal fact lives in `<node-dir>/.signal.<seat>.json` (the agent's atomic last act,
+  its `owner_token` copied verbatim from the chokepoint-seeded `.sign-off.<seat>.json` handshake) →
+  the reconcile sweep journals it (validating the artifact's `owner_token` against the live binding,
+  idempotent via
   `signal_artifact_seen_at`) → the run-ledger `signal_*` row + `terminal_signal` field → the work
   node's `report.md` (DAEMON §3.5).
 - A bus wake at most triggers an **immediate sweep** of that node instead of waiting for the timer.

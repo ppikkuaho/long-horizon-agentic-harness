@@ -5,8 +5,11 @@ Authoritative sources:
     signatures below): jsonl_progress / pane_alive / pane_pid_cpu / read_terminal_signal.
   - IMPLEMENTATION-PLAN §4.1 "terminal-signal reader (the PRODUCER for INCLUDE-item #3,
     fully mockable)" (L564-571) — the stale-owner_token fence is the load-bearing case.
-  - Runtime tree layout (§3 tree, L454-471): nodes/<collapsed-address>/.signal.json carries
-    {signal: DONE|FAILED|ESCALATED, ts, owner_token, evidence}, agent-written atomic tmp+rename.
+  - Runtime tree layout (§3 tree, L454-471): the nested per-seat `<node-dir>/.signal.<seat>.json`
+    (addressing.signal_path) carries {signal: DONE|FAILED|ESCALATED, ts, owner_token, evidence},
+    agent-written atomic tmp+rename — the owner_token copied VERBATIM from the chokepoint-seeded
+    `<node-dir>/.sign-off.<seat>.json` handshake (addressing.signoff_path, F19: the agent-side
+    token source; the brief/env never carry the token).
 
 THE TMUX SEAM (§2.11, frozen Increment 0; concrete tmux.py lands Increment 9):
     pane_alive() reaches tmux ONLY through the module-level `_tmux` reference (the §2.11
@@ -149,8 +152,11 @@ def pane_pid_cpu(node, pane_pid) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# read_terminal_signal — the FENCED .signal.json reader (the §4.1 producer for
-# INCLUDE-item #3). nodes/<collapsed-address>/.signal.json -> {signal, ts, owner_token, evidence}.
+# read_terminal_signal — the FENCED signal-artifact reader (the §4.1 producer for
+# INCLUDE-item #3). The nested per-seat `<node-dir>/.signal.<seat>.json`
+# (addressing.signal_path) -> {signal, ts, owner_token, evidence}; the agent sources
+# its owner_token from the chokepoint-seeded `.sign-off.<seat>.json` handshake in the
+# same node dir (F19).
 # ---------------------------------------------------------------------------
 
 def _signal_path(node):

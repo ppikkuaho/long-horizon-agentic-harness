@@ -233,6 +233,52 @@ def release_claim(node_address: str, *, expected_owner_token: Optional[str]) -> 
 # The shared post-claim spawn body (STEP2-5) — used by claim_and_spawn and resume's branches.
 # ---------------------------------------------------------------------------
 
+def _write_signoff_handshake(node_address: str, owner_token: str) -> None:
+    """Seed the per-incarnation sign-off HANDSHAKE into the node dir (F19 — the token delivery).
+
+    ``<node-dir>/.sign-off.<seat>.json`` carries the POST-claim re-minted ``owner_token``, the
+    absolute ``.signal.<seat>.json`` path, and the signal schema. Written strictly AFTER the claim
+    commits (a lost claim never reaches this — no loser-token handshake can land) and strictly
+    BEFORE ``adapter.pin_and_open`` (the agent can read it from its first turn). This is the ONLY
+    channel that delivers the fence token to the live agent: the brief payload omits it, brief.md
+    may be pre-authored at plan time BEFORE the claim mints the token, and the unjailed pane env is
+    contractually EXACTLY the 4 isolation vars (claude_code adapter) — so a node-dir file is the one
+    channel that survives all three. The agent copies ``owner_token`` VERBATIM into its
+    ``.signal.<seat>.json``; the fenced reader (detector_signals.read_terminal_signal) silently
+    ignores any other token.
+
+    Refreshed by THIS same write-point on every re-claim (the §6.4 resume flows through
+    ``_spawn_after_claim``), so the file always names the CURRENT incarnation's token. A stale
+    leftover (a post-claim spawn failure releases the claim at a bumped epoch) is harmless: the
+    fence rejects its token, and the next successful claim overwrites the file BEFORE the new pane
+    opens.
+
+    NODE-WORKSPACE SEEDING (like brief.md), NOT a ledger write — the executor stays the single
+    ledger writer; no TransitionResult is produced or swallowed here.
+    """
+    if ledger.RUNTIME_ROOT is None:
+        raise RuntimeError(
+            "_write_signoff_handshake: ledger.RUNTIME_ROOT is not bound — the handshake lands under "
+            "the runtime tree (nodes/<nested-path>/.sign-off.<seat>.json); bind it (daemon startup / "
+            "tests). Never a silent skip: an agent without the handshake cannot sign off (its "
+            "terminal signal would be fenced as stale)."
+        )
+    payload = {
+        "owner_token": owner_token,
+        "signal_path": str(addressing.signal_path(node_address, ledger.RUNTIME_ROOT)),
+        "schema": {
+            "signal": "DONE|FAILED|ESCALATED",
+            "ts": "ISO-8601 UTC",
+            "owner_token": "<this token, verbatim>",
+            "evidence": "optional dict (e.g. {report: 'report.md', notes: '<failure reason / the ESCALATED question>'})",
+        },
+    }
+    store.atomic_replace(
+        addressing.signoff_path(node_address, ledger.RUNTIME_ROOT),
+        lambda h: (h.write(json.dumps(payload, indent=2)), h.write("\n")),
+    )
+
+
 def _spawn_after_claim(
     node_address: str,
     claimed_binding: dict,
@@ -256,6 +302,12 @@ def _spawn_after_claim(
     post_claim_token = claimed_binding["owner_token"]
     post_claim_generation = claimed_binding["generation"]
     pane_env = _spawn_env() if spawn_env is None else spawn_env
+
+    # STEP2b — seed the sign-off HANDSHAKE (F19): strictly AFTER the committed claim
+    # (post_claim_token IS the re-minted token) and strictly BEFORE the actor opens, so the agent
+    # reads its owner_token + signal path in place from its very first turn. A lost claim never
+    # reaches here (the F-024 ordering), so a loser token never lands in the node dir.
+    _write_signoff_handshake(node_address, post_claim_token)
 
     # STEP3 — pin + open the actor. The claim is STRICTLY before this (the F-024 ordering).
     try:
@@ -703,6 +755,15 @@ def _write_child_brief(
         "## Identity — Load These Documents (read in place)",
         "",
         *[f"- {path}" for path in neutral.load_manifest],
+        "",
+        # F19 — the sign-off pointer, visible in the first thing the child reads (belt-and-braces
+        # alongside the .sign-off.<seat>.json handshake itself + comms-protocol's Terminal Signal).
+        "## Sign-off",
+        "",
+        f"- handshake (your owner_token + signal path): {addressing.signoff_path(child_address, ledger.RUNTIME_ROOT)}",
+        f"- terminal signal artifact: {addressing.signal_path(child_address, ledger.RUNTIME_ROOT)}",
+        "- your final act: write the signal file (atomic tmp+rename) with the owner_token copied "
+        "verbatim from the sign-off file; a stale/wrong token is silently ignored.",
         "",
     ]
 

@@ -153,7 +153,10 @@ class NeutralContract:
     containment_profile: Optional[dict] = None
     reporting: str = (
         "Report via the durable work node: write status.md / log.md and the final report.md; "
-        "signal terminal state via the comms-protocol (DONE / FAILED / ESCALATED)."
+        "sign off by writing .signal.<seat>.json {signal: DONE|FAILED|ESCALATED, ts, owner_token, "
+        "evidence} into your node dir (atomic tmp+rename; copy owner_token verbatim from "
+        ".sign-off.<seat>.json in the same dir) — see operational/shared/comms-protocol.md, "
+        "Terminal Signal."
     )
 
 

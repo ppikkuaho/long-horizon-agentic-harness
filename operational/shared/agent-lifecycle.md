@@ -54,7 +54,7 @@ That's the whole request in the normal case — no brief text. The harness bring
 
 **Block / review-failure — you do NOT end (G37).** If you hit a blocker you cannot resolve at your altitude, or your output fails the gate above you, you do **not** dead-end and you do **not** collapse. You **keep your context** and **escalate options to your parent** — see *Block & Review-Failure Handling* below. Collapse is reserved for *accepted* completion and for parent-ordered shutdown.
 
-**Key rule: your parent (or the harness on its behalf) collapses your session — you never kill your own.** You also never collapse a child that still has live descendants — shutdown cascades bottom-up. The harness watchdog may collapse an **ephemeral leaf** (L5/L5+) that has gone idle without emitting its **terminal signal** (`comms-protocol.md`): a bounded, evidence-based reap of a non-signing leaf, recorded as `FAILED` — never a blind kill of a live, working session. It does not auto-collapse persistent coordinators; a dead coordinator is *recovered*, not reaped (see Liveness below).
+**Key rule: your parent (or the harness on its behalf) collapses your session — you never kill your own.** You also never collapse a child that still has live descendants — shutdown cascades bottom-up. The harness watchdog may collapse an **ephemeral leaf** (L5/L5+) that has gone idle without writing its **terminal signal artifact** (`.signal.<seat>.json` — `comms-protocol.md`, Terminal Signal): a bounded, evidence-based reap of a non-signing leaf, recorded as `FAILED` — never a blind kill of a live, working session. It does not auto-collapse persistent coordinators; a dead coordinator is *recovered*, not reaped (see Liveness below).
 
 ---
 
@@ -150,7 +150,7 @@ Liveness is **observed, not self-reported**, and **inferred from evidence of pro
 
 The terminal contract is **sign-off-or-fail**:
 
-1. An agent's loop ends only by emitting its **terminal signal** (`DONE` / `FAILED` / `ESCALATED`, `comms-protocol.md`) or by escalating — the journaled signal is the sign-off the watchdog checks for.
+1. An agent's loop ends only by writing its **terminal signal artifact** (`.signal.<seat>.json` carrying `DONE` / `FAILED` / `ESCALATED` — `comms-protocol.md`, Terminal Signal) or by escalating — the journaled signal is the sign-off the watchdog checks for.
 2. If a session goes **idle and non-terminal** (no terminal signal, no progress within the activity window), the watchdog **prods** it (a bounded retry); if it still does not sign off, the watchdog records `FAILED` and the parent respawns or escalates.
 3. For a **coordinator**, idle is only actionable when its **subtree is also quiet** — a quiet coordinator with live descendants is *waiting*, not stalled. A coordinator whose **process has died** (not merely gone quiet) with live descendants below is a recoverable **orphan**, recovered from the ledger — never left hanging.
 

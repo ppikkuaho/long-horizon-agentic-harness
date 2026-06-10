@@ -67,6 +67,20 @@ def signal_path(address: str, runtime_root) -> Path:
     return node_dir(address, runtime_root) / f".signal.{seat}.json"
 
 
+def signoff_path(address: str, runtime_root) -> Path:
+    """The per-SEAT sign-off HANDSHAKE file: ``<node-dir>/.sign-off.<seat>.json`` (F19).
+
+    The chokepoint seeds it strictly AFTER the claim commits (it carries the POST-claim re-minted
+    ``owner_token``) and strictly BEFORE the actor opens — the only agent-visible channel for the
+    token the ``signal_path`` fence validates (the brief payload omits it, brief.md can be
+    pre-authored before the claim mints the token, and the pane env is contractually the 4
+    isolation vars). The agent copies ``owner_token`` verbatim into its ``.signal.<seat>.json``.
+    Seat-qualified like ``signal_path`` so the L5/L5+ pair sharing one node dir don't clobber.
+    """
+    _, seat = split_address(address)
+    return node_dir(address, runtime_root) / f".sign-off.{seat}.json"
+
+
 def inbox_path(address: str, runtime_root) -> Path:
     """The per-SEAT wake inbox: ``<node-dir>/.inbox.<seat>.jsonl`` (③-wake surface, multi-writer)."""
     _, seat = split_address(address)
