@@ -124,8 +124,10 @@ def replay_wal(bindings: dict, wal: list) -> dict:
     For each event with ``seq > binding.last_applied_seq`` (the per-node replay watermark):
 
       * ``binding.generation == event.expected_generation`` — the CAS PRE-IMAGE matches: APPLY the
-        ``binding_delta``, set ``generation`` + ``owner_token`` to the event's POST-commit values, and
-        stamp ``last_applied_seq = event.seq`` (advance the watermark).
+        ``binding_delta``, then set ``state`` to the record's authoritative ``to_state`` and
+        ``node_address`` to the record's ``node_address`` (authoritative over the delta — the mirror
+        of ``executor.transition``'s candidate rule), set ``generation`` + ``owner_token`` to the
+        event's POST-commit values, and stamp ``last_applied_seq = event.seq`` (advance the watermark).
       * ``binding.generation == event.generation`` — the event ALREADY LANDED (the binding
         atomic-replace did commit before the crash): NO-OP skip (idempotent).
       * neither — a pre-image-mismatched event: it is NEITHER applicable NOR already-landed, so it is
@@ -179,6 +181,11 @@ def replay_wal(bindings: dict, wal: list) -> dict:
 def _apply_one(binding: dict, event: dict) -> dict:
     """Apply (or skip) ONE WAL event against ``binding`` per the §2.10 pre-image-CAS rule.
 
+    A forward apply merges the ``binding_delta``, then sets ``state`` to the record's authoritative
+    ``to_state`` and ``node_address`` to the record's ``node_address`` (authoritative over the delta
+    — the mirror of ``executor.transition``'s candidate rule), and sets ``generation`` +
+    ``owner_token`` to the event's POST-commit values.
+
     Returns the binding (possibly the same dict, possibly a forward-applied copy). Never mutates the
     input ``binding`` — a forward apply works on a copy so the caller's prior-pass result is stable
     (idempotency).
@@ -206,6 +213,17 @@ def _apply_one(binding: dict, event: dict) -> dict:
     applied = dict(binding)
     delta = event.get("binding_delta") or {}
     applied.update(delta)
+    # Identity + lifecycle state are AUTHORITATIVE from the record, never the delta — the exact
+    # mirror of executor.transition's candidate rule (candidate["node_address"]/candidate["state"]
+    # = target_state, executor.py §4.2 block). The executor sets state from the legality-checked
+    # target_state at commit time, so a committed transition whose caller delta omitted `state`
+    # (STEP4/STEP5, collapse, watchdog_nonresponse all do) must replay to the record's to_state,
+    # not the un-advanced pre-image (review executor-1 / WAL-01). Placement AFTER the delta merge
+    # is load-bearing (the authoritative fields override a divergent/smuggled delta value), and the
+    # already-landed check above firing BEFORE the pre-image check keeps own-slice/fenced rows
+    # (generation unbumped: expected == post) out of this branch — do not reorder those guards.
+    applied["node_address"] = event["node_address"]
+    applied["state"] = event["to_state"]
     applied["generation"] = event["generation"]
     applied["owner_token"] = event["owner_token"]
     if event.get("lease_epoch") is not None:

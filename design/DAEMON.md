@@ -491,6 +491,8 @@ replay that transition deterministically (§4.4):
 **Replay is a deterministic re-apply, not a guess.** Recovery (§4.4 / §5.1) replays *only* events
 whose `seq > binding.last_applied_seq` for that node. For each, it verifies the binding's current
 `generation == expected_generation` (the pre-image the CAS checked); if so it applies `binding_delta`,
+sets `state` to the record's authoritative `to_state` (and `node_address` to the record's
+`node_address`) — the same authoritative-state rule the §4.2 transition applies on the commit side —
 sets `generation` and `owner_token` to the post-commit values, and stamps `last_applied_seq = seq`
 — all in the **same atomic-replace**. If the binding's generation already equals the event's
 post-commit `generation` (the event already landed before the crash), the event is a no-op skip.
@@ -783,7 +785,9 @@ The recovery **policy** (what to do with a stale_suspect) is cluster ②; v1 rec
 on daemon boot, after acquiring .harnessd.lock:
   1. load run-ledger with torn-tail tolerance (§4.4 box); replay WAL: for each event with
        seq > binding.last_applied_seq[node], deterministically re-apply it (verify pre-image
-       generation, apply binding_delta, stamp last_applied_seq — §3.5/§4.4)
+       generation, apply binding_delta, set state to the record's authoritative to_state +
+       node_address to the record's node_address — the §4.2 commit-side rule, mirrored —
+       stamp last_applied_seq — §3.5/§4.4)
   2. list live tmux targets (tmux list-sessions/panes → set of live tmux_targets + pane_pids)
   3. for each binding:
        recorded-alive & tmux-present & session-uuid matches  → ADOPT (resume ownership, renew lease)

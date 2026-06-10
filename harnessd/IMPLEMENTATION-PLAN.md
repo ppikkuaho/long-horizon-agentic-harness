@@ -290,7 +290,7 @@ def check_coordinator_death(node, binding, ledger) -> WatchdogAction
 def replay_wal(bindings: dict[str, dict], wal: list[dict]) -> dict[str, dict]
     # for each event with seq > binding.last_applied_seq[node]:
     #   if binding.generation == event.expected_generation:   # the CAS pre-image
-    #       apply binding_delta; set generation+owner_token to post-commit; stamp last_applied_seq=seq
+    #       apply binding_delta; set state=to_state + node_address (authoritative, mirrors §4.2); set generation+owner_token to post-commit; stamp last_applied_seq=seq
     #   elif binding.generation == event.generation:           # already landed -> NO-OP skip
     # BATCH all pending events for a node into ONE atomic-replace (recovery checkpoint atomicity, see FORK-REPLAY).
     # Writes the whole map via ledger.write_binding(..., _lock_held=True) — replay runs single-threaded inside
