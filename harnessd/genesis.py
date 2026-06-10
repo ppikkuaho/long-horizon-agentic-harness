@@ -6,10 +6,15 @@ single-instance guard is the daemon's separate ``.harnessd.instance.lock``, acqu
 daemon.boot BEFORE genesis runs — §2.3); (2) write runtime.json; (3) the PRECONDITION CHECK
 (OAuth credential health + pinned-binary, FAIL-LOUD, do NOT spawn on a bad precondition); (4)
 reconcile-on-restart (replay the WAL, classify every binding against live tmux, necro the
-owned-but-dead — liveness reconstructed from the LEDGER, not memory); (5) if no live, non-terminal L1
-binding exists -> SPAWN the L1 root in-role through the ONE spawn chokepoint (role_variant='L1',
-parent_address=null, the shared --system-prompt-file + the L1 load-manifest in the brief), ELSE RESUME
-(do NOT double-spawn — the F35 stable-address resume-not-double-spawn rule).
+owned-but-dead — liveness reconstructed from the LEDGER, not memory); (5) route the L1 root by its
+POST-reconcile state (review CFW-02 — never a binary spawn-or-resume): ADOPTED -> done (already
+live, F35); ``running`` -> RESUME through necro.resume_brief with the result ROUTED (GenesisError on
+a failed resume — never a silent clean boot); a ``planned`` survivor -> claim_and_spawn the SURVIVING
+slot (never --resume the registration placeholder, never an epoch-resetting re-register);
+``claimed``/``spawning``/``blocked`` -> REAP to terminal (DIED_INFRA via reconcile's single
+terminal-necro write) then SPAWN fresh through the ONE spawn chokepoint (role_variant='L1',
+parent_address=null, the shared --system-prompt-file + the L1 load-manifest in the brief). No leg
+double-spawns (F35) and no leg discards a result (fail-loud).
 
 genesis is NOT a writer and NOT a spawn path of its own: every binding mutation routes through the
 REAL executor (the single writer), the spawn rides the REAL chokepoint.claim_and_spawn (the ONE
@@ -56,9 +61,11 @@ BUILDER DECISIONS (the §2.12 details the frozen tests leave open — stated in 
   * THE LIVE-L1 CHECK (§7 step 6 spawn-vs-resume) — "no live, non-terminal L1 binding" means: the L1
     binding is absent, OR it is terminal (done/failed/dead). reconcile_on_restart has already
     classified it (adopt a live pane, necro a dead one) BEFORE this check, so genesis reads the
-    POST-reconcile binding: a non-terminal L1 binding after reconcile is a live/resumable root ->
-    RESUME (no double-spawn); an absent or terminal one -> SPAWN. By reading the post-reconcile ledger
-    (not memory) the no-double-spawn invariant holds against the durable truth.
+    POST-reconcile binding and routes by its STATE (review CFW-02): only ``running`` is resumable
+    (the legality table admits ->claimed only from {planned, running, dead}); a ``planned`` survivor
+    is claimed fresh as-is; an intermediate ``claimed``/``spawning``/``blocked`` is reaped to
+    terminal and respawned. An absent or terminal binding -> SPAWN. By reading the post-reconcile
+    ledger (not memory) the no-double-spawn invariant holds against the durable truth.
 """
 
 from __future__ import annotations
@@ -244,20 +251,6 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
     return binding
 
 
-def _l1_binding_resumable(l1_address: str) -> bool:
-    """True iff an L1 binding exists and is NON-TERMINAL (a live-or-resumable root; §7 step 6).
-
-    Read AFTER reconcile_on_restart, so this reads the POST-reconcile durable ledger — not in-memory
-    daemon state. An absent or terminal (done/failed/dead) binding means SPAWN; a non-terminal one is
-    a live-or-resumable root (the caller further distinguishes ALREADY-LIVE-adopted vs needs-RESUME
-    using the reconcile report).
-    """
-    binding = ledger.read_binding(l1_address)
-    if binding is None:
-        return False
-    return not states.is_terminal(binding.get("state"))
-
-
 # ---------------------------------------------------------------------------
 # run_genesis — the §2.12 frozen entry. The DAEMON §7 LOCKED sequence, in order.
 # ---------------------------------------------------------------------------
@@ -275,10 +268,14 @@ def run_genesis(executor, tmux, config) -> None:
          precondition — an absent token raises AuthExpired BEFORE any spawn, §7 step 4);
       4. ``reconcile_on_restart`` — replay the WAL + classify every binding against live tmux (necro
          the owned-but-dead, adopt the live; liveness reconstructed from the LEDGER, §5.1);
-      5. spawn-or-resume L1: if NO live non-terminal L1 binding -> register the parentless root +
-         ``chokepoint.claim_and_spawn`` it in-role (role_variant='L1', the shared --system-prompt-file
-         + the L1 load-manifest in the brief); ELSE ``necro.resume_brief`` (RESUME, no double-spawn,
-         F35).
+      5. route the L1 root by its POST-reconcile state (§7 step 6 / review CFW-02): ADOPTED -> done
+         (already live, F35); ``running`` -> ``necro.resume_brief`` (RESUME) with the result ROUTED
+         (GenesisError on a failed resume); a ``planned`` survivor -> ``chokepoint.claim_and_spawn``
+         the SURVIVING slot (no placeholder --resume, no epoch-resetting re-register);
+         ``claimed``/``spawning``/``blocked`` -> REAP to terminal (DIED_INFRA via reconcile's single
+         terminal-necro write, result routed) then register + ``chokepoint.claim_and_spawn`` fresh
+         in-role (role_variant='L1', the shared --system-prompt-file + the L1 load-manifest in the
+         brief); absent/terminal -> register + spawn (first boot).
 
     Returns None. Raises a precondition failure (AuthExpired / a pinned-binary error) BEFORE the
     spawn — no L1 actor opens on a bad precondition.
@@ -318,25 +315,81 @@ def run_genesis(executor, tmux, config) -> None:
     # whether the L1 pane was found ALIVE (adopted) — the no-double-spawn discriminator below.
     report = _reconcile_mod.reconcile_on_restart(executor, tmux)
 
-    # STEP 5 — spawn-or-resume L1 (§7 step 6), reading the POST-reconcile durable ledger.
-    if _l1_binding_resumable(l1_address):
-        # A non-terminal L1 binding survived reconcile -> do NOT double-spawn (F35). Two sub-cases:
+    # STEP 5 — route the L1 root by its POST-reconcile state (§7 step 6 / review CFW-02), reading the
+    # POST-reconcile durable ledger. NOT a binary spawn-or-resume: "non-terminal and not adopted" is
+    # NOT "resumable" — resume's re-adopt claim (<state> -> claimed) is ILLEGAL from claimed/spawning/
+    # blocked (states.ALLOWED_TRANSITIONS admits ->claimed only from {planned, running, dead}), and a
+    # planned slot carries only the 'genesis-l1-root' registration PLACEHOLDER session — neither may
+    # route to chokepoint.resume. The old binary check dead-ended the cascade root: an illegal-
+    # transition claim_lost was DISCARDED and the daemon reported a clean boot with NO L1 actor.
+    post = ledger.read_binding(l1_address)
+    if post is not None and not states.is_terminal(post.get("state")):
+        # A non-terminal L1 binding survived reconcile -> do NOT double-spawn (F35). Four-way routing:
         if l1_address in (report.adopted or []):
             # ALREADY LIVE: reconcile ADOPTED the live L1 pane (pane alive + uuid-matched). The actor
             # is already running and its custody is re-established — there is NOTHING to (re)open. A
             # fresh --resume here would open a SECOND L1 actor (F35 violation). Adopt-and-done.
             return None
-        # Non-terminal but NOT adopted (its pane was not found live, yet it was not necro'd — a
-        # resumable root): RESUME via necro.resume_brief -> the SINGLE gate-firewall point
-        # (chokepoint.resume), which re-adopts the address and continues it (never a second fresh root).
-        from harnessd import necro
+        post_state = post.get("state")
+        if post_state == "running":
+            # RESUME: a running-but-unadopted root (e.g. a uuid-MISMATCHED leftover pane) resumes via
+            # necro.resume_brief -> the SINGLE gate-firewall point (chokepoint.resume), which re-adopts
+            # the address (running->claimed is legal) and continues it (never a second fresh root).
+            # ROUTE the result (review CFW-02, mirroring the F2a spawn-branch surface): a discarded
+            # ok=False here was the silent-dead-boot dead-end — L1 is the root, so a failed resume
+            # is FATAL and must be loud.
+            from harnessd import necro
 
-        necro.resume_brief(l1_address, level_config=level_config)
-        return None
+            result = necro.resume_brief(l1_address, level_config=level_config)
+            if not getattr(result, "ok", False):
+                failure_class = getattr(result, "failure_class", None) or "unknown"
+                raise GenesisError(
+                    f"L1 RESUME failed (failure_class={failure_class}, address={l1_address!r}): no L1 "
+                    "actor opened — the cascade root would dead-end silently (review CFW-02). Resolve "
+                    "the cause and relaunch."
+                )
+            return None
+        if post_state != "planned":
+            # INTERMEDIATE (claimed/spawning/blocked — plus any unknown non-terminal state,
+            # defensively total): neither adoptable nor resumably-running. REAP the slot to terminal
+            # through reconcile's SINGLE terminal-necro write (the legal {non-terminal}->failed
+            # DIED_INFRA edge, §3.6 vocab; executor stays the single writer, the epoch bump fences
+            # the prior incarnation), ROUTE the result, then FALL THROUGH to the fresh SPAWN below —
+            # the reap terminals the old slot BEFORE any fresh spawn (F35 no-double-spawn).
+            _died_infra = states.TERMINAL_VOCAB["died_infrastructure"]
+            reap = _reconcile_mod._terminal_necro(
+                executor,
+                l1_address,
+                post,
+                terminal_signal=_died_infra.terminal_signal,
+                target_state=_died_infra.state,
+                event=_died_infra.event,
+                summary=(
+                    f"genesis intermediate-state reap: post-reconcile L1 state={post_state!r} is "
+                    "neither adoptable nor resumable (DAEMON §7 step 6 / review CFW-02) — reaped to "
+                    "spawn fresh"
+                ),
+            )
+            if reap is None or not getattr(reap, "ok", False):
+                errors = list(getattr(reap, "errors", None) or [])
+                raise GenesisError(
+                    f"genesis intermediate-state reap FAILED (state={post_state!r}, "
+                    f"address={l1_address!r}, errors={errors}): the L1 root can be neither resumed "
+                    f"from {post_state!r} nor reaped to terminal — boot cannot proceed (review CFW-02)."
+                )
+        # post_state == 'planned' (or the reap above landed terminal): FALL THROUGH to the SPAWN
+        # branch — a planned survivor is spawned fresh through the normal planned->claimed edge.
 
-    # No live/resumable L1 -> first boot (or a necro'd prior root): register the parentless root
-    # planned slot, then SPAWN it in-role through the ONE spawn chokepoint (claim-before-spawn, F-024).
-    registered = _register_l1_root(l1_address, l1_level, role_variant, runtime_root)
+    # No live/resumable L1 (first boot, a necro'd/reaped prior root, or a planned survivor): SPAWN
+    # in-role through the ONE spawn chokepoint (claim-before-spawn, F-024). Re-read the binding — the
+    # reap above may have terminal'd it.
+    survivor = ledger.read_binding(l1_address)
+    if survivor is not None and survivor.get("state") == "planned":
+        # An interrupted prior boot left the planned slot: claim it AS-IS. Re-registering would RESET
+        # lease_epoch to 1 / generation to 0 — un-fencing a prior incarnation (fencing never regresses).
+        registered = survivor
+    else:
+        registered = _register_l1_root(l1_address, l1_level, role_variant, runtime_root)
     result = chokepoint.claim_and_spawn(
         l1_address,
         expected_state="planned",
