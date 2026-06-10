@@ -64,4 +64,4 @@ Good entry points: `design/working-notes/consolidation-plan-2026-06-02.md` (the 
 
 ## Status
 
-The design is complete and hardened against a full end-to-end simulation — which built a real vertical slice (17/17 tests passing, a genuine cross-model handoff) and surfaced the gaps, now closed. The runtime harness, on a pinned Claude Code, is the next build.
+The design is complete and hardened against a full end-to-end simulation — which built a real vertical slice (17/17 tests passing, a genuine cross-model handoff) and surfaced the gaps, now closed. The runtime harness, on a pinned Claude Code, is now in progress.
