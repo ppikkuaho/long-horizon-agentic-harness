@@ -53,7 +53,7 @@ from __future__ import annotations
 import copy
 from typing import NamedTuple, Optional
 
-from . import fencing, ledger, states, store, validate
+from . import clock, fencing, ledger, states, store, validate
 
 # ---------------------------------------------------------------------------
 # The single serialization-domain lock file name (DAEMON §2.3 / §4.3). The lock
@@ -618,6 +618,81 @@ def deliver(
         delta=delta,
         event=event,
         summary=summary,
+    )
+
+
+# ---------------------------------------------------------------------------
+# pause() / resume() / post_answer() — the F16 human-control WRITE verbs (TRANSPORTS §5.3),
+# routed through the SINGLE writer. DAEMON §3.2: paused_at is "set/cleared ONLY by the human
+# control surface, routed through the single-writer executor — never raw." These are own-slice
+# CONTROL-PLANE writes, NOT lifecycle transitions: the lifecycle `state` is unchanged, no
+# legality gate runs, no generation bumps (the deliver()/heartbeat discipline — pause is
+# orthogonal to the lifecycle axis). expected_owner_token=None is the established UNFENCED
+# control-plane posture (deliver()): the human holds no agent lease. Each write journals a WAL
+# row (audit) and advances last_applied_seq intent-first.
+# ---------------------------------------------------------------------------
+
+def pause(
+    node_address: str,
+    *,
+    paused_at: Optional[str] = None,
+    expected_owner_token: Optional[str] = None,
+) -> TransitionResult:
+    """Set ``paused_at`` — pause the SUBTREE rooted here (TRANSPORTS §5.3 primitive 1).
+
+    A FLAG the spawner and watchdog respect, NOT a kill: the in-flight agent keeps running.
+    What stops: (a) admission of new children (chokepoint STEP0) and (b) all watchdog recovery
+    actions (WATCHDOG §3.4 STEP 0). The agent's own fenced terminal sign-off is still honored.
+    """
+    return _own_slice_write(
+        node_address,
+        expected_owner_token=expected_owner_token,
+        delta={"paused_at": paused_at or clock.now_utc()},
+        event="paused",
+        summary=(
+            "human pause: paused_at set — subtree admits no child, watchdog skips recovery "
+            "(TRANSPORTS §5.3 primitive 1)"
+        ),
+    )
+
+
+def resume(
+    node_address: str,
+    *,
+    expected_owner_token: Optional[str] = None,
+) -> TransitionResult:
+    """Clear ``paused_at`` — re-admit children + recovery for the subtree rooted here."""
+    return _own_slice_write(
+        node_address,
+        expected_owner_token=expected_owner_token,
+        delta={"paused_at": None},
+        event="resumed",
+        summary="human resume: paused_at cleared — children + watchdog recovery re-admitted",
+    )
+
+
+def post_answer(
+    node_address: str,
+    *,
+    answer: str,
+    expected_owner_token: Optional[str] = None,
+) -> TransitionResult:
+    """Stamp a human escalation answer into ``terminal_note`` (TRANSPORTS §5.3 primitive 3).
+
+    The answer RIDES terminal_signal=ESCALATED + terminal_note — this stamps the note ALONGSIDE
+    the held ESCALATED signal (which is deliberately NOT cleared here: the parent reads both;
+    clearing belongs to the round-trip completion). The ESCALATED guard + the human->parent wake
+    hop live in the IPC handler; this is only the durable single-writer stamp.
+    """
+    return _own_slice_write(
+        node_address,
+        expected_owner_token=expected_owner_token,
+        delta={"terminal_note": answer},
+        event="human_answer_posted",
+        summary=(
+            "human answer posted into the ESCALATED slot (terminal_note; "
+            "TRANSPORTS §5.3 primitive 3)"
+        ),
     )
 
 

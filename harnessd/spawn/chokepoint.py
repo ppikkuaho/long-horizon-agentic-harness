@@ -144,9 +144,18 @@ def ancestors_inclusive(node_address: str) -> list[dict]:
     return collected
 
 
-def _subtree_paused(node_address: str) -> bool:
-    """True iff THIS node or any ancestor has ``paused_at`` set (STEP0 admits no child if so)."""
+def subtree_paused(node_address: str) -> bool:
+    """True iff THIS node or any ancestor has ``paused_at`` set — the pause-subtree predicate.
+
+    PUBLIC (F16): both enforcing read-points share this ONE node-or-ancestor walk so the
+    prefix semantics cannot drift — the spawn chokepoint's STEP0 (DAEMON §6.1: a paused
+    subtree admits no child) AND the watchdog's §3.4 STEP 0 gate (WATCHDOG: a paused subtree
+    gets no recovery action).
+    """
     return any(b.get("paused_at") is not None for b in ancestors_inclusive(node_address))
+
+
+_subtree_paused = subtree_paused  # back-compat alias (the pre-F16 private name)
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +521,7 @@ def claim_and_spawn(
     On ANY post-claim failure STEP2-5: release_claim (claimed->planned, bump epoch) + L1 escalation.
     """
     # STEP0 — a paused subtree admits no child: ABORT BEFORE claiming (no claim, no actor).
-    if _subtree_paused(node_address):
+    if subtree_paused(node_address):
         return _result_failed("paused_subtree", tmux_target=node_address)
 
     # STEP1 — the CAS-claim (a REAL transition into ``claimed`` under the REAL EX lock). A lost claim
@@ -1029,8 +1038,12 @@ def escalate(node_address: str, *, expected_owner_token: Optional[str]):
     if live is None:
         return None
     if live.get("terminal_signal") == "ESCALATED":
-        # Already journaled — exactly-once per artifact. (Idempotency keys on the binding stamp;
-        # F16's answer verb clears it when the round-trip completes.)
+        # Already journaled — exactly-once per artifact. The idempotency keys on the binding
+        # stamp, and F16's answer verb deliberately does NOT clear it: the answer RIDES
+        # terminal_signal=ESCALATED + terminal_note (TRANSPORTS §5.3 — the parent reads both),
+        # and clearing the stamp while the .signal artifact persists would let the next watchdog
+        # tick re-journal the SAME escalation as a fresh signal_ESCALATED row. Clearing belongs
+        # to the round-trip COMPLETION (the parent's decision-down flow), not the answer post.
         return None
     if live.get("state") != "running":
         return executor.TransitionResult(

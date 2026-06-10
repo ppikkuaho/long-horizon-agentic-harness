@@ -53,7 +53,7 @@ import json
 import socket
 from typing import Optional
 
-from . import config, ledger, store, validate
+from . import addressing, clock, config, detector_signals, ledger, store, validate
 from . import executor as _executor
 from . import reconcile as _reconcile
 from .spawn import chokepoint
@@ -258,6 +258,112 @@ def _handle_service_outbox(request: dict) -> dict:
     }
 
 
+def _handle_pause(request: dict) -> dict:
+    """The F16 pause WRITE verb — routed THROUGH executor.pause (the single writer).
+
+    Sets ``paused_at`` on the addressed node, flagging the whole SUBTREE (node-or-ancestor walk)
+    for the two enforcing read-points: chokepoint STEP0 (no new children) and the watchdog's
+    §3.4 STEP 0 gate (no recovery actions). NOT a kill — the in-flight agent keeps running. The
+    TransitionResult is ROUTED into the response (no result-swallowing).
+    """
+    addr = request.get("addr")
+    result = _executor.pause(addr, expected_owner_token=request.get("expected_owner_token"))
+    return _transition_response("pause", addr, result)
+
+
+def _handle_resume(request: dict) -> dict:
+    """The F16 resume WRITE verb — clear ``paused_at`` through executor.resume (the single writer)."""
+    addr = request.get("addr")
+    result = _executor.resume(addr, expected_owner_token=request.get("expected_owner_token"))
+    return _transition_response("resume", addr, result)
+
+
+def _handle_answer(request: dict) -> dict:
+    """The F16 answer-injection verb (TRANSPORTS §5.3 primitive 3) — stamp, then wake the parent.
+
+    (1) Fail-loud guards: content required; the node must exist; the node must actually be
+        ESCALATED — read the binding stamp first, falling back to the durable fenced .signal
+        artifact (the same fenced reader the watchdog uses) for the agent-signed-but-not-yet-
+        journaled tick gap. Mirrors the _handle_kill fail-loud precedent.
+    (2) Stamp ``terminal_note`` through executor.post_answer (the single writer). The ESCALATED
+        stamp stays IN PLACE — the answer RIDES terminal_signal=ESCALATED + terminal_note.
+    (3) The human->parent wake hop: append ONE pointer line to the PARENT's .inbox.<seat>.jsonl
+        (the §3 multi-writer append log harnessd TAILS — not the single-writer ledger), which the
+        existing ``inbox_has_unacked`` edge-trigger reads. The human sits ABOVE the parent, so a
+        parentless L1 is woken ITSELF (the human IS L1's parent). An append failure is surfaced
+        (the stamp is already durable) — never swallowed.
+    """
+    addr = request.get("addr")
+    content = request.get("answer_content")
+    if not content:
+        return {
+            "ok": False,
+            "command": "answer",
+            "addr": addr,
+            "errors": ["answer requires answer_content (--text/--file)"],
+            "binding": None,
+        }
+
+    binding = ledger.read_binding(addr)
+    if binding is None:
+        return {
+            "ok": False,
+            "command": "answer",
+            "addr": addr,
+            "errors": [f"no binding for node {addr!r}: nothing to answer"],
+            "binding": None,
+        }
+
+    # The ESCALATED guard (fail-loud): the binding stamp (chokepoint.escalate's journal), else
+    # the durable fenced .signal artifact (covers the agent-signed / watchdog-not-yet-ticked gap).
+    escalated = binding.get("terminal_signal") == "ESCALATED"
+    if not escalated:
+        sig = detector_signals.read_terminal_signal(binding, binding)
+        escalated = sig is not None and sig.get("signal") == "ESCALATED"
+    if not escalated:
+        return {
+            "ok": False,
+            "command": "answer",
+            "addr": addr,
+            "errors": [f"node {addr!r} is not ESCALATED — nothing to answer"],
+            "binding": binding,
+        }
+
+    result = _executor.post_answer(addr, answer=content)
+    if not result.ok:
+        return _transition_response("answer", addr, result)
+
+    # The human->parent wake hop (stamp-then-wake, TRANSPORTS §5.3): the next-up node, or the
+    # node ITSELF for a parentless L1 root.
+    wake_target = binding.get("parent_address") or addr
+    inbox = addressing.inbox_path(wake_target, ledger.RUNTIME_ROOT)
+    line = {
+        "from": "human",
+        "type": "answer_posted",
+        "child": addr,
+        "message": f"human answer posted for {addr}, execute the decision-down",
+        "ts": clock.now_utc(),
+    }
+    try:
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+        with inbox.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(line) + "\n")
+    except OSError as exc:
+        return {
+            "ok": False,
+            "command": "answer",
+            "addr": addr,
+            "errors": [f"answer stamped (durable) but the parent wake append failed: {exc}"],
+            "warnings": [],
+            "binding": result.binding,
+            "wake_target": wake_target,
+        }
+
+    response = _transition_response("answer", addr, result)
+    response["wake_target"] = wake_target
+    return response
+
+
 def _transition_response(command: str, addr, result) -> dict:
     """Shape a TransitionResult into the JSON response (ok / errors / warnings / binding)."""
     return {
@@ -342,6 +448,9 @@ _DISPATCH = {
     "kill": _handle_kill,
     "spawn": _handle_spawn,
     "service-outbox": _handle_service_outbox,
+    "pause": _handle_pause,
+    "resume": _handle_resume,
+    "answer": _handle_answer,
     # Read-only (shared lock — §4.5).
     "show": _handle_show,
     "tree": _handle_tree,

@@ -206,6 +206,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="service ONLY this node's outbox; omit to service every live non-leaf node",
     )
 
+    # The F16 human-control verbs (TRANSPORTS §5.3) — pure arg-parsing here; the DAEMON performs
+    # every mutation through the single-writer executor.
+    pause = subparsers.add_parser(
+        "pause",
+        help=(
+            "pause a subtree: set paused_at — a FLAG spawner+watchdog respect, NOT a kill; "
+            "the in-flight agent keeps running (mutation -> daemon)"
+        ),
+    )
+    _add_addr(pause)
+
+    resume = subparsers.add_parser(
+        "resume",
+        help="clear paused_at — re-admit children + recovery (mutation -> daemon)",
+    )
+    _add_addr(resume)
+
+    answer = subparsers.add_parser(
+        "answer",
+        help=(
+            "post a human answer into an ESCALATED node's terminal_note + wake its parent "
+            "(mutation -> daemon)"
+        ),
+    )
+    _add_addr(answer)
+    answer_src = answer.add_mutually_exclusive_group(required=True)
+    answer_src.add_argument("--text", dest="answer_text", help="the answer text itself")
+    answer_src.add_argument(
+        "--file", dest="answer_file",
+        help="path to a file whose contents are the answer",
+    )
+
     return parser
 
 
@@ -230,6 +262,9 @@ _REQUEST_FIELDS = {
         "event",
     ),
     "kill": ("expected_owner_token", "terminal_signal"),
+    "pause": (),
+    "resume": (),
+    "answer": (),
 }
 
 
@@ -251,6 +286,13 @@ def _build_request(args: argparse.Namespace) -> dict:
     brief_path = getattr(args, "brief", None)
     if args.command == "spawn" and brief_path:
         request["brief_content"] = Path(brief_path).read_text(encoding="utf-8")
+    # answer --text/--file: ship the answer CONTENTS as answer_content (the --file read mirrors the
+    # spawn --brief precedent — client-side file I/O is not ledger I/O; the DAEMON stamps the note).
+    if args.command == "answer":
+        if getattr(args, "answer_file", None):
+            request["answer_content"] = Path(args.answer_file).read_text(encoding="utf-8")
+        else:
+            request["answer_content"] = args.answer_text
     return request
 
 

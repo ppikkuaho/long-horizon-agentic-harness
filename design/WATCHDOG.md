@@ -297,13 +297,18 @@ Adapted from `watchdog-design-01.md` L72–83, with the tmux substitutions from 
 executor commands:
 
 ```
-0. PAUSE-SUBTREE GATE (read-point, checked first): if the node has paused_at set OR any ancestor
-   (address-prefix) does, the subtree is PAUSED — SKIP all recovery actions (no prod, no respawn, do
-   NOT mark FAILED). A paused idle node is intentional human-held quiet, not a stall: do not open
-   suspicion, do not escalate. paused_at is set/cleared ONLY by the human control surface, routed
-   through the single-writer executor (TRANSPORTS §5.3); ② only READS it. This is one of the two
-   enforcing read-points for the pause-subtree primitive (the other is DAEMON's §6.1 claim-slot
-   pre-step, which refuses to launch a child under a paused subtree).
+0. PAUSE-SUBTREE GATE (read-point, checked before ANY recovery action — but AFTER the
+   terminal-signal sign-off read): if the node has paused_at set OR any ancestor (address-prefix)
+   does, the subtree is PAUSED — SKIP all recovery actions (no prod, no respawn, do NOT mark
+   FAILED). RATIFIED placement (F16): the gate sits AFTER the fenced terminal-signal read, so the
+   agent's OWN signed-off DONE/FAILED .signal still collapses (and an agent-emitted ESCALATED is
+   still journaled) while paused — recording the agent's own truth is truth-recording, not a
+   recovery action; only watchdog-IMPOSED actions are held. A paused idle node is intentional
+   human-held quiet, not a stall: do not open suspicion, do not escalate. paused_at is set/cleared
+   ONLY by the human control surface, routed through the single-writer executor (TRANSPORTS §5.3);
+   ② only READS it. This is one of the two enforcing read-points for the pause-subtree primitive
+   (the other is DAEMON's §6.1 claim-slot pre-step, which refuses to launch a child under a paused
+   subtree).
 1. Renewal overdue (now − last_progress_at > W(state)).
 2. OPEN SUSPICION (same-state, NOT a kill): watchdog-checkpoint sets condition=stale_suspect,
    suspect_since=now, appends stale_suspect_opened. Increment stale_check_count (the grace counter, §3.5).

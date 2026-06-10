@@ -203,6 +203,12 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
             signal NEVER collapses the re-spawned node). The executor journals stale_return_ignored
             if a stale return is later presented; here the reader simply yields None.
 
+    STEP 0 (WATCHDOG §3.4 — between STEP A and STEP B, the ratified placement): a PAUSED subtree
+        (this node OR any ancestor carries paused_at) gets NO recovery action — no suspicion, no
+        stale-counter advance, no prod, no watchdog-imposed FAILED -> NOOP (paused_subtree). The
+        agent's own fenced terminal sign-off (STEP A, above) is still honored while paused:
+        truth-recording is not a recovery action.
+
     STEP B (no actionable signal): read the liveness verdict.
         * idle + age>W + within grace -> PROD (gated by prod_precondition);
         * idle + age>W + AT/over grace -> FAILED (the ladder exhausted);
@@ -262,6 +268,17 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
                 detail={"terminal_signal": signal, "evidence": sig.get("evidence")},
             )
         # An unrecognized fenced signal kind is not actionable here -> fall through to liveness.
+
+    # ----- STEP 0 (WATCHDOG §3.4): a PAUSED subtree (this node OR any ancestor) gets NO recovery
+    # actions — no suspicion, no stale-counter advance, no prod, no watchdog-imposed FAILED.
+    # Placed AFTER STEP A (the ratified §3.4 placement): the agent's own fenced terminal sign-off
+    # is truth-recording, not a recovery action, and is still honored while paused. Reuses the
+    # chokepoint's ONE node-or-ancestor predicate so the two read-points cannot drift. -----
+    if chokepoint.subtree_paused(node_address):
+        return WatchdogAction(
+            kind=NOOP, node=node_address,
+            detail={"reason": "paused_subtree"},
+        )
 
     # ----- STEP B: the idle -> prod -> FAILED ladder (no actionable terminal signal) -----
     verdict = _liveness(node_address)
@@ -517,6 +534,14 @@ def check_coordinator_death(node, binding, ledger) -> WatchdogAction:
     live_children = _has_live_children(ledger, node_address)
 
     if died and live_children:
+        # WATCHDOG §3.4 STEP 0 on the ESCALATE branch: a PAUSED subtree gets no recovery action —
+        # the recoverable-orphan ESCALATE is DEFERRED until resume (the verdict is recomputed from
+        # durable state every tick; the next tick after resume escalates normally, nothing lost).
+        if chokepoint.subtree_paused(node_address):
+            return WatchdogAction(
+                kind=NOOP, node=node_address,
+                detail={"reason": "paused_subtree", "coordinator_dead": died, "live_children": True},
+            )
         # A RECOVERABLE ORPHAN: dead process, live subtree -> ESCALATE (recover-vs-reap deferred).
         return WatchdogAction(
             kind=ESCALATE, node=node_address, target=binding.get("parent_address"),
