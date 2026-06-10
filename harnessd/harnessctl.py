@@ -30,10 +30,12 @@ BUILDER DECISIONS (stated in the build report):
     plan names "a local socket/FIFO", not an exact path).
 
   * THE PRINT-JSON / EXIT-CODE CONVENTION. The client prints the daemon's response dict as one JSON line
-    to stdout and returns ``0`` when ``response["ok"]`` is truthy, else ``2`` (a command-level abort).
-    A transport failure (no daemon reachable) returns ``3`` after printing a JSON error line — the
-    client cannot perform the mutation itself, so an unreachable daemon is a hard failure, never a
-    silent local write.
+    to stdout and returns ``0`` when ``response["ok"]`` is truthy, else ``2`` (a command-level abort —
+    a daemon-reported abort OR a client-side input error such as an unreadable ``--brief``/``--file``
+    input file, where the daemon is never contacted). A transport failure (no daemon reachable, or a
+    garbled non-JSON response — the daemon did not speak the protocol) returns ``3`` after printing a
+    JSON error line — the client cannot perform the mutation itself, so a failed transport is a hard
+    failure, never a silent local write and NEVER a traceback.
 
   * NODE-ADDRESSED SUBCOMMANDS. Every command carries the node address as a positional ``addr`` (the
     GENERALIZE of the recovered ``build_parser`` subcommand structure). The read surface (show / next /
@@ -352,8 +354,12 @@ def main(argv: Optional[list] = None, *, socket_path: Optional[str] = None) -> i
 
     Exit codes (the print-JSON / exit-code convention):
       0 — the daemon reported ``ok`` (a committed mutation or a successful read);
-      2 — the daemon reported an abort (``ok`` false: a CAS miss / illegal edge / fencing rejection);
-      3 — a transport failure (no daemon reachable) — the client cannot perform the mutation itself.
+      2 — a command-level abort: the daemon reported ``ok`` false (a CAS miss / illegal edge /
+          fencing rejection) OR a client-side input error (an unreadable ``--brief``/``--file``
+          input file — the daemon was never contacted, the ledger untouched);
+      3 — a transport failure (no daemon reachable, or a garbled non-JSON response) — the client
+          cannot perform the mutation itself. Every failure is a printed JSON error line + a nonzero
+          exit, never a traceback.
 
     The mutation path is SOCKET I/O, not ledger I/O: ``main`` builds a request dict and ships it; the
     DAEMON performs the mutation inside the one lock. ``main`` never writes the ledger.
@@ -369,7 +375,25 @@ def main(argv: Optional[list] = None, *, socket_path: Optional[str] = None) -> i
         print(json.dumps({"ok": False, "errors": ["no daemon socket configured (--socket / $HARNESSD_SOCKET / RUNTIME_ROOT)"]}))
         return 3
 
-    request = _build_request(args)
+    # The client-side input-file reads (spawn --brief / answer --file) get their OWN guard, scoped to
+    # the _build_request call only — NOT folded into the transport except below (that would mislabel a
+    # missing input file as "daemon unreachable"). The daemon was never contacted -> exit 2 (a
+    # command-level abort), the ledger untouched (DAEMON §4.3). OSError covers FileNotFoundError /
+    # PermissionError / IsADirectoryError; UnicodeDecodeError covers a binary input file.
+    try:
+        request = _build_request(args)
+    except (OSError, UnicodeDecodeError) as exc:
+        # Name the ACTUAL input file: spawn carries --brief, answer carries --file (F16) — report
+        # whichever this command shipped, never hard-coding the message to one flag.
+        brief_path = getattr(args, "brief", None)
+        answer_path = getattr(args, "answer_file", None)
+        flag, input_path = ("--brief", brief_path) if brief_path else ("--file", answer_path)
+        print(json.dumps({
+            "ok": False,
+            "command": args.command,
+            "errors": [f"cannot read {flag} input file {input_path!r}: {exc}"],
+        }))
+        return 2
 
     try:
         response = _round_trip(resolved_socket, request)
@@ -377,6 +401,16 @@ def main(argv: Optional[list] = None, *, socket_path: Optional[str] = None) -> i
         # The daemon is unreachable. The CLIENT cannot perform the mutation itself (DAEMON §4.3) — print
         # the error as JSON and fail with a nonzero exit. The ledger is NOT touched.
         print(json.dumps({"ok": False, "command": args.command, "errors": [f"daemon unreachable: {exc}"]}))
+        return 3
+    except json.JSONDecodeError as exc:
+        # The daemon answered with bytes the client cannot parse (json.JSONDecodeError is a ValueError,
+        # NOT caught by the OSError-family arm above). The daemon did not speak the protocol — a
+        # transport-class failure (exit 3), structured, never a traceback.
+        print(json.dumps({
+            "ok": False,
+            "command": args.command,
+            "errors": [f"garbled response from daemon (not JSON): {exc}"],
+        }))
         return 3
 
     # The `tree` read is rendered as a human-readable supervision tree (the operator fleet view, COMP-4);

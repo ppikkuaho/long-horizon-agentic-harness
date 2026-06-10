@@ -25,7 +25,9 @@ BUILDER DECISIONS (the §2.x details the frozen tests leave open — stated in t
   * REQUEST / RESPONSE SCHEMA (FORK-IPC-SCHEMA). A request is a JSON object:
     ``{"command": <name>, "addr": <node-address>, ...command-specific fields}``. A response is a JSON
     object ``{"ok": <bool>, "command": <name>, ...}`` carrying, per command:
-      - transition/kill: ``ok``, ``errors`` (abort reasons; empty on success), ``binding`` (post-state).
+      - transition/kill: ``ok``, ``errors`` (the executor's SPECIFIC abort reason — a CAS miss /
+        fencing rejection / illegal edge / no-such-node; empty on success), ``warnings``, ``binding``
+        (post-state). ``kill`` additionally echoes ``terminal_signal``.
       - show:            ``ok``, ``addr``, ``binding`` (the node's ledger slice, or ``null`` if absent).
       - next/next-seq:   ``ok``, ``next_seq``.
       - validate:        ``ok``, ``errors``, ``warnings`` (the whole-ledger admission scan).
@@ -145,12 +147,19 @@ def _handle_kill(request: dict) -> dict:
     chokepoint.collapse is NOT a writer itself: it routes through ``executor.transition`` (the single
     writer) inside the one EX lock. The default signal is FAILED (an operator kill is a failure-class
     teardown, not a clean DONE).
+
+    The TransitionResult is ROUTED into the response (F2r ipc-2, mirroring watchdog.check_leaf's F2b
+    routing): an abort surfaces the executor's SPECIFIC structured reason (a CAS miss / fencing
+    rejection / illegal edge) in ``errors``, and collapse-returns-None (no binding for the address)
+    is an explicit "no such node" abort. The old post-read heuristic (state in the terminal set ->
+    ok) phantom-reported success when killing an ALREADY-terminal node even though the transition
+    aborted on the illegal edge — no result-swallowing.
     """
     addr = request.get("addr")
     terminal_signal = request.get("terminal_signal", "FAILED")
     expected_owner_token = request.get("expected_owner_token")
     try:
-        chokepoint.collapse(
+        result = chokepoint.collapse(
             addr,
             terminal_signal,
             expected_owner_token=expected_owner_token,
@@ -158,16 +167,19 @@ def _handle_kill(request: dict) -> dict:
     except ValueError as exc:
         # collapse REFUSES an asymmetric/unknown signal (e.g. ESCALATED) — surface it, do not crash.
         return {"ok": False, "command": "kill", "addr": addr, "errors": [str(exc)], "binding": None}
-    binding = ledger.read_binding(addr)
-    ok = binding is not None and binding.get("state") in ("done", "failed", "dead")
-    return {
-        "ok": ok,
-        "command": "kill",
-        "addr": addr,
-        "terminal_signal": terminal_signal,
-        "binding": binding,
-        "errors": [] if ok else [f"kill did not collapse {addr!r} to a terminal state"],
-    }
+    if result is None:
+        # collapse found NO binding for the address (nothing to collapse) — name the absence.
+        return {
+            "ok": False,
+            "command": "kill",
+            "addr": addr,
+            "terminal_signal": terminal_signal,
+            "binding": None,
+            "errors": [f"kill: no such node {addr!r} — nothing to collapse"],
+        }
+    response = _transition_response("kill", addr, result)
+    response["terminal_signal"] = terminal_signal
+    return response
 
 
 def _handle_spawn(request: dict) -> dict:
