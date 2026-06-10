@@ -194,7 +194,10 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
         sig = detector_signals.read_terminal_signal(node, binding)
           * sig present & FENCED (owner_token matches):
               - DONE / FAILED  -> COLLAPSE (route to chokepoint.collapse through the REAL executor);
-              - ESCALATED      -> NOOP (ESCALATED HOLDS ITS SLOT, never collapses — §2.3/§3.6).
+              - ESCALATED      -> journal signal_ESCALATED + stamp terminal_signal (exactly once,
+                via chokepoint.escalate through the REAL executor), then NOOP — ESCALATED HOLDS ITS
+                SLOT, never collapses (§2.3/§3.6 asymmetric). A failed journal write is routed
+                (reason=escalate_journal_failed) and retried next tick.
           * sig present but STALE owner_token -> read_terminal_signal returns None (the fence): we
             fall through to STEP B (the live binding is UNCHANGED; the dead incarnation's leftover
             signal NEVER collapses the re-spawned node). The executor journals stale_return_ignored
@@ -219,10 +222,23 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
     if sig is not None:
         signal = sig.get("signal")
         if signal == "ESCALATED":
-            # ESCALATED holds its slot — NEVER collapses (§3.6 asymmetric). NOOP.
+            # ESCALATED holds its slot — NEVER collapses (§3.6 asymmetric). But the slot-hold is
+            # JOURNALED (SML-02): chokepoint.escalate stamps terminal_signal=ESCALATED + appends the
+            # signal_ESCALATED running->running row through the single-writer executor, exactly once
+            # (idempotent across ticks via the binding stamp). ROUTE THE RESULT: a fenced/CAS-aborted
+            # journal write must NOT read as a clean slot-hold — the next tick retries against the
+            # still-present .signal artifact (mirrors the collapse_failed routing below).
+            result = chokepoint.escalate(node_address, expected_owner_token=binding.get("owner_token"))
+            if result is not None and getattr(result, "ok", True) is False:
+                return WatchdogAction(
+                    kind=NOOP, node=node_address,
+                    detail={"reason": "escalate_journal_failed", "terminal_signal": signal,
+                            "errors": list(getattr(result, "errors", []) or [])},
+                )
             return WatchdogAction(
                 kind=NOOP, node=node_address,
-                detail={"reason": "escalated_holds_slot", "terminal_signal": signal},
+                detail={"reason": "escalated_holds_slot", "terminal_signal": signal,
+                        "journaled": result is not None},
             )
         if signal in ("DONE", "FAILED"):
             # Route the terminal collapse through the REAL chokepoint/executor (running -> done/failed).
@@ -347,7 +363,8 @@ def _fail_and_escalate(node_address: str, binding: dict) -> WatchdogAction:
 
     # Mark running -> failed through the REAL executor. event='watchdog_nonresponse' + a reason in
     # the delta/summary so the row is NOT conflated with an agent-self-emitted FAILED. NOT a collapse
-    # call (collapse uses event=collapse_failed); this is the watchdog-imposed, non-response FAILED.
+    # call (collapse journals the §3.6 signal_FAILED event); this is the watchdog-imposed,
+    # non-response FAILED.
     executor.transition(
         node_address,
         expected_state=binding["state"],

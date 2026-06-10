@@ -829,3 +829,135 @@ def test_escalated_is_not_a_collapse(runtime):
     assert final["state"] not in ("done", "failed", "dead"), (
         "ESCALATED must never drive the node into a terminal collapse state"
     )
+
+
+def test_collapse_emits_section_3_6_event_names(runtime):
+    """SML-01: collapse must journal the §3.6 NORMATIVE run-ledger event derived from the terminal
+    signal (signal_DONE / signal_FAILED / died_infrastructure), NOT the non-normative
+    f"collapse_{target_state}" spelling the sign-off check cannot key on.
+
+    Mutant killed: event=f"collapse_{target_state}" -> the WAL rows read collapse_done/collapse_failed
+    instead of the TERMINAL_VOCAB names -> caught per-signal here.
+    """
+    chokepoint = _chokepoint()
+
+    for terminal_signal, expected_event, expected_state in (
+        ("DONE", "signal_DONE", "done"),
+        ("FAILED", "signal_FAILED", "failed"),
+        ("DIED_INFRA", "died_infrastructure", "failed"),
+    ):
+        binding, _token = _binding(state="running", generation=4, lease_epoch=2)
+        _seed([binding])
+        live_token = _read()["owner_token"]
+        wal_before = len(ledger.load_wal())
+
+        result = chokepoint.collapse(NODE, terminal_signal, expected_owner_token=live_token)
+
+        assert _ok(result) is True, f"collapse({terminal_signal!r}) must commit"
+        assert _read()["state"] == expected_state
+        new_rows = ledger.load_wal()[wal_before:]
+        collapse_rows = [r for r in new_rows if r.get("node_address") == NODE]
+        assert len(collapse_rows) == 1, (
+            f"collapse({terminal_signal!r}) must append exactly ONE WAL row; got {len(collapse_rows)}"
+        )
+        assert collapse_rows[0].get("event") == expected_event, (
+            f"collapse({terminal_signal!r}) must journal the §3.6 normative event {expected_event!r} "
+            f"(states.TERMINAL_VOCAB), got {collapse_rows[0].get('event')!r}"
+        )
+
+
+# ===========================================================================
+# escalate — the §3.6 ESCALATED slot-hold journal (SML-02). A fenced, exactly-once,
+# generation-bumping running->running write through the single-writer executor:
+# terminal_signal=ESCALATED stamped, event signal_ESCALATED journaled, state STAYS
+# running, slot HELD (no in_flight_release).
+#
+# Mutants killed:
+#   * never journal (the bare-NOOP watchdog branch) -> no signal_ESCALATED row -> caught
+#   * journal per-tick (level-triggered)            -> a second escalate appends rows -> caught
+#   * release the slot (in_flight_release in delta) -> caught
+#   * skip the fence                                -> a stale token stamps the live node -> caught
+# ===========================================================================
+
+def test_escalate_stamps_and_journals_exactly_once(runtime):
+    chokepoint = _chokepoint()
+    binding, _token = _binding(state="running", generation=4, lease_epoch=2)
+    _seed([binding])
+    live = _read()
+    live_token = live["owner_token"]
+    gen_before = live["generation"]
+    wal_before = len(ledger.load_wal())
+
+    result = chokepoint.escalate(NODE, expected_owner_token=live_token)
+
+    assert result is not None and _ok(result) is True, "the first escalate on a running node must commit"
+    after = _read()
+    assert after["terminal_signal"] == "ESCALATED", "escalate must stamp terminal_signal=ESCALATED"
+    assert after.get("terminal_signal_at"), "escalate must stamp terminal_signal_at"
+    assert after["state"] == "running", "ESCALATED is ASYMMETRIC (§3.6): state STAYS running (no collapse)"
+    assert after["generation"] == gen_before + 1, (
+        "the signal_ESCALATED row is a generation-bumping (replayable, §4.4) transition — exactly +1"
+    )
+
+    new_rows = ledger.load_wal()[wal_before:]
+    assert len(new_rows) == 1, f"escalate must append exactly ONE WAL row; got {len(new_rows)}"
+    row = new_rows[0]
+    assert row.get("event") == "signal_ESCALATED", (
+        f"the §3.6 run-ledger event for the ESCALATED row is signal_ESCALATED; got {row.get('event')!r}"
+    )
+    assert row.get("from_state") == "running" and row.get("to_state") == "running", (
+        "the ESCALATED journal row is the running->running slot-hold (state unchanged)"
+    )
+    assert "in_flight_release" not in (row.get("binding_delta") or {}), (
+        "ESCALATED HOLDS its slot: the delta must NOT carry in_flight_release (§3.6 asymmetric)"
+    )
+
+    # EXACTLY-ONCE: a second escalate is a no-op — returns None, appends ZERO rows.
+    wal_mid = len(ledger.load_wal())
+    second = chokepoint.escalate(NODE, expected_owner_token=after["owner_token"])
+    assert second is None, "a second escalate on an already-stamped node must return None (exactly-once)"
+    assert len(ledger.load_wal()) == wal_mid, "a second escalate must append ZERO new WAL rows"
+    assert _read()["generation"] == gen_before + 1, "a second escalate must not bump the generation again"
+
+
+def test_escalate_is_fenced_stale_token_journals_stale_return(runtime):
+    chokepoint = _chokepoint()
+    binding, _token = _binding(state="running", generation=4, lease_epoch=2)
+    _seed([binding])
+    before = copy.deepcopy(_read())
+    wal_before = len(ledger.load_wal())
+
+    stale_token = fencing.mint_owner_token(NODE, SUBAGENT, "sess-uuid-DEAD-incarnation", 1)
+    assert stale_token != before["owner_token"]
+
+    result = chokepoint.escalate(NODE, expected_owner_token=stale_token)
+
+    assert result is not None and _ok(result) is False, "a stale-token escalate must abort (FENCED)"
+    after = _read()
+    assert after == before, (
+        "the §3.6 FENCED de-auth is NON-DESTRUCTIVE: a stale-token escalate leaves the live binding "
+        "byte-for-byte UNCHANGED (no ESCALATED stamp, no generation bump)"
+    )
+    new_rows = ledger.load_wal()[wal_before:]
+    assert len(new_rows) == 1 and new_rows[0].get("event") == "stale_return_ignored", (
+        "the stale-token escalate must journal exactly ONE stale_return_ignored row "
+        f"(the executor's fencing precondition); got {[r.get('event') for r in new_rows]!r}"
+    )
+
+
+def test_escalate_refuses_a_non_running_node(runtime):
+    """The ESCALATED slot-hold is the running->running row (§3.6): a non-running node has no slot to
+    hold — escalate must refuse (ok=False) and write NOTHING."""
+    chokepoint = _chokepoint()
+    binding, _token = _binding(state="claimed", generation=2, lease_epoch=1)
+    _seed([binding])
+    before = copy.deepcopy(_read())
+    wal_before = len(ledger.load_wal())
+
+    result = chokepoint.escalate(NODE, expected_owner_token=before["owner_token"])
+
+    assert result is not None and _ok(result) is False, (
+        "escalate on a non-running node must return ok=False (the §3.6 slot-hold applies to running only)"
+    )
+    assert _read() == before, "a refused escalate must leave the binding unchanged"
+    assert len(ledger.load_wal()) == wal_before, "a refused escalate must append no WAL row"

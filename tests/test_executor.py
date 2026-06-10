@@ -311,6 +311,74 @@ def test_illegal_target_state_aborts_before_any_write(executor_runtime):
 
 
 # ===========================================================================
+# Self-loop carve-out (SML-02): a from==to transition is NOT a forward edge — it falls
+# through the legality gate to validate-before-commit, which admits ONLY the §3.6
+# ESCALATED slot-hold (running->running with terminal_signal=ESCALATED) and ERRORS any
+# other no-op. LOAD-BEARING after the gate relaxation: validate is the ONLY guard left
+# against arbitrary no-op binding writes — a mutant deleting validate's no-op narrowing
+# would commit the DONE self-loop below and is caught here.
+# ===========================================================================
+
+def test_non_escalated_self_loop_aborts_via_validate_with_nothing_written(executor_runtime):
+    binding, token = _seed_running_binding(state="running", generation=4)
+    before = _read()
+    wal_before = ledger.load_wal()
+
+    result = executor.transition(
+        NODE,
+        expected_state="running",
+        expected_generation=4,
+        expected_owner_token=token,
+        target_state="running",                      # SELF-LOOP, but...
+        binding_delta={"terminal_signal": "DONE"},   # ...NOT the ESCALATED slot-hold -> must abort
+        event="bogus_self_loop",
+    )
+
+    assert _result_ok(result) is False, (
+        "a non-ESCALATED self-loop must ABORT (validate's no-op narrowing: only the §3.6 ESCALATED "
+        "slot-hold admits running->running)"
+    )
+    assert any("no-op" in e for e in getattr(result, "errors")), (
+        f"the abort must carry validate's illegal-no-op error; got {getattr(result, 'errors')!r}"
+    )
+    assert _read() == before, "an aborted self-loop must leave the binding unchanged on disk"
+    new_rows = ledger.load_wal()[len(wal_before):]
+    assert [r for r in new_rows if r.get("event") == "bogus_self_loop"] == [], (
+        "an aborted self-loop must not append a committing WAL row (validate-before-commit)"
+    )
+
+
+def test_escalated_self_loop_commits_with_warning(executor_runtime):
+    """Companion control: the SAME self-loop carrying terminal_signal=ESCALATED is the §3.6 slot-hold
+    — it commits (ok=True) with validate's benign warning, bumping the generation (replayable row)."""
+    binding, token = _seed_running_binding(state="running", generation=4)
+    wal_before = ledger.load_wal()
+
+    result = executor.transition(
+        NODE,
+        expected_state="running",
+        expected_generation=4,
+        expected_owner_token=token,
+        target_state="running",
+        binding_delta={"terminal_signal": "ESCALATED"},
+        event="signal_ESCALATED",
+    )
+
+    assert _result_ok(result) is True, (
+        "the §3.6 ESCALATED slot-hold (running->running + terminal_signal=ESCALATED) must COMMIT "
+        "through the relaxed gate (validate admits exactly this no-op)"
+    )
+    assert getattr(result, "warnings"), "the ESCALATED slot-hold surfaces validate's benign warning"
+    after = _read()
+    assert after["state"] == "running" and after["terminal_signal"] == "ESCALATED"
+    assert after["generation"] == 5, "the slot-hold is a generation-bumping (replayable) transition"
+    new_rows = ledger.load_wal()[len(wal_before):]
+    assert [r.get("event") for r in new_rows] == ["signal_ESCALATED"], (
+        f"exactly one signal_ESCALATED WAL row must land; got {[r.get('event') for r in new_rows]!r}"
+    )
+
+
+# ===========================================================================
 # Validate-before-commit — when validate() returns an ERROR, the transition aborts with NOTHING
 # written. The executor MUST call validate(candidate, wal_tail + [entry]) and honor an error verdict
 # BEFORE commit(). We force the verdict by monkeypatching validate.validate to return an error on

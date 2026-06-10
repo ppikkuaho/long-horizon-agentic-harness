@@ -410,6 +410,7 @@ running ──block──▶ blocked ──unblock──▶ running
 running ──DONE──▶ done
 running ──FAILED/DIED──▶ failed
 {any non-terminal} ──reconcile-finds-dead──▶ dead     (reconcile-driven, not actor-driven)
+{any non-terminal} ──daemon-stamped died_* (§3.6)──▶ failed   (reconcile-driven leaf-necro: the §3.6 table OVERRIDES the generic →dead edge for the leaf DIED_* classes — DIED_INFRA/DIED_METHODOLOGY resolve to lifecycle state `failed`; coordinator_died keeps `dead`)
 running ──re-adopt(claim, expected_state=running)──▶ claimed   (RESUME a live address; §6.4 — fences the prior incarnation via lease_epoch bump)
 dead    ──re-adopt(claim, expected_state=dead)──▶ claimed       (RESUME/necro a dead address; §6.4 / §5)
 done | failed | dead = terminal

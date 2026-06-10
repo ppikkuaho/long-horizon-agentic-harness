@@ -23,6 +23,7 @@ The lifecycle (DAEMON §3.3)::
     running ──DONE──▶ done
     running ──FAILED/DIED──▶ failed
     {any non-terminal} ──reconcile-finds-dead──▶ dead                     (reconcile-driven)
+    {any non-terminal} ──daemon-stamped died_* (§3.6)──▶ failed           (reconcile-driven; leaf-necro)
     running ──re-adopt(claim, expected_state=running)──▶ claimed          (RESUME live; §6.4)
     dead    ──re-adopt(claim, expected_state=dead)──▶ claimed             (necro;       §6.4/§5)
     done | failed | dead = terminal
@@ -95,10 +96,14 @@ _EXPLICIT_TRANSITIONS: dict[str, set[str]] = {
 
 
 def _build_allowed_transitions() -> dict[str, frozenset[str]]:
-    """Assemble ALLOWED_TRANSITIONS = explicit edges + reconcile-driven →dead.
+    """Assemble ALLOWED_TRANSITIONS = explicit edges + reconcile-driven →dead/→failed.
 
     The {any non-terminal} → dead edges are reconcile-driven (DAEMON §3.3); fold
     them in here so they can never drift out of sync with NON_TERMINAL_STATES.
+    The {any non-terminal} → failed edges are the §3.6 daemon-stamped died_* death
+    classes (DIED_INFRA / DIED_METHODOLOGY resolve to lifecycle state ``failed``,
+    review reconcile-1): a reconcile-detected dead pane on a blocked/claimed/planned
+    binding must legally reach ``failed`` or the §4.2 legality gate aborts the necro.
 
     Values are FROZEN (frozenset): this is the single authoritative legality table
     the §4.2 CAS gate, reconcile, and the chokepoint all read on every transition.
@@ -108,7 +113,8 @@ def _build_allowed_transitions() -> dict[str, frozenset[str]]:
     """
     table: dict[str, set[str]] = {state: set(targets) for state, targets in _EXPLICIT_TRANSITIONS.items()}
     for state in NON_TERMINAL_STATES:
-        table[state].add("dead")  # reconcile-finds-dead
+        table[state].add("dead")    # reconcile-finds-dead
+        table[state].add("failed")  # §3.6 died_* classes resolve to state `failed` (reconcile-1)
     # Defensive: every known state is a key (terminals included).
     for state in KNOWN_STATES:
         table.setdefault(state, set())

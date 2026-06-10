@@ -39,17 +39,19 @@ orchestrator):
     INFRASTRUCTURE death (the pane is gone / pane_dead — the session died, not a methodology
     failure), so we stamp ``terminal_signal = "DIED_INFRA"`` (the §3.6 SCREAMING binding value;
     ``states.TERMINAL_VOCAB["died_infrastructure"].terminal_signal``). The run-ledger event is the
-    snake ``died_infrastructure`` (the §3.6 spelling split). DIED_METHODOLOGY is reserved for an
-    agent-classified methodology give-up, not a process-death the sweep observes.
+    snake ``died_infrastructure`` and the lifecycle state is the lowercase ``failed`` (the §3.6
+    spelling split — all three layers sourced from the SAME TERMINAL_VOCAB row, review reconcile-1).
+    DIED_METHODOLOGY is reserved for an agent-classified methodology give-up, not a process-death
+    the sweep observes.
 
   * coordinator_died STAMP. The §3.6 ``coordinator_died`` row has ``terminal_signal=None`` (a
-    coordinator death is daemon-stamped and NOT collapsed — "recovered-as-orphan", §5.4). The
-    frozen test, however, asserts the BINDING carries ``terminal_signal == "coordinator_died"``. We
-    honor the test (the durable death FACT must be legible on the binding for cluster-②'s recover-vs-
-    reap policy to read it) and stamp ``terminal_signal = "coordinator_died"`` directly, with the
-    run-ledger ``event = "coordinator_died"``. FORK noted: this DIVERGES from the
-    ``TERMINAL_VOCAB`` row's ``terminal_signal=None`` cell — the test is the tie-breaker, and a
-    binding that records the death class is strictly more recoverable than one that records ``None``.
+    coordinator death is daemon-stamped and NOT collapsed — "recovered-as-orphan", §5.4), state
+    ``dead``, and the run-ledger ``event = "coordinator_died"``. The code follows the row exactly:
+    the coordinator necro passes ``terminal_signal=None`` (NO binding terminal_signal stamp — the
+    death class lives in the EVENT + the escalation ``kind``, preserving the §3.6 spelling split;
+    asserted by the coordinator-died test). This is the DELIBERATE asymmetry against the leaf leg:
+    leaf DIED_INFRA → state ``failed`` + terminal_signal stamped; coordinator → state ``dead`` +
+    terminal_signal None.
 
   * THE ``ReconcileReport`` SHAPE = the §2.13 frozen ``@dataclass(frozen=True)`` exactly:
     ``adopted: list[str]; necroed: list[str]; escalations: list[dict]``. ``adopted`` / ``necroed``
@@ -86,11 +88,14 @@ class ReconcileReport:
     """The outcome of a reconcile sweep (§2.13).
 
     ``adopted``     — node_addresses whose live pane was adopted (ownership resumed; §5.1 branch 1).
-    ``necroed``     — node_addresses driven to ``dead`` by an owned-but-dead leaf-necro (§5.1 branch 2).
+    ``necroed``     — node_addresses driven to their §3.6 death-class state by an owned-but-dead
+                      leaf-necro (``failed`` for a leaf DIED_INFRA; §5.1 branch 2). Only a COMMITTED
+                      necro lands here — an aborted terminal write surfaces in ``escalations``
+                      (kind ``necro_failed``) instead.
     ``escalations`` — a list of dicts (§2.13), one per ambiguous case handed to cluster-②: a dead
-                      COORDINATOR (recover-vs-reap is ②, §5.4) and an alive-but-unowned ORPHAN (§5.1
-                      branch 5). Each dict carries at least ``node_address``; orphans also carry
-                      ``tmux_target``.
+                      COORDINATOR (recover-vs-reap is ②, §5.4), an alive-but-unowned ORPHAN (§5.1
+                      branch 5), and an aborted leaf-necro write (``necro_failed``). Each dict carries
+                      at least ``node_address``; orphans also carry ``tmux_target``.
     """
 
     adopted: list = field(default_factory=list)
@@ -100,9 +105,11 @@ class ReconcileReport:
 
 # The §3.6 SCREAMING binding value a reconcile-detected dead leaf is stamped with (infrastructure
 # death — the pane is gone, not an agent-classified methodology give-up). Sourced from the canonical
-# §3.6 vocabulary so the spelling cannot drift from states.TERMINAL_VOCAB.
+# §3.6 vocabulary so the spelling cannot drift from states.TERMINAL_VOCAB. The lifecycle STATE layer is
+# sourced from the SAME row (review reconcile-1): DIED_INFRA resolves to state "failed", per §3.6.
 _DIED_INFRA_SIGNAL: str = states.TERMINAL_VOCAB["died_infrastructure"].terminal_signal
 _DIED_INFRA_EVENT: str = states.TERMINAL_VOCAB["died_infrastructure"].event
+_DIED_INFRA_STATE: str = states.TERMINAL_VOCAB["died_infrastructure"].state  # "failed" (§3.6)
 
 # The coordinator-death class (§3.6 / §5.4). Per the §3.6 TERMINAL_VOCAB row, coordinator_died carries
 # the run-ledger EVENT "coordinator_died", state "dead", and terminal_signal **None** — the death class
@@ -112,6 +119,7 @@ _DIED_INFRA_EVENT: str = states.TERMINAL_VOCAB["died_infrastructure"].event
 # coordinator necro passes terminal_signal=None (state -> dead, event appended, no terminal_signal stamp).
 _COORDINATOR_DIED_EVENT: str = states.TERMINAL_VOCAB["coordinator_died"].event
 _COORDINATOR_DIED_SIGNAL = states.TERMINAL_VOCAB["coordinator_died"].terminal_signal  # None (per §3.6)
+_COORDINATOR_DIED_STATE: str = states.TERMINAL_VOCAB["coordinator_died"].state  # "dead" (§3.6)
 
 
 # ===========================================================================
@@ -246,9 +254,11 @@ def reconcile_on_restart(executor, tmux) -> ReconcileReport:
       3. per binding, the §5.1 five-branch classification:
            recorded-terminal                                 -> LEAVE (reconcile-EXACTLY-once)
            recorded-alive & tmux-present & uuid-matches       -> ADOPT (resume ownership)
-           recorded-alive & tmux-absent/pane_dead, LEAF       -> NECRO (mark dead, stamp DIED_INFRA,
-                                                                 bump lease_epoch, append run-ledger)
-           recorded-alive & tmux-absent/pane_dead, COORDINATOR-> mark dead, stamp coordinator_died,
+           recorded-alive & tmux-absent/pane_dead, LEAF       -> NECRO (stamp DIED_INFRA, state→failed
+                                                                 per §3.6, bump lease_epoch, append
+                                                                 run-ledger)
+           recorded-alive & tmux-absent/pane_dead, COORDINATOR-> mark dead (coordinator_died event, no
+                                                                 terminal_signal stamp per §3.6),
                                                                  bump epoch, append, AND ESCALATE
       4. tmux-present & NO binding (alive-but-unowned)         -> ESCALATE orphan.
       5. resume-not-double-spawn L1: NEVER spawn here — the L1 binding is classified by the SAME five
@@ -340,13 +350,16 @@ def _reconcile(executor, tmux, *, replay: bool, detector=None) -> ReconcileRepor
 
         # Owned-but-dead (tmux-absent OR pane_dead). Coordinator vs leaf asymmetry (§5.4).
         if _is_coordinator(node_address, binding, bindings):
-            # Branch 3 — COORDINATOR-DIED: mark dead, stamp coordinator_died, bump epoch, append,
-            # AND ESCALATE (recover-vs-reap is cluster-② — NOT decided here, §5.4).
-            _terminal_necro(
+            # Branch 3 — COORDINATOR-DIED: mark dead (§3.6 row), stamp coordinator_died EVENT, bump
+            # epoch, append, AND ESCALATE (recover-vs-reap is cluster-② — NOT decided here, §5.4).
+            # The escalation fires EITHER WAY (cluster-② must see the death), but the routed result
+            # keeps it honest: an aborted stamp is never reported as committed (necro_ok carries it).
+            result = _terminal_necro(
                 executor,
                 node_address,
                 binding,
                 terminal_signal=_COORDINATOR_DIED_SIGNAL,
+                target_state=_COORDINATOR_DIED_STATE,
                 event=_COORDINATOR_DIED_EVENT,
                 summary="coordinator_died: owned-but-dead coordinator pane (§5.4) — escalating",
             )
@@ -355,19 +368,34 @@ def _reconcile(executor, tmux, *, replay: bool, detector=None) -> ReconcileRepor
                     "node_address": node_address,
                     "kind": "coordinator_died",
                     "reason": "owned-but-dead coordinator: recover-vs-reap is cluster-② (§5.4)",
+                    "necro_ok": result.ok,
+                    "errors": list(result.errors),
                 }
             )
         else:
-            # Branch 2 — LEAF-NECRO: mark dead, stamp DIED_INFRA, bump lease_epoch, append run-ledger.
-            _terminal_necro(
+            # Branch 2 — LEAF-NECRO: stamp DIED_INFRA, state→failed (§3.6), bump lease_epoch, append
+            # run-ledger. ROUTE the result: a CAS-aborted necro surfaces as an escalation, never in
+            # `necroed` as if it committed (the no-result-swallowing convention).
+            result = _terminal_necro(
                 executor,
                 node_address,
                 binding,
                 terminal_signal=_DIED_INFRA_SIGNAL,
+                target_state=_DIED_INFRA_STATE,
                 event=_DIED_INFRA_EVENT,
-                summary="leaf-necro: owned-but-dead leaf pane (§5.1) — reaped DIED_INFRA",
+                summary="leaf-necro: owned-but-dead leaf pane (§5.1) — reaped DIED_INFRA (state→failed, §3.6)",
             )
-            necroed.append(node_address)
+            if result.ok:
+                necroed.append(node_address)
+            else:
+                escalations.append(
+                    {
+                        "node_address": node_address,
+                        "kind": "necro_failed",
+                        "reason": "leaf-necro terminal write aborted",
+                        "errors": list(result.errors),
+                    }
+                )
 
     # (4) Orphans — tmux-present with NO binding (alive-but-unowned). ESCALATE (§5.1 branch 5). An
     # orphan has no node_address; the tmux_target IS its only identity.
@@ -394,16 +422,21 @@ def _reconcile(executor, tmux, *, replay: bool, detector=None) -> ReconcileRepor
 # The single terminal-necro write — routes through the REAL executor (§4.3 single writer).
 # ---------------------------------------------------------------------------
 
-def _terminal_necro(executor, node_address: str, binding: dict, *, terminal_signal: str, event: str,
-                    summary: str) -> None:
-    """Drive an owned-but-dead binding to ``dead`` via the executor (the ONE writer; never raw).
+def _terminal_necro(executor, node_address: str, binding: dict, *, terminal_signal: str,
+                    target_state: str, event: str, summary: str):
+    """Drive an owned-but-dead binding to its §3.6 death-class state via the executor (the ONE writer;
+    never raw): a leaf DIED_INFRA lands ``failed``; a coordinator_died lands ``dead``. RETURNS the
+    ``TransitionResult`` — callers route it (no result-swallowing; an aborted write must never read as
+    a committed necro).
 
-    The terminal write (§5.4 "single-writer terminal write"): mark dead, stamp the ``terminal_signal``
-    death class + ``terminal_signal_at``, BUMP ``lease_epoch`` (fence the prior incarnation — a stale
-    actor returning after this necro carries a lower-epoch token and loses), and append the run-ledger
-    death event. All of it rides ONE ``executor.transition`` (CAS-guarded, intent-first, crash-safe via
-    ``last_applied_seq``): the candidate's generation bump, the delta, the epoch/token rotation, and the
-    WAL append are one atomic commit.
+    The terminal write (§5.4 "single-writer terminal write"): drive to ``target_state`` (sourced from
+    ``states.TERMINAL_VOCAB`` by the caller), stamp the ``terminal_signal`` death class +
+    ``terminal_signal_at``, BUMP ``lease_epoch`` (fence the prior incarnation — a stale actor returning
+    after this necro carries a lower-epoch token and loses), and append the run-ledger death event. The
+    ``liveness_state`` stays ``dead`` for BOTH legs — the liveness layer records the factual process
+    death (a distinct axis from the lifecycle state, §3.2). All of it rides ONE ``executor.transition``
+    (CAS-guarded, intent-first, crash-safe via ``last_applied_seq``): the candidate's generation bump,
+    the delta, the epoch/token rotation, and the WAL append are one atomic commit.
 
     The CAS preconditions are sourced from the LIVE binding (``expected_state`` = its current state,
     ``expected_generation`` = its current generation), and ``expected_owner_token=None`` — the daemon's
@@ -419,8 +452,8 @@ def _terminal_necro(executor, node_address: str, binding: dict, *, terminal_sign
         new_lease_epoch,
     )
     binding_delta = {
-        "state": "dead",
-        "liveness_state": "dead",
+        "state": target_state,
+        "liveness_state": "dead",  # the liveness axis is factually dead regardless of the §3.6 state
         "lease_epoch": new_lease_epoch,
         "owner_token": new_owner_token,
     }
@@ -431,12 +464,12 @@ def _terminal_necro(executor, node_address: str, binding: dict, *, terminal_sign
     if terminal_signal is not None:
         binding_delta["terminal_signal"] = terminal_signal
         binding_delta["terminal_signal_at"] = _now()
-    executor.transition(
+    return executor.transition(
         node_address,
         expected_state=binding["state"],
         expected_generation=binding["generation"],
         expected_owner_token=None,  # daemon-internal necro — the EX lock serializes, no actor token
-        target_state="dead",
+        target_state=target_state,
         binding_delta=binding_delta,
         new_lease_epoch=new_lease_epoch,
         new_owner_token=new_owner_token,

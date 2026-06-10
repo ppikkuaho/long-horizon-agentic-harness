@@ -395,12 +395,12 @@ def test_restart_adopt_when_tmux_present_and_uuid_matches(runtime):
 
 
 def test_restart_leaf_necro_stamps_died_and_bumps_epoch_and_appends(runtime):
-    """§5.1 branch 2 — recorded-alive & tmux-absent, LEAF -> NECRO: mark dead, stamp died_* terminal
-    signal, bump lease_epoch, append a run-ledger event.
+    """§5.1 branch 2 — recorded-alive & tmux-absent, LEAF -> NECRO: stamp DIED_INFRA, state→failed
+    (§3.6), bump lease_epoch, append a run-ledger event.
 
     Mutant killed: a dead leaf left running (no necro) -> an owned-but-dead session is never reaped.
     Bias to real: the necro routes through the REAL executor, so we assert on the REAL on-disk binding
-    (state == dead, a died_* terminal signal, lease_epoch bumped) and the REAL WAL (a death event row).
+    (state == failed, a died_* terminal signal, lease_epoch bumped) and the REAL WAL (a death event row).
     """
     b = _binding(
         LEAF_NODE, level="L5", state="running", generation=4, lease_epoch=2,
@@ -415,7 +415,7 @@ def test_restart_leaf_necro_stamps_died_and_bumps_epoch_and_appends(runtime):
 
     assert LEAF_NODE in _necroed(report), "a dead leaf must be reported as necro'd"
     rb = ledger.read_binding(LEAF_NODE)
-    assert rb["state"] == "dead", "leaf-necro must drive the binding to the terminal 'dead' state"
+    assert rb["state"] == "failed", "§3.6 maps DIED_INFRA -> state failed (leaf-necro death class)"
     assert rb.get("terminal_signal") in {"DIED_INFRA", "DIED_INFRASTRUCTURE", "DIED_METHODOLOGY"}, (
         "leaf-necro must stamp a died_* terminal_signal (§3.6 death class)"
     )
@@ -531,7 +531,93 @@ def test_restart_pane_dead_leaf_is_necroed_like_tmux_absent(runtime):
 
     assert LEAF_NODE in _necroed(report), "a pane_dead leaf is owned-but-dead -> must be necro'd"
     assert LEAF_NODE not in _adopted(report), "a pane_dead pane must NOT be adopted"
-    assert ledger.read_binding(LEAF_NODE)["state"] == "dead", "pane_dead leaf must reach 'dead'"
+    assert ledger.read_binding(LEAF_NODE)["state"] == "failed", (
+        "pane_dead leaf must reach 'failed' (§3.6 maps DIED_INFRA -> state failed)"
+    )
+
+
+def test_restart_blocked_leaf_necro_lands_failed(runtime):
+    """A BLOCKED leaf whose pane is gone necros to 'failed' through the REAL executor — proving the
+    blocked→failed legality fold (§3.6 died_* classes; review reconcile-1) is actually traversable.
+
+    Mutant killed: drop the {non-terminal}→failed fold from states.ALLOWED_TRANSITIONS -> the §4.2
+    legality gate aborts the necro CAS -> the blocked leaf never reaches failed -> caught here.
+    """
+    b = _binding(
+        LEAF_NODE, level="L5", state="blocked", generation=4, lease_epoch=2,
+        tmux_target="harness:" + LEAF_NODE,
+    )
+    _seed(b)
+    wal_before = len(ledger.load_wal())
+    tmux = FakeTmux({})  # the pane is GONE -> owned-but-dead
+
+    report = reconcile.reconcile_on_restart(executor, tmux)
+
+    assert LEAF_NODE in _necroed(report), "a dead BLOCKED leaf must be reported as necro'd"
+    rb = ledger.read_binding(LEAF_NODE)
+    assert rb["state"] == "failed", (
+        "§3.6 maps DIED_INFRA -> state failed: a blocked leaf-necro must land 'failed' (the "
+        "blocked→failed fold must be a legal edge — a legality-gate abort here means the fold is missing)"
+    )
+    assert rb.get("terminal_signal") == "DIED_INFRA", "the necro must stamp the DIED_INFRA death class"
+    assert rb["lease_epoch"] > b["lease_epoch"], "the necro must BUMP lease_epoch (fence the prior)"
+    death_rows = [
+        r for r in ledger.load_wal()[wal_before:]
+        if r.get("node_address") == LEAF_NODE and r.get("event") == "died_infrastructure"
+    ]
+    assert len(death_rows) == 1, (
+        "exactly ONE died_infrastructure WAL row must be appended for the blocked-leaf necro; "
+        f"got {len(death_rows)}"
+    )
+
+
+def test_necro_transition_abort_is_escalated_not_swallowed(runtime):
+    """A leaf-necro whose terminal write ABORTS (the executor returns ok=False) must surface as an
+    ESCALATION (kind='necro_failed'), never appear in report.necroed as if it committed.
+
+    Mutant killed: the result-swallowing call (`executor.transition(...)` with no routing) — the sweep
+    reports the node necro'd while the on-disk binding never moved (a silent lie to cluster-②).
+    """
+    b = _binding(
+        LEAF_NODE, level="L5", state="running", generation=4, lease_epoch=2,
+        tmux_target="harness:" + LEAF_NODE,
+    )
+    _seed(b)
+    tmux = FakeTmux({})  # pane gone -> the sweep tries the necro
+
+    class _AbortingExecutor:
+        """Wrap the REAL executor but force transition() to an ok=False abort (a CAS-miss shape)."""
+
+        def __getattr__(self, name):
+            return getattr(executor, name)
+
+        def transition(self, node_address, **kwargs):
+            live = ledger.read_binding(node_address)
+            return executor.TransitionResult(
+                ok=False,
+                errors=["forced abort: simulated CAS miss on the necro terminal write"],
+                warnings=[],
+                binding=live,
+            )
+
+    report = reconcile.reconcile_on_restart(_AbortingExecutor(), tmux)
+
+    assert LEAF_NODE not in _necroed(report), (
+        "an ABORTED necro write must NOT be reported in report.necroed (that would claim a commit "
+        "that never landed)"
+    )
+    necro_escalations = [
+        esc for esc in _escalations(report)
+        if isinstance(esc, dict) and esc.get("node_address") == LEAF_NODE
+        and esc.get("kind") == "necro_failed"
+    ]
+    assert necro_escalations, (
+        "an aborted leaf-necro must surface as an escalation with kind='necro_failed' "
+        f"(got escalations={_escalations(report)!r})"
+    )
+    assert any(esc.get("errors") for esc in necro_escalations), (
+        "the necro_failed escalation must carry the abort errors so cluster-② can route the cause"
+    )
 
 
 def test_restart_adopt_refused_when_uuid_mismatches(runtime):

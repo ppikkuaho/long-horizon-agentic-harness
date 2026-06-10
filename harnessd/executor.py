@@ -234,8 +234,13 @@ def transition(
 
         # ------------------------------------------------------------------
         # Legality gate (§4.2) — an illegal target aborts BEFORE the candidate is built.
+        # CARVE-OUT (SML-02): a from==to SELF-LOOP is NOT a forward edge — the table
+        # deliberately contains no self-loops — so it falls through to validate-before-
+        # commit, which admits ONLY the §3.6 ESCALATED slot-hold (running→running with
+        # terminal_signal=ESCALATED, validate.py) and ERRORS every other no-op. Nothing
+        # is ever written for a non-ESCALATED self-loop (validate aborts pre-commit).
         # ------------------------------------------------------------------
-        if not states.is_legal(binding["state"], target_state):
+        if target_state != binding["state"] and not states.is_legal(binding["state"], target_state):
             return TransitionResult(
                 ok=False,
                 errors=[

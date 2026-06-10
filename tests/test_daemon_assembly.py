@@ -250,6 +250,47 @@ def test_poll_once_collapses_a_FAILED_signoff(runtime):
     assert ledger.read_binding(addr)["state"] == "failed"
 
 
+def test_poll_once_journals_signal_ESCALATED_and_holds_the_slot_across_ticks(runtime):
+    """SML-02 at the loop level: a live leaf that signed off ESCALATED holds its slot (state stays
+    running, NEVER collapsed) AND the slot-hold is journaled DURABLY — exactly ONE signal_ESCALATED
+    WAL row + terminal_signal=ESCALATED stamped on the binding — through the REAL poll_once
+    (reconcile_tick + watchdog tick + chokepoint.escalate + executor on real artifacts).
+    A SECOND tick over the same artifact is edge-triggered: no second row, still running."""
+    _install_adapter()
+    addr, token = _seed_running_leaf(runtime)
+    _write_signal(runtime, addr, signal="ESCALATED", owner_token=token)
+    tmux = _Tmux({"harness:" + addr: {"pane_pid": 4242, "pane_dead": 0}})
+    det = _Detector(default="working")
+    wal_before = len(ledger.load_wal())
+
+    daemon.poll_once(executor, tmux, det)  # tick 1: journal + hold
+
+    b = ledger.read_binding(addr)
+    assert b["state"] == "running", "ESCALATED holds its slot — poll_once must NEVER collapse it (§3.6)"
+    assert b.get("terminal_signal") == "ESCALATED", (
+        "poll_once must stamp terminal_signal=ESCALATED (the durable §3.6 slot-hold fact)"
+    )
+    rows = [r for r in ledger.load_wal()[wal_before:]
+            if r.get("node_address") == addr and r.get("event") == "signal_ESCALATED"]
+    assert len(rows) == 1, f"exactly ONE signal_ESCALATED row after tick 1; got {len(rows)}"
+
+    daemon.poll_once(executor, tmux, det)  # tick 2: exactly-once — no re-journal, no side-effects
+
+    b2 = ledger.read_binding(addr)
+    assert b2["state"] == "running", "tick 2 must still hold the slot (never collapsed)"
+    rows2 = [r for r in ledger.load_wal()[wal_before:]
+             if r.get("node_address") == addr and r.get("event") == "signal_ESCALATED"]
+    assert len(rows2) == 1, (
+        f"exactly-once: tick 2 over the SAME artifact must NOT append a second signal_ESCALATED row; "
+        f"got {len(rows2)}"
+    )
+    new_events = [r.get("event") for r in ledger.load_wal()[wal_before:] if r.get("node_address") == addr]
+    assert not any(e in ("signal_FAILED", "signal_DONE", "collapse_failed", "collapse_done", "watchdog_nonresponse")
+                   for e in new_events), (
+        f"the ESCALATED slot-hold must produce NO collapse/FAILED side-effects; got {new_events!r}"
+    )
+
+
 def test_poll_once_ignores_a_stale_token_signoff(runtime):
     """Fencing: a .signal.json carrying a STALE owner_token (a dead incarnation's leftover) must NOT
     collapse the re-spawned node — the fenced reader yields None."""

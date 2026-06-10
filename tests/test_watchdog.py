@@ -372,15 +372,19 @@ def test_stale_token_signal_ignored_binding_unchanged(runtime):
 
 
 def test_escalated_signal_is_noop_never_collapses(runtime):
-    """A fenced ESCALATED signal -> NOOP. ESCALATED HOLDS ITS SLOT — never collapses.
+    """A fenced ESCALATED signal -> NOOP. ESCALATED HOLDS ITS SLOT — never collapses — AND the
+    slot-hold is JOURNALED (SML-02): the binding carries terminal_signal=ESCALATED and the WAL
+    gains the §3.6 signal_ESCALATED running->running row (exactly once across ticks).
 
     LOAD-BEARING: a mutant that routes ESCALATED to collapse tears a waiting node off its slot
-    while it waits for the answer round-trip. Asserting NOOP + state-stays-running kills it.
+    while it waits for the answer round-trip; a bare-NOOP mutant (no journal) leaves the durable
+    ledger blind to the escalation. Both are killed here.
     """
     wd = _wd()
     binding, token = _binding(state="running", generation=2, lease_epoch=1)
     _seed([binding])
     _write_signal(runtime, LEAF, signal="ESCALATED", owner_token=token)
+    wal_before = len(ledger.load_wal())
 
     import harnessd.watchdog as _mod
     mp = pytest.MonkeyPatch()
@@ -394,7 +398,81 @@ def test_escalated_signal_is_noop_never_collapses(runtime):
         f"ESCALATED must be NOOP (holds its slot), never a collapse — got {_tag(action)!r}"
     )
     assert not _is(action, "COLLAPSE", "FAILED"), "ESCALATED must NEVER collapse or fail the node"
-    assert _read()["state"] == "running", "an ESCALATED node stays running (asymmetric §3.6)"
+    after = _read()
+    assert after["state"] == "running", "an ESCALATED node stays running (asymmetric §3.6)"
+    # SML-02: the slot-hold is DURABLE — terminal_signal stamped + signal_ESCALATED journaled.
+    assert after.get("terminal_signal") == "ESCALATED", (
+        "check_leaf must stamp terminal_signal=ESCALATED on the binding (the §3.6 slot-hold fact)"
+    )
+    escalated_rows = [
+        r for r in ledger.load_wal()[wal_before:]
+        if r.get("node_address") == LEAF and r.get("event") == "signal_ESCALATED"
+    ]
+    assert len(escalated_rows) == 1, (
+        f"the ESCALATED slot-hold must journal exactly ONE signal_ESCALATED WAL row; got {len(escalated_rows)}"
+    )
+
+    # A SECOND tick re-reads the same artifact: still NOOP, NO second journal row (exactly-once).
+    mp2 = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp2, _mod, _const_liveness("waiting", _now_iso()))
+        action2 = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+    finally:
+        mp2.undo()
+    assert _is(action2, "NOOP", "NONE", "WAIT"), "the second tick holds the slot too"
+    escalated_rows_2 = [
+        r for r in ledger.load_wal()[wal_before:]
+        if r.get("node_address") == LEAF and r.get("event") == "signal_ESCALATED"
+    ]
+    assert len(escalated_rows_2) == 1, (
+        "exactly-once: a second tick over the SAME ESCALATED artifact must NOT journal a second row"
+    )
+
+
+def test_escalated_signal_journal_failure_is_routed_not_reported_clean(runtime):
+    """A FENCED/CAS abort on the ESCALATED journal write must be ROUTED (NOOP with
+    reason=escalate_journal_failed + the errors), never read as a clean slot-hold.
+
+    Setup: the binding handed to check_leaf is a STALE incarnation (old epoch/token) whose
+    matching .signal.json passes the READER's fence, but the LIVE ledger binding has rotated
+    (re-claimed at a higher epoch) — so the escalate write aborts on the executor's fencing
+    precondition. Mutant killed: treat any escalate outcome as a clean 'escalated_holds_slot'
+    (the result-swallowing branch).
+    """
+    wd = _wd()
+    # The STALE incarnation (epoch 1) — the .signal.json carries ITS token, so the reader admits it.
+    stale_binding, stale_token = _binding(state="running", generation=2, lease_epoch=1)
+    # The LIVE binding: same address re-claimed at a HIGHER epoch (token rotated).
+    live_binding, live_token = _binding(state="running", generation=5, lease_epoch=3,
+                                        session_uuid="sess-uuid-live-0002")
+    _seed([live_binding])
+    _write_signal(runtime, LEAF, signal="ESCALATED", owner_token=stale_token)
+    before = copy.deepcopy(_read())
+    wal_before = len(ledger.load_wal())
+
+    import harnessd.watchdog as _mod
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _mod, _const_liveness("waiting", _now_iso()))
+        action = wd.check_leaf(_node_from(stale_binding), stale_binding, now=_now_iso())
+    finally:
+        mp.undo()
+
+    assert _is(action, "NOOP", "NONE", "WAIT"), "the aborted journal write still NOOPs (next tick retries)"
+    detail = getattr(action, "detail", {}) or {}
+    assert detail.get("reason") == "escalate_journal_failed", (
+        f"a fenced/CAS-aborted escalate must be routed as escalate_journal_failed, got {detail!r}"
+    )
+    assert detail.get("errors"), "the routed abort must carry the executor's errors"
+    after = _read()
+    assert after["state"] == "running" and after.get("terminal_signal") != "ESCALATED", (
+        "the LIVE binding must be untouched by the stale incarnation's escalate (non-destructive fence)"
+    )
+    assert after == before, "the live binding is byte-for-byte unchanged (the §3.6 FENCED de-auth)"
+    new_events = [r.get("event") for r in ledger.load_wal()[wal_before:]]
+    assert "signal_ESCALATED" not in new_events, (
+        "a fenced escalate must NOT land a signal_ESCALATED row for the stale incarnation"
+    )
 
 
 def test_absent_signal_falls_through_to_liveness(runtime):

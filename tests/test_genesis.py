@@ -536,9 +536,9 @@ def test_genesis_reconcile_necros_owned_but_dead_leaf_during_boot(runtime):
 
     rb = ledger.read_binding(DEAD_LEAF)
     assert rb is not None, "the pre-seeded dead leaf must still be present (necro'd, not deleted)"
-    assert rb["state"] == "dead", (
-        "genesis's reconcile-on-restart must NECRO the owned-but-dead leaf (running->dead) — liveness "
-        "is reconstructed from the LEDGER + tmux, not trusted from memory"
+    assert rb["state"] == "failed", (
+        "genesis's reconcile-on-restart must NECRO the owned-but-dead leaf (running->failed, "
+        "DIED_INFRA per §3.6) — liveness is reconstructed from the LEDGER + tmux, not trusted from memory"
     )
     assert rb.get("terminal_signal") in {"DIED_INFRA", "DIED_INFRASTRUCTURE", "DIED_METHODOLOGY"}, (
         "the necro must stamp a died_* terminal_signal (§3.6 death class)"
@@ -562,9 +562,10 @@ def test_genesis_reconstructs_liveness_from_ledger_not_memory(runtime):
 
     genesis.run_genesis(executor, FakeTmux({}), _genesis_config(runtime))
 
-    assert ledger.read_binding(DEAD_LEAF)["state"] == "dead", (
-        "a dead binding present ONLY on disk (never in daemon memory) must still be necro'd — liveness "
-        "is reconstructed from the ledger, the source of truth (DAEMON §4.4)"
+    assert ledger.read_binding(DEAD_LEAF)["state"] == "failed", (
+        "a dead binding present ONLY on disk (never in daemon memory) must still be necro'd (to "
+        "'failed', §3.6 DIED_INFRA) — liveness is reconstructed from the ledger, the source of truth "
+        "(DAEMON §4.4)"
     )
 
 
@@ -664,8 +665,9 @@ def test_reconcile_tick_one_liveness_change_appends_exactly_one_row(runtime):
         f"(the necro death event), got {rows_for_change}. The continuous path appends on the CHANGE, once."
     )
     # The change drove the node terminal (the necro) — the durable fact, not just a WAL row.
-    assert ledger.read_binding(DEAD_LEAF)["state"] == "dead", (
-        "the liveness change to 'dead' is an owned-but-dead trigger -> the node is necro'd (the WAL row)"
+    assert ledger.read_binding(DEAD_LEAF)["state"] == "failed", (
+        "the liveness change to 'dead' is an owned-but-dead trigger -> the node is necro'd to "
+        "'failed' (§3.6 DIED_INFRA; the WAL row)"
     )
 
     # And a FURTHER steady poll on the now-terminal node appends ZERO more rows (reconcile-once).
@@ -715,8 +717,9 @@ def test_poll_loop_single_iteration_runs_one_reconcile_tick(runtime):
     wal_before = len(ledger.load_wal())
     one_tick(executor, tmux, detector)  # ONE iteration only — never the unbounded loop
 
-    assert ledger.read_binding(DEAD_LEAF)["state"] == "dead", (
-        "one poll-loop iteration must run ONE reconcile_tick — the dead node must be necro'd by it"
+    assert ledger.read_binding(DEAD_LEAF)["state"] == "failed", (
+        "one poll-loop iteration must run ONE reconcile_tick — the dead node must be necro'd by it "
+        "(to 'failed', §3.6 DIED_INFRA)"
     )
     assert len(ledger.load_wal()) == wal_before + 1, (
         "the single tick's ONE liveness change (dead) must append EXACTLY ONE WAL row (edge-triggered)"

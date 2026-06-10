@@ -69,9 +69,13 @@ READOPT_EDGES = {
 # Reconcile-driven: every non-terminal -> dead (reconcile-finds-dead).
 RECONCILE_DEAD_EDGES = {(s, "dead") for s in NON_TERMINAL_STATES}
 
+# Reconcile-driven §3.6 death classes: every non-terminal -> failed (the daemon-stamped
+# died_* classes resolve to lifecycle state `failed`, DAEMON §3.6; review reconcile-1).
+RECONCILE_FAILED_EDGES = {(s, "failed") for s in NON_TERMINAL_STATES}
+
 # The complete legal edge set.
 EXPECTED_LEGAL_EDGES = (
-    PRIMARY_EDGES | ROLLBACK_EDGES | READOPT_EDGES | RECONCILE_DEAD_EDGES
+    PRIMARY_EDGES | ROLLBACK_EDGES | READOPT_EDGES | RECONCILE_DEAD_EDGES | RECONCILE_FAILED_EDGES
 )
 
 # A representative battery of ILLEGAL edges that MUST be rejected.

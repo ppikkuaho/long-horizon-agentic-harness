@@ -453,15 +453,15 @@ def test_full_arc_spawn_detect_signoff_collapse_through_single_writer(runtime):
     assert "spawn_open" in events, f"the WAL must record the spawn-open (claimed->spawning); got {events!r}"
     assert "spawn_running" in events, f"the WAL must record the running confirm (spawning->running); got {events!r}"
 
-    # The terminal collapse row: running -> done, event collapse_done.
+    # The terminal collapse row: running -> done, event signal_DONE (the §3.6 normative name).
     collapse_rows = [e for e in arc if e[2] == "done"]
     assert collapse_rows, f"the WAL must record the terminal collapse to 'done'; got {arc!r}"
     collapse_event, c_from, c_to, c_actor = collapse_rows[-1]
     assert c_from == "running" and c_to == "done", (
         f"the terminal collapse row must be running->done; got {collapse_rows!r}"
     )
-    assert collapse_event == "collapse_done", (
-        f"the terminal collapse event must be collapse_done; got {collapse_event!r}"
+    assert collapse_event == "signal_DONE", (
+        f"the terminal collapse event must be the §3.6 normative signal_DONE; got {collapse_event!r}"
     )
 
     # Ordering: claim BEFORE spawn_open BEFORE spawn_running BEFORE the collapse (the arc is sequential).

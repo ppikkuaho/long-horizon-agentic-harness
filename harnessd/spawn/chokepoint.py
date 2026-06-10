@@ -929,6 +929,76 @@ _COLLAPSE_TARGETS: dict[str, str] = {
     "DEAD": "dead",
 }
 
+# The §3.6 NORMATIVE run-ledger event per terminal signal (SML-01) — sourced from states.TERMINAL_VOCAB
+# so the spelling cannot drift (collapse_done/collapse_failed were non-normative names the sign-off
+# check cannot key on). Two non-vocab aliases remain: DIED (the ipc kill verb's generic death) maps to
+# the died_infrastructure event; DEAD (operator force-kill to `dead`) has NO §3.6 row — it keeps the
+# legacy collapse_dead name (open question surfaced to the orchestrator: collapse_dead vs `necroed`).
+_COLLAPSE_EVENTS: dict[str, str] = {
+    states.TERMINAL_VOCAB["signal_DONE"].terminal_signal: states.TERMINAL_VOCAB["signal_DONE"].event,
+    states.TERMINAL_VOCAB["signal_FAILED"].terminal_signal: states.TERMINAL_VOCAB["signal_FAILED"].event,
+    states.TERMINAL_VOCAB["died_infrastructure"].terminal_signal: states.TERMINAL_VOCAB["died_infrastructure"].event,
+    states.TERMINAL_VOCAB["died_methodology"].terminal_signal: states.TERMINAL_VOCAB["died_methodology"].event,
+    "DIED": states.TERMINAL_VOCAB["died_infrastructure"].event,  # alias: generic death -> infra class
+    "DEAD": "collapse_dead",  # operator force-kill: no §3.6 row (see comment above)
+}
+
+
+def escalate(node_address: str, *, expected_owner_token: Optional[str]):
+    """The §3.6 ESCALATED slot-hold journal (SML-02): stamp ``terminal_signal=ESCALATED`` +
+    ``terminal_signal_at`` and journal the ``signal_ESCALATED`` run-ledger row as a FENCED,
+    exactly-once, generation-bumping (replayable, §4.4) running→running transition through the
+    single-writer executor. The lifecycle state STAYS ``running`` and the slot is HELD — the delta
+    deliberately carries NO ``in_flight_release`` (the asymmetric row: the node keeps its context
+    and waits for the answer round-trip).
+
+    Returns:
+      * ``None``                      — nothing to do: the node is absent, or already stamped
+                                        ESCALATED (exactly-once per artifact; a re-poll is a no-op);
+      * ``TransitionResult(ok=False)``— a refused/aborted write: a non-running node (the slot-hold
+                                        applies only to ``running``, §3.6), a CAS miss, or the
+                                        fencing abort (the executor journals ``stale_return_ignored``
+                                        and leaves the live binding unchanged);
+      * ``TransitionResult(ok=True)`` — the slot-hold committed (the durable journal row landed).
+
+    Callers ROUTE the result (the no-result-swallowing convention): the watchdog reports a failed
+    journal write as ``escalate_journal_failed`` and retries next tick (the .signal artifact persists).
+    """
+    live = ledger.read_binding(node_address)
+    if live is None:
+        return None
+    if live.get("terminal_signal") == "ESCALATED":
+        # Already journaled — exactly-once per artifact. (Idempotency keys on the binding stamp;
+        # F16's answer verb clears it when the round-trip completes.)
+        return None
+    if live.get("state") != "running":
+        return executor.TransitionResult(
+            ok=False,
+            errors=[
+                f"ESCALATED slot-hold applies only to a running node (§3.6); "
+                f"{node_address!r} is {live.get('state')!r}"
+            ],
+            warnings=[],
+            binding=live,
+        )
+    from harnessd import clock  # local import, matching reconcile._now's style
+    return executor.transition(
+        node_address,
+        expected_state="running",
+        expected_generation=live["generation"],
+        expected_owner_token=expected_owner_token,
+        target_state="running",  # the §3.6 ASYMMETRIC row: signal set, state UNCHANGED
+        binding_delta={
+            "terminal_signal": "ESCALATED",
+            "terminal_signal_at": clock.now_utc(),
+        },
+        event=states.TERMINAL_VOCAB["signal_ESCALATED"].event,
+        summary=(
+            "ESCALATED slot-hold: terminal_signal stamped, state stays running, slot HELD "
+            "(no in_flight release; §3.6 asymmetric)"
+        ),
+    )
+
 
 def collapse(
     node_address: str,
@@ -983,7 +1053,7 @@ def collapse(
             "terminal_signal": terminal_signal,
             "in_flight_release": True,
         },
-        event=f"collapse_{target_state}",
+        event=_COLLAPSE_EVENTS[terminal_signal],  # the §3.6 normative event name (SML-01)
         summary=(
             f"terminal collapse: {terminal_signal} -> {target_state} "
             "(carries ④ in_flight RELEASE-DECREMENT, symmetric to STEP1 claim-increment; §6.1/§3.6)"

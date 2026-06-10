@@ -472,9 +472,10 @@ def test_reconcile_on_restart_replays_torn_wal_and_necros_dead_leaf(runtime):
     # ---- (b) DEAD NODE NECRO'd: state=dead, died_* terminal_signal, BUMPED lease_epoch. ----
     assert DEAD_LEAF in report.necroed, "(b) reconcile must report the owned-but-dead leaf as necro'd"
     leaf = ledger.read_binding(DEAD_LEAF)
-    assert leaf["state"] == "dead", (
-        "(b) the owned-but-dead leaf (recorded running, pane GONE) must be NECRO'd to dead — liveness "
-        "reconstructed from the LEDGER + tmux, not trusted from memory"
+    assert leaf["state"] == "failed", (
+        "(b) the owned-but-dead leaf (recorded running, pane GONE) must be NECRO'd to failed "
+        "(§3.6 maps DIED_INFRA -> state failed) — liveness reconstructed from the LEDGER + tmux, "
+        "not trusted from memory"
     )
     assert leaf.get("terminal_signal") in {"DIED_INFRA", "DIED_INFRASTRUCTURE", "DIED_METHODOLOGY"}, (
         "(b) the necro must stamp a died_* terminal_signal (§3.6 infrastructure-death class)"
@@ -570,9 +571,10 @@ def test_kill9_run_genesis_resumes_l1_single_owner_no_double_spawn(runtime):
 
     # State recovered from the binding-ledger + run-ledger ONLY (the dead leaf necro is on disk too).
     leaf = ledger.read_binding(DEAD_LEAF)
-    assert leaf["state"] == "dead" and leaf.get("terminal_signal") in {
+    assert leaf["state"] == "failed" and leaf.get("terminal_signal") in {
         "DIED_INFRA", "DIED_INFRASTRUCTURE", "DIED_METHODOLOGY"
-    }, "(b/full) the owned-but-dead leaf must also be necro'd in the full run_genesis recovery"
+    }, ("(b/full) the owned-but-dead leaf must also be necro'd (to failed, §3.6 DIED_INFRA) in the "
+        "full run_genesis recovery")
 
 
 # ===========================================================================
