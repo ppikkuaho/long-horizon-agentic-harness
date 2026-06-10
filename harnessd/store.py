@@ -20,6 +20,9 @@ LOAD-BEARING contracts (where "tests pass == correct" lives):
     construction.
   * file_lock: fcntl SH (shared) / EX (exclusive); LOCK_UN in finally so the lock always
     releases — even when the body raises.
+  * flock_exclusive_nb: the PERSISTENT-hold counterpart (LOCK_EX|LOCK_NB, returns the OPEN
+    handle the caller keeps for its lifetime); BlockingIOError propagates when another holder
+    exists. Used by the daemon's single-instance guard (DAEMON §2.3).
 
 NOTE: ``os.replace`` and ``os.fsync`` are invoked through the module-level ``os`` reference on
 purpose — the durability-ordering tests monkeypatch ``store.os.fsync`` / ``store.os.replace``
@@ -89,6 +92,31 @@ def file_lock(path: Path, *, shared: bool) -> Iterator[None]:
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def flock_exclusive_nb(path: Path) -> IO[str]:
+    """Acquire LOCK_EX|LOCK_NB on ``path`` and return the OPEN handle — the PERSISTENT-hold primitive.
+
+    The counterpart to the scoped ``file_lock`` context manager: the caller KEEPS the returned
+    handle for its lifetime, and the flock dies with the fd/process (there is no scoped release —
+    closing the handle is the release). NON-BLOCKING: when another holder exists, the OSError
+    (``BlockingIOError`` for EWOULDBLOCK) PROPAGATES — fail-loud, never wait — and the handle is
+    closed before re-raising (no leaked fd). NB: flock conflicts across distinct open file
+    descriptions even within ONE process, so a second call on the same path from the same process
+    also raises (verified on darwin).
+
+    Policy-free on purpose (this module is the lock-primitive home): the single-instance semantics
+    (which path, the refusal message, the lifetime stash) live in the caller — the daemon's §2.3
+    instance guard on ``.harnessd.instance.lock``.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()  # no holder-less fd leak — the caller gets the raise, not a dead handle
+        raise
+    return handle
 
 
 def append_framed(path: Path, payload: str) -> None:

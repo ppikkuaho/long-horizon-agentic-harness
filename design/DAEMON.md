@@ -149,11 +149,21 @@ target is macOS launchd (matches the H40 pinned-CC + tmux environment).
 
 ### 2.3 PID / lock — single-instance guard
 
-On boot the daemon acquires an **exclusive `fcntl.flock` on `.harnessd.lock`** and writes a
-`runtime.json` self-report `{pid, started_at, lock_path, last_tick_at, last_reconcile_at,
-incarnation}`. If the lock is already held, the new instance exits (*"another harnessd instance
-already holds the lock"*) — launchd will not spawn two, but a manual launch must not race the
-service-managed one.
+On boot the daemon acquires an **exclusive non-blocking `fcntl.flock` on
+`.harnessd.instance.lock`, held for the daemon's lifetime**, and writes a `runtime.json`
+self-report `{pid, started_at, lock_path, last_tick_at, last_reconcile_at, incarnation}`
+(`lock_path` names the INSTANCE lock). If the lock is already held, the new instance exits
+(*"another harnessd instance already holds the lock"*) — **before** writing `runtime.json`, so a
+refused second instance clobbers nothing. launchd will not spawn two, but a manual launch must not
+race the service-managed one.
+
+> **Resolution note (two lock files; fork decided 2026-06-10).** `.harnessd.instance.lock` is
+> DELIBERATELY DISTINCT from the §4.3 per-mutation `.harnessd.lock`: `flock` conflicts across open
+> file descriptions even within one process, so a lifetime hold of the mutation lock would
+> deadlock every executor write — the previously-unresolved §2.3-vs-§4.3 single-file conflict
+> (review SWCAS-02). Each section now names its own file; the two never contend. Acquire order is
+> fixed (instance lock first, always), keeping the two-lock ordering deadlock-free by
+> construction.
 
 > **Naming guard (one-spine discipline).** `incarnation` here is the **daemon-restart counter**
 > (how many times launchd has relaunched `harnessd`) — it is a NEW field of the daemon's
@@ -163,7 +173,8 @@ service-managed one.
 > written.
 
 > **Adapted from watchdog.py: reused / changed.** *Reused:* the `fcntl.flock LOCK_EX`
-> single-instance guard (watchdog.py L74–81) and the `runtime.json` self-report surface, whose
+> single-instance guard (watchdog.py L74–81; v1 splits the recovered one-lock pattern into the two
+> files above — instance guard vs per-mutation domain) and the `runtime.json` self-report surface, whose
 > **reused** fields are `{pid, started_at, last_checked_at, last_condition}` (verified against
 > watchdog.py L370–440 — it carries no CAS/generation field). *Changed / NEW:* `last_tick_at`,
 > `last_reconcile_at`, `incarnation`, and `lock_path` are NEW fields on the daemon's self-report
@@ -670,6 +681,16 @@ together. v1 has **one** exclusive serialization domain owned by the resident da
 is one writer (the daemon) and one lock, every mutation is a read→validate→commit fully inside the
 lock. Reads (show/next/reconcile-inspect) take a shared lock.
 
+**Two locks, two roles.** `.harnessd.lock` is the per-mutation serialization domain described
+here: acquired and released inside every executor mutator, AND taken explicitly by reconcile's
+boot-replay checkpoint (§5.1 step 1) around its read→replay→write critical section — so the
+checkpoint's `write_binding(..., _lock_held=True)` is true by fact, not by flag.
+`.harnessd.instance.lock` is the lifetime single-instance guard (§2.3): acquired non-blocking at
+boot, held until the process exits. Both are advisory `fcntl.flock` files under `RUNTIME_ROOT`.
+They never contend with each other — and they must stay separate files: a lifetime hold of the
+per-mutation file would deadlock every executor write, because `flock` conflicts across open file
+descriptions even within one process (review SWCAS-02; fork decided 2026-06-10).
+
 **No CLI read-modify-replace of the shared map — all mutation routes through the daemon.** With the
 single-keyed binding file (§3.4-A), a cooperating CLI that atomic-replaced the *whole map* to change
 one node would silently clobber a concurrent daemon write to a *different* node — and per-node
@@ -783,7 +804,8 @@ The recovery **policy** (what to do with a stale_suspect) is cluster ②; v1 rec
 ### 5.1 Reconcile-on-restart (genesis-recovery, runs once per boot)
 
 ```
-on daemon boot, after acquiring .harnessd.lock:
+on daemon boot, with the instance lock held (§2.3; step 1's replay checkpoint takes the
+per-mutation .harnessd.lock itself, and every later mutation re-takes it — §4.3):
   1. load run-ledger with torn-tail tolerance (§4.4 box); replay WAL: for each event with
        seq > binding.last_applied_seq[node], deterministically re-apply it (verify pre-image
        generation, apply binding_delta, set state to the record's authoritative to_state +

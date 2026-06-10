@@ -1,7 +1,9 @@
 """genesis — the first-boot sequence that establishes the L1 root custody (IMPLEMENTATION-PLAN §2.12).
 
 THE single load-bearing property: ``run_genesis`` drives the DAEMON §7 LOCKED genesis sequence in
-order — (1) acquire the EX serialization lock; (2) write runtime.json; (3) the PRECONDITION CHECK
+order — (1) briefly take the EX serialization lock (the §4.3 per-mutation domain; the LIFETIME
+single-instance guard is the daemon's separate ``.harnessd.instance.lock``, acquired in
+daemon.boot BEFORE genesis runs — §2.3); (2) write runtime.json; (3) the PRECONDITION CHECK
 (OAuth credential health + pinned-binary, FAIL-LOUD, do NOT spawn on a bad precondition); (4)
 reconcile-on-restart (replay the WAL, classify every binding against live tmux, necro the
 owned-but-dead — liveness reconstructed from the LEDGER, not memory); (5) if no live, non-terminal L1
@@ -85,10 +87,23 @@ class GenesisError(RuntimeError):
 
 _LOCK_FILENAME = ".harnessd.lock"
 
+# The PERSISTENT single-instance lock (DAEMON §2.3) — DISTINCT from `.harnessd.lock` (the §4.3
+# per-mutation serialization domain) on purpose: flock conflicts across fds even within ONE
+# process, so a lifetime hold of the mutation-lock file would deadlock every executor mutation.
+# The separate file dissolves the DAEMON §2.3-vs-§4.3 one-file conflict (review SWCAS-02; fork
+# decided 2026-06-10: separate instance-lock file). Acquired + held by daemon.boot, NOT here —
+# genesis-standalone (the test-harness mode) runs without the lifetime guard.
+INSTANCE_LOCK_FILENAME = ".harnessd.instance.lock"
+
 
 def _lock_path(runtime_root: Path) -> Path:
     """The EX serialization-domain lock path (``<runtime_root>/.harnessd.lock``, §4.3)."""
     return Path(runtime_root) / _LOCK_FILENAME
+
+
+def instance_lock_path(runtime_root) -> Path:
+    """The §2.3 lifetime single-instance lock path (``<runtime_root>/.harnessd.instance.lock``)."""
+    return Path(runtime_root) / INSTANCE_LOCK_FILENAME
 
 
 def _runtime_root(cfg) -> Path:
@@ -185,8 +200,10 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
     a minted owner_token (the same fresh-planned shape the chokepoint tests seed).
 
     The whole-map write takes the EX serialization lock HERE (a brief, self-contained acquire) so
-    ``_lock_held=True`` is TRUE-by-fact, not just by flag — the genesis single-instance lock was
-    released before STEP 5, so this seeding write must re-acquire it. The lock is released when this
+    ``_lock_held=True`` is TRUE-by-fact, not just by flag — genesis's brief STEP 1+2 acquire of the
+    same ``.harnessd.lock`` was released before STEP 5, so this seeding write must re-acquire it.
+    (The LIFETIME single-instance guard is the daemon's separate ``.harnessd.instance.lock`` —
+    §2.3 — which never contends with this per-mutation domain.) The lock is released when this
     function returns, BEFORE ``chokepoint.claim_and_spawn`` runs (which re-takes it per-mutation via
     ``executor.claim``) — so there is no re-entrant fcntl deadlock. Returns the registered binding
     (its owner_token is the claim's CAS precondition).
@@ -248,8 +265,11 @@ def _l1_binding_resumable(l1_address: str) -> bool:
 def run_genesis(executor, tmux, config) -> None:
     """The first-boot sequence (§2.12 / DAEMON §7 LOCKED) — establishes the L1 root custody.
 
-    Sequence (in order, under the held EX lock):
-      1. acquire ``.harnessd.lock`` (the single serialization domain, §4.3);
+    Sequence (in order):
+      1. briefly take ``.harnessd.lock`` EX (the §4.3 per-mutation serialization domain) around
+         steps 2–3 — NOT the single-instance guard: the lifetime instance lock is the daemon's
+         separate ``.harnessd.instance.lock``, already held by daemon.boot before genesis runs
+         (§2.3);
       2. write ``runtime.json`` (the §2.3 daemon runtime descriptor);
       3. PRECONDITIONS — OAuth credential health + pinned-binary (FAIL-LOUD; do NOT spawn on a bad
          precondition — an absent token raises AuthExpired BEFORE any spawn, §7 step 4);
@@ -270,28 +290,30 @@ def run_genesis(executor, tmux, config) -> None:
     role_variant = getattr(level_config, "role_variant", l1_level)
     build_id = getattr(config, "build_id", None)
 
-    # STEP 1+2 — the single-instance guard + the runtime descriptor write, under a BRIEFLY-held EX
-    # lock. The lock here is the §7-step-3 SINGLE-INSTANCE guard (two daemons cannot both write
-    # runtime.json / claim the root); it is acquired and RELEASED before the executor-backed work
-    # below. It must NOT wrap STEP 4/5: the frozen single-writer executor (and reconcile through it)
-    # take this SAME .harnessd.lock per mutation, so holding it across them would re-enter fcntl
-    # LOCK_EX on the same path and DEADLOCK. The executor's own per-mutation EX lock is the
-    # serialization domain for the control-plane writes (§4.3); genesis serializes only the
-    # non-executor single-instance + descriptor step here.
+    # STEP 1+2 — the runtime-descriptor write + precondition gate, under a BRIEFLY-held EX lock.
+    # The lock here SERIALIZES the descriptor write + precondition step against concurrent
+    # mutations (the §4.3 per-mutation domain) — it is NOT the single-instance guard. The lifetime
+    # single-instance guard is the daemon's separate `.harnessd.instance.lock`, acquired in
+    # daemon.boot BEFORE genesis runs and held for the process lifetime (§2.3 — the resolved
+    # §2.3-vs-§4.3 conflict, review SWCAS-02). This brief acquire is RELEASED before the
+    # executor-backed work below and must NOT wrap STEP 4/5: the frozen single-writer executor
+    # (and reconcile's replay checkpoint) take this SAME .harnessd.lock, so holding it across them
+    # would re-enter fcntl LOCK_EX on the same path and DEADLOCK.
     with store.file_lock(_lock_path(runtime_root), shared=False):
         # STEP 2 — write the daemon runtime descriptor (§2.3). Not control state; no WAL row.
         write_runtime_json(runtime_root, build_id=build_id)
 
         # STEP 3 — PRECONDITION CHECK (FAIL-LOUD). Raises BEFORE any spawn on a bad precondition
         # (an absent OAuth token -> AuthExpired) — the fail-loud gate is ahead of the spawn (§7 step 4).
-        # Run inside the single-instance lock (no executor call) so a bad precondition fails before
-        # any other instance could race the root claim.
+        # Run inside the held EX lock (no executor call) so a bad precondition fails before any
+        # concurrent mutator advances the root slot.
         preconditions(config)
 
     # STEP 4 — reconcile-on-restart: replay the WAL, classify every binding against live tmux, necro
     # the owned-but-dead, adopt the live. Liveness is reconstructed from the LEDGER (+ tmux), not from
-    # memory (§5.1). Routes through the REAL executor, which takes the .harnessd.lock per mutation —
-    # so it runs OUTSIDE the single-instance lock above (no re-entrant fcntl deadlock). NEVER spawns
+    # memory (§5.1). Routes through the REAL executor, which takes the .harnessd.lock per mutation
+    # (and the replay checkpoint takes it explicitly) — so it runs OUTSIDE the brief EX acquire
+    # above (no re-entrant fcntl deadlock). NEVER spawns
     # here — the spawn-or-resume decision is STEP 5. The report's ``adopted`` list tells genesis
     # whether the L1 pane was found ALIVE (adopted) — the no-double-spawn discriminator below.
     report = _reconcile_mod.reconcile_on_restart(executor, tmux)

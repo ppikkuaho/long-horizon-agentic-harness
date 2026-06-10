@@ -60,8 +60,8 @@ GENERALIZE / NEW" tags the origin relative to the recovered code.
 | `harnessd/spawn/oauth_guard.py` | The OAuth-only enforcer (the test target). SPLIT guard: `assert_no_api_key(env, argv)` (runtime-AGNOSTIC negative invariant — always on, Claude+Codex) + `assert_pane_env_isolated(pane_argv, server_env)` (closes the tmux-server env-leak) composed in `assert_oauth_only(env, argv, pane_argv, server_env)`; plus the CLAUDE-SPECIFIC positive `check_credential_health(env)` (token present + unexpired). Raises `ApiKeyForbidden` / `AuthExpired`. `auth_expired` is a DISTINCT class so a token lapse reads as "refresh the token", not a fleet-wide model-outage storm. | DAEMON §7, §8; H40 | NEW |
 | `harnessd/spawn/brief.py` | Assembles the runtime-NEUTRAL task contract (identity/address, spec pointer, frozen acceptance ref, interface contracts, constraints, workspace location, reporting expectations) and the DELTA brief for resume (what changed since prior incarnation, pointing at the durable work node). | DAEMON §6.3, §6.4 | NEW |
 | `harnessd/necro.py` | Basic necro: delta-brief assembly seam for `--resume`. Does NOT own a second copy of the gate-firewall — the NEVER-RESUME-ACROSS-THE-GATE check lives in EXACTLY ONE place (`chokepoint.resume`, the only path that can issue `--resume`); `necro.resume_brief` calls that single check rather than re-implementing a `raise`. Built + tested as part of Increment 10 (no separate increment). | DAEMON §6.4; runtime-decisions §2 item 8 | NEW |
-| `harnessd/genesis.py` | First-boot sequence. `run_genesis`: acquire `.harnessd.lock` → write runtime.json → `preconditions()` (OAuth health + pinned-binary hash, fail-loud) → `reconcile_on_restart` → if no live non-terminal L1 binding: `spawn.claim_and_spawn(L1-root, role_variant='L1', parent=null)` — boots with the shared `--system-prompt-file operational/shared/system-prompt.md` + the L1 load-manifest assembled into the brief — else RESUME (no double-spawn, F35). | DAEMON §7 | NEW |
-| `harnessd/daemon.py` | The harnessd resident loop + PID/lock/runtime.json. Acquires `.harnessd.lock` (single-instance), runs genesis, then `reconcile_tick` on a timer; writes the lock-free status sidecar (the ONE atomicity carve-out). launchd-managed. | DAEMON §2.3, §5.2 | NEW (poll cadence SHAPE from recovered `main` `--watch` L406-427) |
+| `harnessd/genesis.py` | First-boot sequence. `run_genesis`: briefly take the `.harnessd.lock` EX domain for the runtime.json/precondition step (the lifetime instance guard is the daemon's `.harnessd.instance.lock`, already held) → write runtime.json → `preconditions()` (OAuth health + pinned-binary hash, fail-loud) → `reconcile_on_restart` → if no live non-terminal L1 binding: `spawn.claim_and_spawn(L1-root, role_variant='L1', parent=null)` — boots with the shared `--system-prompt-file operational/shared/system-prompt.md` + the L1 load-manifest assembled into the brief — else RESUME (no double-spawn, F35). | DAEMON §7 | NEW |
+| `harnessd/daemon.py` | The harnessd resident loop + PID/lock/runtime.json. Acquires the persistent `.harnessd.instance.lock` (single-instance, non-blocking, held for the process lifetime; distinct from the per-mutation `.harnessd.lock` — DAEMON §2.3 resolution note), runs genesis, then `reconcile_tick` on a timer; writes the lock-free status sidecar (the ONE atomicity carve-out). launchd-managed. | DAEMON §2.3, §5.2 | NEW (poll cadence SHAPE from recovered `main` `--watch` L406-427) |
 | `harnessd/harnessctl.py` | CLI client — NOT a writer. Sends requests to the resident daemon over a local socket/FIFO; the daemon performs the mutation inside the one lock. Read-only commands (show/next/validate/reconcile-inspect) may take the shared lock directly. | DAEMON §4.3 | GENERALIZE (`build_parser` L1613-1696 subcommand structure → node-addressed) |
 | `harnessd/config.py` | Reads config-time seats the rest of the code must NOT hardcode: `LevelConfig` per level (model/runtime/`role_variant`/tool_manifest) plus the CONSTANT `system_prompt_file = operational/shared/system-prompt.md` (the one shared `--system-prompt-file`, identical L1–L5 — a runtime-global, not a per-level path, per CANON §4), the per-state suspicion windows `W(state)` (placeholder constants in v1, see FORK-W), the pinned-binary version/hash. Commissioning tunes these without a code change. | WATCHDOG §3.3, §8; runtime-and-model-map E31 | NEW |
 
@@ -137,7 +137,8 @@ def write_binding(candidate_map: dict, *, _lock_held: bool) -> None
     # PRIVATE whole-map atomic-replace (Option A). With a single keyed file, a whole-map replace by
     # anyone but the serialized daemon writer silently clobbers a concurrent write to a DIFFERENT node
     # (per-node generation CAS does NOT catch a cross-node overwrite — DAEMON §4.3). So this is callable
-    # ONLY from executor.commit and reconcile.replay, both of which run inside the held EX lock.
+    # ONLY from executor.commit and reconcile.replay, both of which run inside the held EX lock
+    # (reconcile's boot-replay checkpoint ACQUIRES it explicitly around its read-replay-write).
     # Structural guard, not convention: ASSERT _lock_held (raise loudly if called without the lock).
     # CLIs are clients, never writers — they route mutations through the daemon, never call this.
 
@@ -454,7 +455,8 @@ harnessd/                                  # TRACKED — all code below
 /runtime/<build-id>/                       # GITIGNORED — one tree per build run
   binding-ledger.yaml      # single keyed map (FORK-STORAGE Option A): address#seat -> binding {...}
   run-ledger.jsonl         # append-only FRAMED WAL: each line "<byte-len>\t<json-payload>\n"
-  .harnessd.lock           # the ONE serialization domain (fcntl) + single-instance guard
+  .harnessd.lock           # the ONE per-mutation EX serialization domain (fcntl, DAEMON §4.3)
+  .harnessd.instance.lock  # the lifetime single-instance guard (fcntl LOCK_EX|LOCK_NB, DAEMON §2.3)
   .harnessd.pid            # daemon PID
   runtime.json             # daemon runtime descriptor (build-id, started_at, pid)
   .harnessd/status.json    # lock-FREE status sidecar — the ONE atomicity carve-out (§4.4)

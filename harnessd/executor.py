@@ -81,6 +81,13 @@ def _resolve_lock_path():
     return Path(ledger.RUNTIME_ROOT) / LOCK_FILENAME
 
 
+def lock_path():
+    """The canonical §4.3 per-mutation EX lock path — exposed for reconcile's replay critical
+    section (the boot-replay checkpoint takes this SAME lock so its ``_lock_held=True`` is
+    true-by-fact, F6/reconcile-2). Internal call sites keep using ``_resolve_lock_path``."""
+    return _resolve_lock_path()
+
+
 # ---------------------------------------------------------------------------
 # Result types (§2.6 frozen).
 # ---------------------------------------------------------------------------

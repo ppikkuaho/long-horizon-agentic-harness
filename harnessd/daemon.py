@@ -1,10 +1,13 @@
-"""daemon — the harnessd resident loop: boot (lock + runtime.json + genesis) + the reconcile timer.
+"""daemon — the harnessd resident loop: boot (instance-lock + runtime.json + genesis) + the
+reconcile timer.
 
 The daemon is the ROOT of the supervision-tree custody chain — it starts L1, which has no parent
 agent (DAEMON §7: "L1 has no parent agent — the daemon is what starts L1"). It is launchd-hosted
 (KeepAlive/RunAtLoad, §2.2): relaunch = recovery. Three responsibilities (IMPLEMENTATION-PLAN §3
 module table, daemon.py row):
-  * ``boot`` — write the §2.3 runtime.json descriptor, then run genesis end-to-end (lock ->
+  * ``boot`` — acquire the PERSISTENT single-instance lock (`.harnessd.instance.lock`, §2.3 —
+    held for the process lifetime; a second instance refuses LOUDLY before writing anything),
+    then write the §2.3 runtime.json descriptor, then run genesis end-to-end (lock ->
     runtime.json -> preconditions -> reconcile_on_restart -> spawn-or-resume L1, Integration A).
   * ``poll_loop`` — reconcile_tick on a timer (an unbounded NoReturn resident loop), with the body
     FACTORED into a single drivable iteration (``poll_once``) so a test can drive exactly ONE tick.
@@ -45,9 +48,10 @@ BUILDER DECISIONS (the §2.12 details the frozen tests leave open — stated in 
 
 from __future__ import annotations
 
+import fcntl
 import time
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import IO, NoReturn, Optional, Tuple
 
 from harnessd import clock as _clock
 from harnessd import genesis as _genesis_mod
@@ -60,7 +64,78 @@ from harnessd.spawn import outbox as _outbox_mod
 
 
 # ---------------------------------------------------------------------------
-# boot — the daemon entry: write runtime.json, then run genesis end-to-end (§2.12).
+# The §2.3 single-instance guard — a PERSISTENT flock on `.harnessd.instance.lock`, acquired
+# non-blocking at boot and held for the process lifetime. DELIBERATELY a separate file from the
+# §4.3 per-mutation `.harnessd.lock`: flock conflicts across fds even within one process, so a
+# lifetime hold of the mutation-lock file would deadlock every executor mutation (the resolved
+# DAEMON §2.3-vs-§4.3 conflict, review SWCAS-02; fork decided 2026-06-10: separate file).
+# ---------------------------------------------------------------------------
+
+class DaemonAlreadyRunning(RuntimeError):
+    """The §2.3 single-instance refusal — another harnessd instance already holds the lock.
+
+    Raised by ``acquire_instance_lock`` BEFORE boot writes anything (adapter wiring, runtime.json,
+    genesis), so a refused second daemon clobbers NOTHING. launchd will not spawn two, but a
+    manual launch must not race the service-managed one (DAEMON §2.3). Under launchd KeepAlive a
+    duplicate plist would re-raise every ThrottleInterval (≥10s) — loud and throttled, by design.
+    """
+
+
+# The lifetime hold: (path, open handle). The flock dies with the fd/process; tests release it
+# explicitly via release_instance_lock(). Module-global on purpose — the daemon process is the
+# unit of single-instance-ness, not any one boot() call.
+_INSTANCE_LOCK: Optional[Tuple[Path, IO]] = None
+
+
+def acquire_instance_lock(runtime_root) -> Path:
+    """Acquire the §2.3 PERSISTENT single-instance lock; hold it for the process lifetime.
+
+    Non-blocking LOCK_EX|LOCK_NB via ``store.flock_exclusive_nb`` on
+    ``genesis.instance_lock_path(runtime_root)``; the open handle is stashed in the module global
+    so the flock survives until ``release_instance_lock`` / process exit. Raises
+    ``DaemonAlreadyRunning`` (loud, names the path) when another instance holds it.
+
+    IDEMPOTENT for the SAME path: an in-process re-boot of the same root is a no-op return —
+    mandatory, because flock self-conflicts across fds, so a naive re-acquire would refuse against
+    ITSELF. A hold on a DIFFERENT path (test tmp-root rebinding) is released first.
+    """
+    global _INSTANCE_LOCK
+    path = _genesis_mod.instance_lock_path(runtime_root)
+    if _INSTANCE_LOCK is not None:
+        held_path, _handle = _INSTANCE_LOCK
+        if held_path == path:
+            return path  # same-path re-boot: the hold is already ours (idempotent no-op)
+        release_instance_lock()  # a different root (test rebinding): drop the stale hold first
+    try:
+        handle = store.flock_exclusive_nb(path)
+    except BlockingIOError as exc:
+        raise DaemonAlreadyRunning(
+            f"another harnessd instance already holds the lock at {path} — refusing to start "
+            "(DAEMON §2.3)"
+        ) from exc
+    _INSTANCE_LOCK = (path, handle)
+    return path
+
+
+def release_instance_lock() -> None:
+    """Release the lifetime instance-lock hold (LOCK_UN + close + clear the global).
+
+    For tests and explicit shutdown paths; production never needs it — the flock dies with the
+    process (§2.3). Safe to call when nothing is held (no-op).
+    """
+    global _INSTANCE_LOCK
+    if _INSTANCE_LOCK is None:
+        return
+    _path, handle = _INSTANCE_LOCK
+    _INSTANCE_LOCK = None
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+# ---------------------------------------------------------------------------
+# boot — the daemon entry: instance-lock, write runtime.json, then run genesis end-to-end (§2.12).
 # ---------------------------------------------------------------------------
 
 def _runtime_root(runtime) -> Path:
@@ -79,22 +154,32 @@ def _runtime_root(runtime) -> Path:
 
 
 def boot(runtime) -> None:
-    """Daemon boot (§2.12): write the §2.3 runtime.json descriptor, then run genesis end-to-end.
+    """Daemon boot (§2.12): instance-lock -> runtime.json -> genesis end-to-end.
 
+    (0) Acquire the §2.3 PERSISTENT single-instance lock (`.harnessd.instance.lock`) FIRST —
+        non-blocking, held for the process lifetime. A second instance raises
+        ``DaemonAlreadyRunning`` HERE, before the adapter wiring and the descriptor write, so the
+        refused loser clobbers nothing.
     (a) Wire the concrete RuntimeAdapter into the ONE spawn chokepoint (the module-level seam) WHEN
         the runtime supplies one — production wires the real adapter; a test pre-installs its fake and
         passes no adapter (so boot does not clobber it).
     (b) Write ``runtime.json`` (the §2.3 daemon runtime descriptor: build-id / started_at / pid) so a
         crash between here and the first genesis write still leaves the descriptor on disk.
-    (c) Run genesis END-TO-END (lock -> runtime.json -> preconditions -> reconcile_on_restart ->
-        spawn-or-resume L1) through the REAL chokepoint + REAL reconcile + REAL on-disk ledger
-        (Integration A) — so on first boot the L1 root is spawned in-role.
+    (c) Run genesis END-TO-END (brief EX lock -> runtime.json -> preconditions ->
+        reconcile_on_restart -> spawn-or-resume L1) through the REAL chokepoint + REAL reconcile +
+        REAL on-disk ledger (Integration A) — so on first boot the L1 root is spawned in-role.
 
-    genesis itself re-writes runtime.json inside its held EX lock (§7 step 3); writing it here too is
-    deliberate (boot owns the descriptor independent of whether genesis reaches its own write) and is
-    idempotent (the same atomic-replace target).
+    genesis itself re-writes runtime.json inside its brief EX acquire (§7 step 3); writing it here
+    too is deliberate (boot owns the descriptor independent of whether genesis reaches its own
+    write) and is idempotent (the same atomic-replace target). Lock-acquire order is FIXED:
+    instance lock first, always — the per-mutation `.harnessd.lock` is only ever taken while the
+    instance lock is already held, so the two-lock ordering is deadlock-free by construction.
     """
     runtime_root = _runtime_root(runtime)
+
+    # (0) THE single-instance gate (§2.3) — BEFORE anything is written or wired.
+    acquire_instance_lock(runtime_root)
+
     build_id = getattr(runtime, "build_id", None)
     cfg = getattr(runtime, "config", None)
     if build_id is None and cfg is not None:

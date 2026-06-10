@@ -18,10 +18,12 @@ Authoritative sources:
 SINGLE-WRITER DISCIPLINE (DAEMON §4.3, the load-bearing constraint): every binding MUTATION in
 ``reconcile_on_restart`` / ``reconcile_tick`` routes through the REAL ``executor`` (the one writer —
 ``executor.transition``), never a raw ``ledger.write_binding`` poke. ``replay_wal`` is the ONE
-exception, and it is spec-sanctioned (§2.10): replay runs single-threaded inside the daemon's held EX
-lock during ``reconcile_on_restart``, so the cross-node-clobber hazard cannot occur, and it writes the
-whole map via ``ledger.write_binding(..., _lock_held=True)`` as ONE recovery checkpoint per node
-(FORK-REPLAY — one atomic-replace per node, not one per event).
+exception, and it is spec-sanctioned (§2.10): the boot-replay checkpoint ACQUIRES the per-mutation
+EX lock (``store.file_lock(executor.lock_path(), shared=False)``) around its read-replay-write
+critical section — so ``write_binding(..., _lock_held=True)`` is true-BY-FACT, the cross-node-
+clobber hazard cannot occur (F6/reconcile-2/SWCAS-01), and the whole map lands as ONE recovery
+checkpoint per node (FORK-REPLAY — one atomic-replace per node, not one per event). The lock
+releases before the classification sweep, whose mutations re-take it per transition.
 
 RESOLVED DETAILS (unspecified by the frozen tests; decided spec-faithfully, surfaced to the
 orchestrator):
@@ -76,7 +78,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import fencing, ledger, states
+# NB: ``executor`` is imported for ``lock_path()`` ONLY (the §4.3 per-mutation lock the replay
+# checkpoint takes; no cycle — executor does not import reconcile). The sweep itself never calls
+# the module directly: every mutation routes through the INJECTED ``executor`` argument.
+from . import executor as _executor_mod
+from . import fencing, ledger, states, store
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +157,8 @@ def replay_wal(bindings: dict, wal: list) -> dict:
 
     PURE over the in-memory ``bindings`` map: returns a NEW map (the inputs are not mutated). The
     on-disk write of the replayed map is the caller's job (``reconcile_on_restart`` writes it via
-    ``ledger.write_binding(..., _lock_held=True)`` inside the held EX lock — §2.10).
+    ``ledger.write_binding(..., _lock_held=True)`` inside the per-mutation EX lock it ACQUIRES for
+    the whole read-replay-write checkpoint — §2.10, F6/reconcile-2).
     """
     # Group pending events by node, so each node's events apply as one in-seq-order chain (FORK-REPLAY).
     events_by_node: dict = {}
@@ -248,8 +255,11 @@ def reconcile_on_restart(executor, tmux) -> ReconcileReport:
     """Boot-once reconcile: replay the WAL, then classify every binding against live tmux (§5.1).
 
     Steps (§5.1 / §2.10):
-      1. ``ledger.load_wal()`` (torn-tail-tolerant) + ``replay_wal`` -> persist the replayed map via
-         ``ledger.write_binding(..., _lock_held=True)`` (one atomic-replace; the recovery checkpoint).
+      1. inside the ACQUIRED per-mutation EX lock (``executor.lock_path()``, §4.3 — one critical
+         section, so ``_lock_held=True`` is true-by-fact): ``ledger.load_wal()`` (torn-tail-
+         tolerant) + ``replay_wal`` -> persist the replayed map via
+         ``ledger.write_binding(..., _lock_held=True)`` (one atomic-replace; the recovery
+         checkpoint). The lock releases before step 3's sweep (its mutations re-take it).
       2. ``tmux.list_targets()`` -> the live targets + their pane_pid/pane_dead.
       3. per binding, the §5.1 five-branch classification:
            recorded-terminal                                 -> LEAVE (reconcile-EXACTLY-once)
@@ -266,7 +276,8 @@ def reconcile_on_restart(executor, tmux) -> ReconcileReport:
          in this module the no-double-spawn invariant (F35) holds structurally.
 
     Every binding MUTATION routes through the REAL ``executor`` (single writer); only the §2.10-
-    sanctioned replay checkpoint writes the binding map directly (inside the daemon's held EX lock).
+    sanctioned replay checkpoint writes the binding map directly (inside the per-mutation EX lock
+    it acquires for the checkpoint critical section).
     """
     return _reconcile(executor, tmux, replay=True)
 
@@ -297,10 +308,19 @@ def _reconcile(executor, tmux, *, replay: bool, detector=None) -> ReconcileRepor
     """
     # (1) Boot-only: replay the WAL onto the binding map and persist it as one recovery checkpoint.
     if replay:
-        wal = ledger.load_wal()
-        if wal:
-            replayed = replay_wal(ledger.all_nodes(), wal)
-            ledger.write_binding(replayed, _lock_held=True)
+        # The replay checkpoint is a REAL critical section: WAL-load + replay + whole-map write all
+        # run inside the SAME held EX lock (the §4.3 per-mutation serialization domain,
+        # executor.lock_path()), so ``_lock_held=True`` is true-by-fact, not by flag (review
+        # reconcile-2 / SWCAS-01 — genesis's brief STEP1+2 acquire releases before this runs, so
+        # nothing else held the lock here). Reading load_wal/all_nodes INSIDE the lock makes the
+        # read -> replay -> write atomic per §4.3. The lock RELEASES before the sweep below — the
+        # executor re-takes this SAME lock per mutation and fcntl flock is not re-entrant, so
+        # widening this scope over the classification sweep would self-deadlock.
+        with store.file_lock(_executor_mod.lock_path(), shared=False):
+            wal = ledger.load_wal()
+            if wal:
+                replayed = replay_wal(ledger.all_nodes(), wal)
+                ledger.write_binding(replayed, _lock_held=True)
 
     # (2) The live tmux listing (the ONLY actual-state source the sweep trusts — §5.4: evidence-based).
     targets = tmux.list_targets()
