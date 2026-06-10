@@ -85,3 +85,37 @@ def inbox_path(address: str, runtime_root) -> Path:
     """The per-SEAT wake inbox: ``<node-dir>/.inbox.<seat>.jsonl`` (③-wake surface, multi-writer)."""
     _, seat = split_address(address)
     return node_dir(address, runtime_root) / f".inbox.{seat}.jsonl"
+
+
+# ---------------------------------------------------------------------------
+# THE ONE tmux session-name derivation (F18 / finding OSA-01).
+#
+# tmux 3.6a SILENTLY RENAMES session names containing ':' or '.' to '_' variants (probed live:
+# 'harness:L1-exec' -> 'harness_L1-exec'; 'harness-proj-1.2-exec' -> 'harness-proj-1_2-exec'),
+# so a recorded name carrying either char NEVER matches the live session. The canonical name
+# therefore folds the WHOLE unsafe alphabet — '/', '#', ':', '.' — to '-', and the prefix is
+# 'harness-' (NOT 'harness:'), a name tmux does not rewrite. Every session-name producer (the
+# Claude adapter, the chokepoint child register, the genesis L1 register) derives through THIS
+# one function so the ledger key and the live tmux key cannot drift.
+#
+# NOTE: this is the SESSION name only. The authoritative recorded ``tmux_target`` is the full
+# '<session>:<window>.<pane>' triple tmux itself reports from ``create_detached`` (the
+# post-rename truth + the REAL indices) — see harnessd/spawn/tmux.py.
+# ---------------------------------------------------------------------------
+
+# The operator-predictable session prefix: `tmux -L <socket> attach -t harness-<collapsed-address>`.
+SESSION_PREFIX: str = "harness-"
+
+# The characters tmux rewrites (':' '.') plus the address separators ('/' '#'), all folded to '-'.
+_SESSION_UNSAFE = str.maketrans({"/": "-", "#": "-", ":": "-", ".": "-"})
+
+
+def session_name_for(address: str) -> str:
+    """``a/b.c#seat`` -> ``harness-a-b-c-seat`` — the ONE canonical tmux session name (F18).
+
+    Folds '/', '#', ':' and '.' to '-' so tmux never silently renames the session, and prefixes
+    ``harness-`` so the operator can predict the attach target. All session-name producers and
+    the reconcile/detector match key derive through this single function (OSA-01: a second
+    collapse implementation is exactly how the recorded and live keys drifted apart).
+    """
+    return SESSION_PREFIX + address.translate(_SESSION_UNSAFE)

@@ -4,14 +4,19 @@ The transport the spawn chokepoint, detector, and reconcile sweep talk through. 
 ``oauth_guard`` (pure functions) this module shells out to a REAL ``tmux`` binary via
 ``subprocess`` — it is the boundary between the harness and the OS process tree.
 
-The §2.11 frozen surface:
+The §2.11 frozen surface (return contract REVISED by F18 / finding OSA-01):
 
-  * ``create_detached(session_name, argv, env) -> pane_id`` — open a DETACHED session whose
-    pane process is the FROM-EMPTY isolator ``env -i <K=V…> <argv…>`` (``build_pane_argv``).
+  * ``create_detached(session_name, argv, env) -> canonical_target`` — open a DETACHED session
+    whose pane process is the FROM-EMPTY isolator ``env -i <K=V…> <argv…>`` (``build_pane_argv``).
     ``env -i`` clears the inherited environment and re-adds ONLY the explicit vars, so the
     pane inherits NOTHING from the long-lived tmux SERVER env (the load-bearing OAuth-only
     mechanism: a launchd-spawned daemon may have widened the server env with a stray
     ANTHROPIC_API_KEY/OPENAI_API_KEY; a bare ``new-session <cmd>`` would leak it into the pane).
+    Returns the CANONICAL live target ``<session>:<window>.<pane>`` exactly as tmux reports it
+    (``-P -F '#{session_name}:#{window_index}.#{pane_index}'``) — the post-rename truth (tmux
+    3.6a silently rewrites ':'/'.' in session names to '_') with the REAL indices (a non-zero
+    base-index/pane-base-index config is reported correctly, never guessed). This return IS a
+    ``list_targets()`` key, so it is the ONE value the adapter records as ``tmux_target``.
   * ``capture_pane(session_name) -> str`` — ``capture-pane -p`` readback of the pane buffer.
   * ``list_targets() -> {tmux_target: {pane_pid, pane_dead, window_activity}}`` — the live
     control-plane snapshot Increments 6/7 (detector / reconcile) read.
@@ -103,12 +108,20 @@ def build_pane_argv(env: dict, argv: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def create_detached(session_name: str, argv: list[str], env: dict) -> str:
-    """Open a DETACHED tmux session running the from-empty ``env -i`` pane; return the pane id.
+    """Open a DETACHED tmux session running the from-empty ``env -i`` pane; return the
+    CANONICAL live target ``<session>:<window>.<pane>`` (F18 / finding OSA-01).
 
     The pane command is ``build_pane_argv(env, argv)`` — ``env -i <K=V…> <argv…>`` — handed to
     ``new-session`` as distinct argv tokens. ``-d`` keeps the session detached (the daemon owns
-    it, not an attached terminal). Returns the ``#{pane_id}`` of the created pane (a non-empty
-    ``%N`` string) as the spawn handle.
+    it, not an attached terminal).
+
+    THE RETURN CONTRACT (revised by F18): tmux ITSELF reports the created target via
+    ``-P -F '#{session_name}:#{window_index}.#{pane_index}'`` — never an echo of the requested
+    name. tmux 3.6a silently RENAMES session names containing ':' or '.' (to '_' variants), and
+    a user ``base-index``/``pane-base-index`` shifts the window/pane indices — so the only
+    trustworthy key is the one tmux prints back. The return is byte-for-byte a ``list_targets()``
+    key; the adapter records it as the binding's ``tmux_target`` so pane_alive / the reconcile
+    sweep / send-keys all address the pane that actually exists.
 
     WRAPPING-IDEMPOTENT: if ``argv`` ALREADY begins with the from-empty isolator (``env -i``) —
     the adapter pre-builds the exact pane vector it gates with ``build_pane_argv`` and passes it
@@ -120,9 +133,13 @@ def create_detached(session_name: str, argv: list[str], env: dict) -> str:
         pane_argv = list(argv)
     else:
         pane_argv = build_pane_argv(env, argv)
-    # `new-session -d -s <session> -P -F '#{pane_id}' <pane_argv...>` opens detached and prints
-    # the new pane's id. The pane_argv tokens follow as the command (NOT a re-quoted string).
-    args = ["new-session", "-d", "-s", session_name, "-P", "-F", "#{pane_id}"] + pane_argv
+    # `new-session -d -s <session> -P -F '#{session_name}:#{window_index}.#{pane_index}'`
+    # opens detached and prints the CANONICAL target triple (the post-rename session name +
+    # the real indices). The pane_argv tokens follow as the command (NOT a re-quoted string).
+    args = [
+        "new-session", "-d", "-s", session_name,
+        "-P", "-F", "#{session_name}:#{window_index}.#{pane_index}",
+    ] + pane_argv
     proc = _run(args)
     return proc.stdout.strip()
 
@@ -134,8 +151,11 @@ def create_detached(session_name: str, argv: list[str], env: dict) -> str:
 def capture_pane(session_name: str) -> str:
     """Return the pane's captured buffer (``capture-pane -p``) — the pane-readback channel.
 
-    Targets the session by name (``-t``); ``-p`` prints the buffer to stdout. Used to read back
-    a fake-CLI pane's output in the real-tmux tests (e.g. the ``printenv`` isolation probe).
+    ``-t`` accepts EITHER a bare session name OR the full canonical ``<session>:<window>.<pane>``
+    triple ``create_detached`` returns (the recorded ``tmux_target``) — tmux resolves both; the
+    triple is exact. ``-p`` prints the buffer to stdout. Used to read back a fake-CLI pane's
+    output in the real-tmux tests (e.g. the ``printenv`` isolation probe) and by the watchdog's
+    prod-gate capture.
     """
     proc = _run(["capture-pane", "-p", "-t", session_name], check=False)
     return proc.stdout
@@ -183,6 +203,9 @@ def list_targets() -> dict[str, dict]:
 def kill(session_name: str) -> None:
     """Kill a session (``kill-session -t``) — the control-plane teardown edge.
 
+    ``-t`` accepts EITHER a bare session name OR the full canonical ``<session>:<window>.<pane>``
+    triple ``create_detached`` returns (the recorded ``tmux_target``) — kill-session resolves the
+    pane spec to its owning session, so killing by the recorded target tears the session down.
     Best-effort: a session that is already gone is not an error here (idempotent teardown).
     Per §2.11 the chokepoint reaches this ONLY via the executor-stamping path for control
     state; the raw transport is idempotent so reconcile/teardown can call it safely.

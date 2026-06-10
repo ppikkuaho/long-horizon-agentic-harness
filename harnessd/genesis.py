@@ -237,7 +237,9 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
         "level": level,
         "subagent_id": subagent_id,
         "session_uuid": session_uuid,
-        "tmux_target": "harness:" + l1_address,
+        # The PRE-SPAWN placeholder: the canonical session name (F18 — tmux-rename-safe).
+        # The chokepoint's STEP4 overwrites it with the live '<session>:<window>.<pane>' triple.
+        "tmux_target": addressing.session_name_for(l1_address),
         "state": "planned",
         "generation": generation,
         "lease_epoch": lease_epoch,

@@ -91,7 +91,8 @@ class RecordingTmux:
 
     def create_detached(self, session_name, pane_argv, env):
         self.created.append((session_name, list(pane_argv), dict(env)))
-        return "%fake-pane-int-b"
+        # Post-F18 contract (mirrors the real wrapper): return the CANONICAL live target.
+        return f"{session_name}:0.0"
 
     def server_env(self):
         return {}  # a clean server — no leaked ANTHROPIC/OPENAI key
@@ -339,9 +340,12 @@ def test_create_detached_env_is_exactly_the_four_isolation_vars_no_api_key(runti
         "the pane MUST carry CLAUDE_CODE_OAUTH_TOKEN (the OAuth/subscription auth channel)"
     )
 
-    # The session name is recoverable from the address (harness: + collapse(address)).
-    assert session_name == "harness:" + NODE.replace("/", "-").replace("#", "-"), (
-        f"session name must be harness:+collapse(address); got {session_name!r}"
+    # The session name is recoverable from the address — the ONE canonical derivation (F18:
+    # 'harness-' + the address with '/', '#', ':', '.' folded to '-'; the old 'harness:' prefix
+    # was silently renamed by tmux, so the recorded key never matched the live session).
+    from harnessd import addressing as _addressing
+    assert session_name == _addressing.session_name_for(NODE), (
+        f"session name must be addressing.session_name_for(address); got {session_name!r}"
     )
 
 

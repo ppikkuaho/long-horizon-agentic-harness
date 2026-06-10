@@ -120,7 +120,9 @@ class _MockTmux:
 
     def create_detached(self, session_name, pane_argv, env):
         self.created.append((session_name, list(pane_argv), dict(env)))
-        return "%fake-pane-1"
+        # Post-F18 contract (mirrors the real wrapper): return the CANONICAL live target
+        # '<session>:<window>.<pane>' — what `-P -F` prints and list_targets() keys on.
+        return f"{session_name}:0.0"
 
     def server_env(self):
         return {}  # clean server — no leaked key
@@ -310,21 +312,25 @@ def test_pane_argv_is_env_i_isolated(no_real_exec):
 
 
 # ===========================================================================
-# Part (a) — session name == "harness:" + collapse(address).
+# Part (a) — session name == addressing.session_name_for(address) (F18/OSA-01).
+# The pre-fix 'harness:'+collapse(address) shape was silently RENAMED by tmux
+# (':' in a session name -> '_'), so the recorded key never matched the live one.
 # ===========================================================================
 
-def test_session_name_is_harness_collapsed_address(no_real_exec):
-    """The tmux session name is 'harness:' + collapse(address) so reconcile can match tmux<->ledger."""
+def test_session_name_is_the_canonical_addressing_derivation(no_real_exec):
+    """The tmux session name is addressing.session_name_for(address) — 'harness-' + the address
+    with '/', '#', ':', '.' folded to '-' — so tmux never renames it and reconcile can match
+    tmux<->ledger (F18; the old 'harness:' prefix was rewritten to 'harness_' by tmux 3.6a)."""
+    from harnessd import addressing
+
     tmux = _MockTmux()
     adapter = _make_adapter(tmux)
     address = "payments/gateway/stripe#exec"
     _spawn(adapter, address=address)
     assert tmux.created, "create_detached must have been called"
     session_name = tmux.created[0][0]
-    collapsed = address.replace("/", "-").replace("#", "-")
-    assert session_name == "harness:" + collapsed, (
-        f"session name must be 'harness:'+collapse(address) == {'harness:' + collapsed!r}; "
-        f"got {session_name!r}"
+    assert session_name == addressing.session_name_for(address) == "harness-payments-gateway-stripe-exec", (
+        f"session name must be addressing.session_name_for(address); got {session_name!r}"
     )
 
 

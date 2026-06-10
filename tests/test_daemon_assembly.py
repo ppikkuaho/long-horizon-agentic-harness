@@ -106,9 +106,12 @@ def _install_adapter():
     class _FakeAdapter:
         def pin_and_open(self, neutral_brief, level_config, tmux_target, env):
             from harnessd.spawn.adapters.base import SpawnResult
+            # Mirrors the REAL adapter's post-F18 contract: tmux_target is the CANONICAL
+            # '<session>:<window>.<pane>' triple create_detached returns (not the raw address).
             return SpawnResult(ok=True, session_uuid="s", model_used="m", role_variant="L5",
                                system_prompt_file="x", system_prompt_file_hash="h",
-                               tmux_target=tmux_target, transcript_path="/tmp/s.jsonl", failure_class=None)
+                               tmux_target=addressing.session_name_for(tmux_target) + ":0.0",
+                               transcript_path="/tmp/s.jsonl", failure_class=None)
     fake = _FakeAdapter()
     if hasattr(chokepoint, "set_adapter"):
         chokepoint.set_adapter(fake)
@@ -350,7 +353,10 @@ def test_agent_visible_signoff_collapses_through_real_tick(runtime):
                                "evidence": {"report": "report.md"}}), encoding="utf-8")
     os.replace(tmp, signal_path)  # the agent's atomic last act
 
-    tmux = _Tmux({"harness:" + addr: {"pane_pid": 4242, "pane_dead": 0}})
+    # The fake tmux is keyed by the CANONICAL target STEP4 recorded on the binding (F18) — the
+    # exact key the reconcile sweep / pane_alive look up against list_targets().
+    live_target = ledger.read_binding(addr)["tmux_target"]
+    tmux = _Tmux({live_target: {"pane_pid": 4242, "pane_dead": 0}})
     det = _Detector(default="working")
     wal_before = len(ledger.load_wal())
 

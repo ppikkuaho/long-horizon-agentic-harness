@@ -354,9 +354,14 @@ def _spawn_after_claim(
             "model_used": spawn_result.model_used,
             "role_variant": spawn_result.role_variant,
             "system_prompt_file": spawn_result.system_prompt_file,
+            # F18/OSA-01: the CANONICAL live target ('<session>:<window>.<pane>', tmux's own
+            # post-rename report returned by create_detached) overwrites the registration
+            # placeholder — pane_alive / the reconcile sweep / send-keys key off THIS value.
+            **({"tmux_target": spawn_result.tmux_target} if spawn_result.tmux_target else {}),
         },
         event="spawn_open",
-        summary="STEP4: actor opened; record session_uuid + transcript_path + model_used (claimed->spawning)",
+        summary="STEP4: actor opened; record session_uuid + transcript_path + model_used + canonical "
+                "tmux_target (claimed->spawning)",
     )
     if not step4.ok:
         release_claim(node_address, expected_owner_token=post_claim_token)
@@ -701,7 +706,10 @@ def _register_child(
         "level": level,
         "subagent_id": subagent_id,
         "session_uuid": session_uuid,
-        "tmux_target": "harness:" + child_address,
+        # The PRE-SPAWN placeholder: the canonical session name (F18 — a name tmux will not
+        # rename). STEP4 overwrites it with the full '<session>:<window>.<pane>' triple tmux
+        # reports once the pane actually opens.
+        "tmux_target": addressing.session_name_for(child_address),
         "state": "planned",
         "generation": generation,
         "lease_epoch": lease_epoch,

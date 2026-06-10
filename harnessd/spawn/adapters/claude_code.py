@@ -13,7 +13,10 @@ The FROZEN H40 boot recipe (the ONE Claude-Code spawn the whole harness uses):
   env  = exactly the 4 isolation vars {CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN,
          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, DISABLE_AUTOUPDATER}. No raw API key.
 
-  session = "harness:" + collapse(address)   (so reconcile can match tmux<->ledger).
+  session = addressing.session_name_for(address)  ('harness-' + the address with '/', '#',
+      ':', '.' all folded to '-' — F18: a name tmux 3.6a will NOT silently rename). The RECORDED
+      tmux_target is the canonical '<session>:<window>.<pane>' triple create_detached RETURNS
+      (tmux's own post-rename report) so reconcile/pane_alive match tmux<->ledger byte-for-byte.
 
   The pane handed to ``tmux.create_detached`` is the from-empty isolator ``env -i <K=V…> <argv…>``
   (``tmux.build_pane_argv`` — the SAME seam the wrapper uses), and the OAuth-only gate
@@ -50,7 +53,7 @@ import os
 import uuid
 from pathlib import Path
 
-from harnessd import config
+from harnessd import addressing, config
 from harnessd.spawn import oauth_guard, sandbox, cc_config
 
 from .base import RuntimeAdapter, SpawnResult
@@ -72,15 +75,6 @@ _ISOLATION_ENV_KEYS = frozenset(
 )
 
 _MODEL_USED = "opus-4.8 / claude-code"
-
-
-def _collapse(address: str) -> str:
-    """Collapse ``a/b#seat`` -> ``a-b-seat`` (both '/' and '#' -> '-') for the session name.
-
-    Matches ``detector_signals._collapse_address`` and the reconcile tmux<->ledger match key, so
-    a session named ``harness:`` + collapse(address) is recoverable from the ledger address.
-    """
-    return address.replace("/", "-").replace("#", "-")
 
 
 def _harness_root() -> Path:
@@ -321,7 +315,7 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         #     canonicalization + the cache-redirection env are owned by the sandbox seam. create_-
         #     detached is wrapping-idempotent for the bare-`env -i` head; the sandbox-wrapped vector
         #     (head = sandbox-exec) is passed through verbatim.
-        session_name = "harness:" + _collapse(tmux_target)
+        session_name = addressing.session_name_for(tmux_target)
         launch_argv = pane_argv
         if containment is not None:
             profile_text = sandbox.render_profile(containment)
@@ -329,7 +323,10 @@ class ClaudeCodeAdapter(RuntimeAdapter):
             launch_argv = sandbox.wrap(pane_argv, profile_path)
 
         # (9) Open the detached actor with the pane vector (wrapped when jailed, bare env -i when not).
-        self.tmux.create_detached(session_name, launch_argv, env)
+        #     create_detached returns the CANONICAL live target '<session>:<window>.<pane>' (tmux's own
+        #     post-rename report, F18/OSA-01) — THAT is the recorded tmux_target, never the requested
+        #     name (which tmux may rewrite) and never a guessed ':0.0' suffix (base-index may differ).
+        canonical_target = self.tmux.create_detached(session_name, launch_argv, env)
 
         # (8) Record the facts (config = intent, model_used = fact).
         session_uuid = str(uuid.uuid4())
@@ -342,7 +339,7 @@ class ClaudeCodeAdapter(RuntimeAdapter):
             role_variant=role_variant,
             system_prompt_file=config.SYSTEM_PROMPT_FILE,
             system_prompt_file_hash=_system_prompt_hash(),
-            tmux_target=session_name,
+            tmux_target=canonical_target,
             transcript_path=transcript_path,
             failure_class=None,
             argv=tuple(argv),
