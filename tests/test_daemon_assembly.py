@@ -410,6 +410,42 @@ def test_poll_once_does_not_collapse_a_coordinator_with_a_live_child_even_on_DON
     assert ledger.read_binding(child)["state"] == "running", "the live child is untouched"
 
 
+def test_poll_once_collapses_a_coordinator_whose_children_are_all_terminal(runtime):
+    """THE 2026-06-11 LIVE-RUN WEDGE: the leaf/coordinator split silently dropped terminal-signal
+    processing for coordinators ENTIRELY — an L4/L2 that signed off DONE after all its children
+    finished was never collapsed, never woke its parent, and the upward path froze with the whole
+    subtree green. The correct semantics: live-child protection (the test above) PLUS terminal-
+    signal-first once every descendant is terminal. (Mutant: keep the death-probe-only coordinator
+    branch -> the parent stays running forever -> CAUGHT.)"""
+    _install_adapter()
+    parent = "proj/widget#exec"
+    ptoken = fencing.mint_owner_token(parent, "psa", "puuid", 2)
+    pws = addressing.node_dir(parent, runtime); pws.mkdir(parents=True, exist_ok=True)
+    prec = {"node_address": parent, "parent_address": "root#exec", "level": "L4", "subagent_id": "psa",
+            "session_uuid": "puuid", "state": "running", "generation": 3, "lease_epoch": 2,
+            "owner_token": ptoken, "last_applied_seq": 0, "liveness_state": "working",
+            "tmux_target": "harness:" + parent, "workspace": str(pws)}
+    child, ctoken = _seed_running_leaf(runtime, "proj/widget/task#exec", level="L5")
+    m = dict(ledger.all_nodes()); m[parent] = prec
+    m[child]["state"] = "done"  # the child already collapsed — ALL descendants terminal
+    m[child]["terminal_signal"] = "DONE"
+    ledger.write_binding(m, _lock_held=True)
+    _write_signal(runtime, parent, signal="DONE", owner_token=ptoken)
+    tmux = _Tmux({"harness:" + parent: {"pane_pid": 1, "pane_dead": 0}})
+    det = _Detector(default="working")
+
+    daemon.poll_once(executor, tmux, det)  # ONE real tick
+
+    b = ledger.read_binding(parent)
+    assert b["state"] == "done", (
+        "a coordinator whose descendants are ALL terminal and who signed off DONE must collapse "
+        "(terminal-signal-first applies to every node; only the idle ladder is leaf-only) — "
+        "the 2026-06-11 live run wedged exactly here"
+    )
+    assert b.get("terminal_signal") == "DONE"
+    assert ledger.read_binding(child)["state"] == "done", "the terminal child is untouched"
+
+
 # --------------------------------------------------------------------------- #
 # 5. F14 — runtime.json.last_tick_at stamped on EVERY poll_once (findings daemon-1 / COMP-5).
 #    The DAEMON §2.6 hang-detector surface: the external harnessd-pinger reads last_tick_at and

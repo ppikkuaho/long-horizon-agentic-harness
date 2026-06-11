@@ -216,6 +216,77 @@ def _capture_pane(node) -> str:
 # STEP A + STEP B — check_leaf (the §2.9 leaf path).
 # ===========================================================================
 
+def check_terminal_signal(node, binding) -> Optional[WatchdogAction]:
+    """STEP A, shared by leaves AND coordinators (the 2026-06-11 live-run wedge): the fenced
+    terminal-signal-first check. The §5.4 leaf/coordinator split exempts coordinators from the
+    idle LADDER only — truth-recording (a fenced DONE/FAILED/ESCALATED sign-off) applies to EVERY
+    node; before this extraction a coordinator's DONE was never read and the upward path froze
+    with the whole subtree green. Returns the enacted action (COLLAPSE, or a NOOP carrying
+    collapse_failed / escalate_journal_failed / escalated_holds_slot), or None when there is no
+    actionable signal (absent / stale-fenced / unrecognized kind / ESCALATED-and-answered) — the
+    caller falls through to its own liveness policy (leaf: the idle ladder; coordinator: the death
+    probe). The CALLER owns the live-descendant gate (never collapse over live children —
+    agent-lifecycle's bottom-up shutdown)."""
+    node_address = _node_address(node)
+    sig = detector_signals.read_terminal_signal(node, binding)
+    if sig is None:
+        return None
+    signal = sig.get("signal")
+    if signal == "ESCALATED":
+        # ESCALATED holds its slot — NEVER collapses (§3.6 asymmetric). But the slot-hold is
+        # JOURNALED (SML-02): chokepoint.escalate stamps terminal_signal=ESCALATED + appends the
+        # signal_ESCALATED running->running row through the single-writer executor, exactly once
+        # PER ARTIFACT (SM-4: idempotency keys on the artifact ts vs terminal_signal_at — a
+        # post-answer SECOND question re-journals; a re-poll of the same artifact is a no-op).
+        # ROUTE THE RESULT: a fenced/CAS-aborted journal write must NOT read as a clean
+        # slot-hold — the next tick retries against the still-present .signal artifact
+        # (mirrors the collapse_failed routing below).
+        result = chokepoint.escalate(
+            node_address, expected_owner_token=binding.get("owner_token"),
+            signal_ts=sig.get("ts"),
+        )
+        if result is not None and getattr(result, "ok", True) is False:
+            return WatchdogAction(
+                kind=NOOP, node=node_address,
+                detail={"reason": "escalate_journal_failed", "terminal_signal": signal,
+                        "errors": list(getattr(result, "errors", []) or [])},
+            )
+        if result is not None or not detector_signals.escalation_answered(binding, sig.get("ts")):
+            return WatchdogAction(
+                kind=NOOP, node=node_address,
+                detail={"reason": "escalated_holds_slot", "terminal_signal": signal,
+                        "journaled": result is not None},
+            )
+        # SM-4: the round-trip for THIS artifact is ANSWERED (answered_at is fresher than
+        # both the stamp and the artifact) — the slot-hold no longer shields the node. Return
+        # None so the caller falls through (leaf: STEP 0/STEP B revives the ladder post-answer,
+        # WATCHDOG §3.5); a NEW question (a fresh artifact) re-journals above and re-arms the hold.
+        return None
+    if signal in ("DONE", "FAILED"):
+        # Route the terminal collapse through the REAL chokepoint/executor (running -> done/failed).
+        # ROUTE THE RESULT (review watchdog-2): a FAILED terminal transition (a CAS miss / fencing
+        # rejection) must NOT be reported as a clean COLLAPSE — that would tell the daemon the node
+        # is gone when it is not. On a failed collapse we return a NOOP (collapse_failed) so the next
+        # tick retries against the still-present .signal.json; only a SUCCESSFUL collapse is a COLLAPSE.
+        result = chokepoint.collapse(
+            node_address,
+            signal,
+            expected_owner_token=binding.get("owner_token"),
+        )
+        if result is not None and getattr(result, "ok", True) is False:
+            return WatchdogAction(
+                kind=NOOP, node=node_address,
+                detail={"reason": "collapse_failed", "terminal_signal": signal,
+                        "errors": list(getattr(result, "errors", []) or [])},
+            )
+        return WatchdogAction(
+            kind=COLLAPSE, node=node_address,
+            detail={"terminal_signal": signal, "evidence": sig.get("evidence")},
+        )
+    # An unrecognized fenced signal kind is not actionable here -> the caller falls through.
+    return None
+
+
 def check_leaf(node, binding, *, now) -> WatchdogAction:
     """The leaf liveness check (§2.9): terminal-signal FIRST, then the idle->prod->FAILED ladder.
 
@@ -252,63 +323,12 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
     """
     node_address = _node_address(node)
 
-    # ----- STEP A: terminal-signal FIRST (fenced reader; a stale token yields None) -----
-    sig = detector_signals.read_terminal_signal(node, binding)
-    if sig is not None:
-        signal = sig.get("signal")
-        if signal == "ESCALATED":
-            # ESCALATED holds its slot — NEVER collapses (§3.6 asymmetric). But the slot-hold is
-            # JOURNALED (SML-02): chokepoint.escalate stamps terminal_signal=ESCALATED + appends the
-            # signal_ESCALATED running->running row through the single-writer executor, exactly once
-            # PER ARTIFACT (SM-4: idempotency keys on the artifact ts vs terminal_signal_at — a
-            # post-answer SECOND question re-journals; a re-poll of the same artifact is a no-op).
-            # ROUTE THE RESULT: a fenced/CAS-aborted journal write must NOT read as a clean
-            # slot-hold — the next tick retries against the still-present .signal artifact
-            # (mirrors the collapse_failed routing below).
-            result = chokepoint.escalate(
-                node_address, expected_owner_token=binding.get("owner_token"),
-                signal_ts=sig.get("ts"),
-            )
-            if result is not None and getattr(result, "ok", True) is False:
-                return WatchdogAction(
-                    kind=NOOP, node=node_address,
-                    detail={"reason": "escalate_journal_failed", "terminal_signal": signal,
-                            "errors": list(getattr(result, "errors", []) or [])},
-                )
-            if result is not None or not detector_signals.escalation_answered(binding, sig.get("ts")):
-                return WatchdogAction(
-                    kind=NOOP, node=node_address,
-                    detail={"reason": "escalated_holds_slot", "terminal_signal": signal,
-                            "journaled": result is not None},
-                )
-            # SM-4: the round-trip for THIS artifact is ANSWERED (answered_at is fresher than
-            # both the stamp and the artifact) — the slot-hold no longer shields the node. FALL
-            # THROUGH to STEP 0/STEP B so the idle->prod->FAILED ladder revives post-answer (a
-            # wedged post-answer agent must be prodded/failed-loud, WATCHDOG §3.5); a NEW
-            # question (a fresh artifact) re-journals above and re-arms the hold.
-        if signal in ("DONE", "FAILED"):
-            # Route the terminal collapse through the REAL chokepoint/executor (running -> done/failed).
-            # ROUTE THE RESULT (review watchdog-2): a FAILED terminal transition (a CAS miss / fencing
-            # rejection) must NOT be reported as a clean COLLAPSE — that would tell the daemon the node
-            # is gone when it is not. On a failed collapse we return a NOOP (collapse_failed) so the next
-            # tick retries against the still-present .signal.json; only a SUCCESSFUL collapse is a COLLAPSE.
-            result = chokepoint.collapse(
-                node_address,
-                signal,
-                expected_owner_token=binding.get("owner_token"),
-            )
-            if result is not None and getattr(result, "ok", True) is False:
-                return WatchdogAction(
-                    kind=NOOP, node=node_address,
-                    detail={"reason": "collapse_failed", "terminal_signal": signal,
-                            "errors": list(getattr(result, "errors", []) or [])},
-                )
-            return WatchdogAction(
-                kind=COLLAPSE, node=node_address,
-                detail={"terminal_signal": signal, "evidence": sig.get("evidence")},
-            )
-        # An unrecognized fenced signal kind is not actionable here -> fall through to liveness.
-
+    # ----- STEP A: terminal-signal FIRST (fenced reader; a stale token yields None). Extracted to
+    # check_terminal_signal so COORDINATORS share it (the 2026-06-11 live-run wedge: the §5.4 split
+    # exempts coordinators from the LADDER only — truth-recording applies to EVERY node). -----
+    signal_action = check_terminal_signal(node, binding)
+    if signal_action is not None:
+        return signal_action
     # ----- STEP 0 (WATCHDOG §3.4): a PAUSED subtree (this node OR any ancestor) gets NO recovery
     # actions — no suspicion, no stale-counter advance, no prod, no watchdog-imposed FAILED.
     # Placed AFTER STEP A (the ratified §3.4 placement): the agent's own fenced terminal sign-off

@@ -330,6 +330,22 @@ def _service_outboxes_best_effort() -> None:
 # sign-off, no idle leaf ever fails-loud, no coordinator-death is probed.
 # ---------------------------------------------------------------------------
 
+def _has_live_descendant(node_address: str, bindings: dict) -> bool:
+    """True iff any descendant binding is NON-terminal (the bottom-up shutdown gate for coordinator
+    terminal-signal processing). Mirrors _is_coordinator's two-way descendant match (parent_address
+    edge, address-prefix fallback) so the two predicates cannot disagree about what a descendant is."""
+    this_path = node_address.split("#", 1)[0]
+    for other_address, other in bindings.items():
+        if other_address == node_address:
+            continue
+        is_descendant = other.get("parent_address") == node_address or other_address.split("#", 1)[
+            0
+        ].startswith(this_path + "/")
+        if is_descendant and not states.is_terminal(other.get("state")):
+            return True
+    return False
+
+
 def _is_coordinator(node_address: str, bindings: dict) -> bool:
     """A COORDINATOR has at least one (live-or-any) descendant binding (§5.4). Mirrors reconcile's split:
     primary = another binding names this node as ``parent_address``; fallback = address-prefix arithmetic
@@ -389,6 +405,20 @@ def _watchdog_tick(executor, tmux, detector) -> None:
             # The binding dict carries those fields, so it serves as both ``node`` and ``binding``.
             try:
                 if _is_coordinator(address, bindings):
+                    # TERMINAL-SIGNAL FIRST for coordinators too (the 2026-06-11 live-run wedge:
+                    # an L4/L2 that signed off DONE after its children finished was never
+                    # collapsed and the upward path froze with the whole subtree green). The §5.4
+                    # split exempts coordinators from the idle LADDER only; truth-recording
+                    # applies to EVERY node. Gated on NO LIVE DESCENDANTS — shutdown cascades
+                    # bottom-up (agent-lifecycle): a DONE over live children stays on disk,
+                    # deferred not lost, until the subtree is terminal.
+                    if not _has_live_descendant(address, bindings):
+                        sig_action = _watchdog_mod.check_terminal_signal(binding, binding)
+                        if sig_action is not None:
+                            # COLLAPSE already enacted inside the check (chokepoint -> executor);
+                            # a NOOP (collapse_failed / escalated_holds_slot) retries next tick.
+                            _wake_on_unacked_inbox(executor, tmux, address, binding)
+                            continue
                     # ROUTE the verdict (RR-4): check_coordinator_death is PURE — its ESCALATE
                     # (the only carrier of target=parent_address + reason=recoverable_orphan)
                     # used to evaporate right here every tick. One edge-triggered row per
