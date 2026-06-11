@@ -59,6 +59,32 @@ Operative consequences:
   role; they no longer count as evidence a seam works.
 - Prefer validating increments against the live daemon over adding more mocks.
 
+## Priority order for the post-run wave (user, 2026-06-11: "I'm much more focused
+## on the behavioural bugs — I'm more architect than coder")
+
+BEHAVIORAL (first — the process is the product):
+ 1. Per-level GATE OUTPUT CONTRACTS (LR-13 root cause): each level's gate must
+    produce an altitude-specific artifact — L1: client playback (intent vs
+    delivered vs deviations + the ask); L2: architecture/composition judgment;
+    L4: workstream-composition report over the rubric. A gate whose required
+    artifact is a playback cannot be satisfied by re-running tests. Includes the
+    explicit DON'T: never re-run lower-level verification.
+ 2. L1 CLOSING PROTOCOL: L1's final act is ESCALATED-with-playback to the user;
+    only the user's answer converts to DONE (machinery exists — F16 answer verb).
+    Kills both self-certification and the DONE-bias path of least resistance.
+ 3. Reviewer authority wiring (LR-9) + producer-triggered, harness-resolved review
+    invocation (LR-10).
+ 4. Identity auto-load (LR-3 — behavioral too: what's in context shapes behavior).
+PLUMBING (second): PATH/denylist env (LR-2), collapse-wakes-parent (LR-11),
+spawn-time pane labels (LR-7), 1M-context probe (LR-5), spawn-doc gaps (LR-4).
+SECURITY (later, per governing posture decision): jail tier F9-F13.
+
+ROOT-PROMPT PROPAGATION (meta-finding, mine): the operator intake said "deliver …
+when the work is complete AND VERIFIED" — the word "verified" at the root framed
+the entire cascade toward verification; four levels re-ran the same suite. Intake
+wording propagates down the tree with compounding force; the intake template
+should carry intent-language, not verification-language.
+
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
 ### LR-2 — no PATH in the pane env: every shell call pays a tax (HIGH, ergonomics)
