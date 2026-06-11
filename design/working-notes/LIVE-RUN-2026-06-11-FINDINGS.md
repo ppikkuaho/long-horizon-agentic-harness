@@ -18,16 +18,38 @@ Fix: `--session-id <uuid>` pins CC's uuid to ours (pinned 2.1.152 supports it);
 The old test pin was vacuous (TM-class) — replaced with the exact-file contract.
 Verified live: recovery respawned L1 at epoch 4 and the recorded file exists and grows.
 
+## Governing posture decision (user, 2026-06-11, mid-run)
+
+"We've gone a bit overboard on security. It's starting to cause friction in the
+sandbox / PoC phase, which is not the right approach for this. Security is important,
+but it's something we can start building later on. It's not something that should
+cause significant friction at this point."
+
+Operative consequences for this phase:
+- Env model flips ALLOWLIST → DENYLIST: panes start from a normal environment
+  (PATH, HOME, LANG, TMPDIR, etc.) with CREDENTIALS stripped (no raw
+  ANTHROPIC_API_KEY / OPENAI_API_KEY), plus the OAuth token + pinned config dir.
+  The exact-4-var `env -i` floor is retired for the PoC phase (it was the single
+  biggest friction source — LR-2).
+- Zero-friction security KEEPS: OAuth-only credential rule, pinned binary/config
+  isolation (that one is reliability as much as security).
+- Friction-bearing security DEFERS: jail tier (F9-F13) stays deferred; when built,
+  middle-ground privileges per the earlier user decision (2026-06-11, remediation
+  plan note) — and it must not reintroduce the LR-2..4 tax.
+
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
 ### LR-2 — no PATH in the pane env: every shell call pays a tax (HIGH, ergonomics)
 The 4-var `env -i` floor carries no PATH. Observed: L4's `head` → exit 127
 ("command not found"), L2 "python3 isn't on the restricted PATH", agents using
 /bin/ls absolute paths everywhere. Every level re-discovers this by failure.
-The 4-var floor is a CREDENTIAL invariant (OAuth-only) — a sane PATH
-(/usr/bin:/bin:/usr/sbin:/sbin + python3's dir, or the user's homebrew prefix)
-does not weaken it. Touches: commissioning env, the env-floor exact-4-keys tests,
-oauth_guard (no change expected), SECURITY.md §6.2 wording.
+Superseded remedy per the posture decision above: don't just add PATH to the floor —
+retire the allowlist floor entirely for the PoC phase. Panes inherit a normal env
+with credentials STRIPPED (deny-list), keeping CLAUDE_CODE_OAUTH_TOKEN +
+CLAUDE_CONFIG_DIR + the two kill-switches on top. Touches: commissioning env,
+tmux.build_pane_argv (`env -i` seam), the exact-4-keys env-floor tests (rewrite as
+deny-list tests: forbidden keys absent, required keys present), oauth_guard
+(unchanged in spirit), SECURITY.md §6.2 wording.
 
 ### LR-3 — identity documents are not auto-loaded; relative paths dangle (HIGH)
 Briefs list identity docs as repo-relative paths (`operational/L1/soul.md`) but the
