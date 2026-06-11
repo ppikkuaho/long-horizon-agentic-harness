@@ -327,11 +327,14 @@ def _watchdog_tick(executor, tmux, detector) -> None:
                 else:
                     action = _watchdog_mod.check_leaf(binding, binding, now=now)
                     # ENACT the keystroke half of a PROD (the ledger half — the stale-counter
-                    # advance — check_leaf already routed through the executor).
+                    # advance — check_leaf already routed through the executor). Fenced (LT-3):
+                    # the live binding is re-read immediately before the send.
                     if getattr(action, "kind", None) == _watchdog_mod.PROD:
                         keystroke = (getattr(action, "detail", None) or {}).get("keystroke")
                         if keystroke:
-                            _deliver_keystroke(tmux, binding, keystroke, kind="prod")
+                            live = _send_fence_open(address, binding)
+                            if live is not None:
+                                _deliver_keystroke(tmux, live, keystroke, kind="prod")
                 # The ③-wake runs for EVERY live node (the answer verb wakes the PARENT inbox).
                 _wake_on_unacked_inbox(executor, tmux, address, binding)
             except Exception:  # noqa: BLE001 — one node's watchdog fault must not abort the whole sweep
@@ -345,48 +348,98 @@ def _deliver_keystroke(tmux, binding, keystroke: str, *, kind: str) -> bool:
     """Deliver a watchdog keystroke into the binding's pane; journal a failed send (never silent).
 
     Best-effort transport: ``tmux.send_keys(tmux_target, keystroke)`` — the canonical F18 target.
-    A transport without ``send_keys`` (the older test fakes) is a no-op miss, and any raised send
-    error is journaled as a ``<kind>_send_failed`` run-ledger row (the result-routing convention:
-    a lost nudge must be visible, even though the ③-wake/next-tick retry is the actual healer).
-    Returns True iff the send call completed.
+    A transport without ``send_keys`` (the older test fakes) is a no-op miss. A send that RAISES
+    or that RETURNS False (LT-2: the real ``tmux.send_keys`` now surfaces a non-zero rc — a
+    dead/missing target between gate-capture and send) is journaled as a ``<kind>_send_failed``
+    run-ledger row (the result-routing convention: a lost nudge must be visible, even though the
+    ③-wake/next-tick retry is the actual healer). Returns True iff the send reported delivery;
+    a legacy fake returning None is treated as delivered (it cannot know better).
     """
     target = binding.get("tmux_target")
     send = getattr(tmux, "send_keys", None)
     if not target or send is None:
         return False
     try:
-        send(target, keystroke)
-        return True
+        result = send(target, keystroke)
     except Exception as exc:  # noqa: BLE001 — journal, never crash the sweep
-        try:
-            record = ledger.build_wal_record(
-                node_address=binding.get("node_address"),
-                event=f"{kind}_send_failed",
-                from_state=binding.get("state"),
-                to_state=binding.get("state"),
-                expected_generation=None,
-                generation=None,
-                lease_epoch=binding.get("lease_epoch"),
-                owner_token=None,
-                binding_delta={"tmux_target": target, "error": str(exc)},
-                summary=f"{kind} keystroke send to {target} failed: {exc} (retried next tick)",
-                artifacts=[],
-                seq=ledger.next_seq(),
-            )
-            ledger.append_wal(record)
-        except Exception:  # noqa: BLE001 — the journal itself is best-effort
-            pass
+        _journal_send_failed(binding, target, kind, str(exc))
         return False
+    if result is False:
+        # The transport surfaced a delivery failure (non-zero tmux rc — LT-2). Journal it and
+        # report undelivered so the caller leaves the wake watermark unmoved (next tick retries).
+        _journal_send_failed(binding, target, kind, "send-keys exited non-zero (target gone?)")
+        return False
+    return True
+
+
+def _journal_send_failed(binding, target, kind: str, error: str) -> None:
+    """Best-effort ``<kind>_send_failed`` run-ledger row — a lost nudge is visible, never silent."""
+    try:
+        record = ledger.build_wal_record(
+            node_address=binding.get("node_address"),
+            event=f"{kind}_send_failed",
+            from_state=binding.get("state"),
+            to_state=binding.get("state"),
+            expected_generation=None,
+            generation=None,
+            lease_epoch=binding.get("lease_epoch"),
+            owner_token=None,
+            binding_delta={"tmux_target": target, "error": error},
+            summary=f"{kind} keystroke send to {target} failed: {error} (retried next tick)",
+            artifacts=[],
+            seq=ledger.next_seq(),
+        )
+        ledger.append_wal(record)
+    except Exception:  # noqa: BLE001 — the journal itself is best-effort
+        pass
+
+
+def _send_fence_open(address: str, snapshot: dict) -> Optional[dict]:
+    """The SENDER-SIDE FENCE (TRANSPORTS §3.2 precondition 2, LT-3): re-read the LIVE binding
+    immediately before a keystroke send; return it iff the send is still safe, else None (abort).
+
+    The watchdog loop computes its actions off a pre-tick ``snapshot``; the SAME tick can collapse
+    a signed-off leaf (STEP A) and then reach the ③-wake — without this re-read the daemon types
+    'resume' into the pane of a node the ledger just recorded terminal, and acks the inbox on a
+    terminal binding. Aborts when:
+      * the binding is gone, or its lifecycle state is terminal (the collapsing/terminal set);
+      * ``owner_token`` / ``lease_epoch`` drifted from the snapshot (a re-claim fenced it);
+      * ``session_uuid`` drifted (a respawned incarnation — the nudge was computed for a pane
+        that no longer exists).
+    A None abort leaves the wake watermark unmoved — the next tick recomputes from durable truth.
+    """
+    live = ledger.read_binding(address)
+    if live is None:
+        return None
+    if states.is_terminal(live.get("state")):
+        return None
+    if live.get("owner_token") != snapshot.get("owner_token"):
+        return None
+    if live.get("lease_epoch") != snapshot.get("lease_epoch"):
+        return None
+    if live.get("session_uuid") != snapshot.get("session_uuid"):
+        return None
+    return live
 
 
 def _wake_on_unacked_inbox(executor, tmux, address: str, binding: dict) -> None:
-    """The ③-wake delivery: unacked inbox line -> ONE gated pointer nudge -> ack the watermark.
+    """The ③-wake delivery: unacked inbox line -> ONE gated+fenced pointer nudge -> ack the watermark.
 
     EDGE-TRIGGERED: ``inbox_has_unacked`` compares the inbox size to the binding's
     ``last_inbox_acked_offset``; only a DELIVERED nudge advances the watermark (executor.ack_inbox,
     the single writer), so a gate-closed pane or a failed send is retried next tick and an acked
     line is never re-nudged. PAUSED subtrees get no nudge (§3.4 STEP 0 — no recovery actions);
     the pointer (``wake_keystroke``) names the inbox re-read, NEVER the message payload.
+
+    Two transport-correctness rules (the pre-live-run fixes):
+      * SWL-03 — the inbox size is captured BEFORE the send and THAT size is acked: the inbox is
+        a multi-writer append log (the IPC thread appends answer_posted/kickoff lines), so a line
+        landing in the send->stat window must stay ABOVE the watermark and re-trigger next tick
+        (at worst one duplicate nudge — tolerated by the edge-trigger design; a lost wake is not).
+      * LT-3 — the sender-side fence (``_send_fence_open``, TRANSPORTS §3.2 P2) re-reads the live
+        binding immediately before the send and aborts on terminal state / token / epoch /
+        session_uuid drift — the same tick that collapses a signed-off leaf must NOT then nudge
+        its pane 'resume' nor ack the inbox on the terminal binding.
     """
     from harnessd.spawn import chokepoint as _chokepoint
 
@@ -399,15 +452,21 @@ def _wake_on_unacked_inbox(executor, tmux, address: str, binding: dict) -> None:
         return  # a paused subtree gets NO recovery nudge (WATCHDOG §3.4 STEP 0)
     if not _watchdog_mod.prod_precondition(binding):
         return  # pane mid-turn / unreadable -> defer; the un-acked watermark retries next tick
-    if not _deliver_keystroke(tmux, binding, _watchdog_mod.wake_keystroke(binding), kind="wake"):
-        return  # failed/unsupported send -> watermark unmoved -> next tick retries
-    # Delivered: advance the edge-trigger watermark to the inbox end-of-file (one nudge per line).
+    # SWL-03: capture the ack watermark BEFORE the send (the size whose lines THIS nudge covers).
     try:
         inbox = _watchdog_mod._inbox_path(binding)
-        size_now = inbox.stat().st_size
+        size_before_send = inbox.stat().st_size
     except OSError:
-        return
-    executor.ack_inbox(address, acked_offset=size_now)
+        return  # no readable inbox -> nothing to ack/nudge
+    # LT-3: the sender-side fence — re-read the live binding immediately before the send.
+    live = _send_fence_open(address, binding)
+    if live is None:
+        return  # terminal/collapsing/re-claimed/respawned -> no nudge, watermark unmoved
+    if not _deliver_keystroke(tmux, live, _watchdog_mod.wake_keystroke(live), kind="wake"):
+        return  # failed/unsupported send -> watermark unmoved -> next tick retries
+    # Delivered: advance the edge-trigger watermark to the PRE-send size (one nudge per line;
+    # lines appended mid-send stay above the watermark and re-trigger next tick).
+    executor.ack_inbox(address, acked_offset=size_before_send)
 
 
 def poll_loop(interval_s, executor=None, tmux=None, detector=None) -> NoReturn:

@@ -189,7 +189,7 @@ def create_detached(session_name: str, argv: list[str], env: dict, cwd: str | No
 # send_keys — the keystroke delivery channel (the transport increment).
 # ---------------------------------------------------------------------------
 
-def send_keys(target: str, text: str) -> None:
+def send_keys(target: str, text: str) -> bool:
     """Type ``text`` LITERALLY into the pane, then Enter — the one keystroke-delivery seam.
 
     Two send-keys calls, mirroring the proven interactive_eval precedent (eval/interactive_eval
@@ -198,17 +198,22 @@ def send_keys(target: str, text: str) -> None:
     box needs the text rendered before the submit), then ``Enter`` to submit.
 
     ``target`` accepts the canonical ``<session>:<window>.<pane>`` triple ``create_detached``
-    returns (the recorded ``tmux_target``) or a bare session name. Best-effort at the transport
-    layer (``check=False``): send-keys is fire-and-forget by design — the watchdog confirms a
-    nudge "worked" ONLY by observing forward progress (confirm_prod_worked), and a lost kickoff
-    is healed by the ③-wake on the unacked inbox line. Callers that must journal a failed send
-    inspect the pane/transcript, not this return.
+    returns (the recorded ``tmux_target``) or a bare session name.
+
+    RETURNS True iff BOTH sends exited 0 (LT-2): a dead/missing target ('no such session') exits
+    non-zero, and swallowing that rc made a failed send indistinguishable from a delivered one —
+    the wake watermark advanced on undelivered nudges and the ``*_send_failed`` journal rows were
+    unreachable with the real transport. The send stays non-raising (check=False — still no tmux
+    ACK that the AGENT saw it; the §3.2-P3 verify-new-turn discipline remains the only true
+    confirmation), but delivery-level failure now surfaces so the caller journals it and leaves
+    the watermark unmoved (the next tick retries).
     """
     import time as _time
 
-    _run(["send-keys", "-t", target, "-l", text], check=False)
+    first = _run(["send-keys", "-t", target, "-l", text], check=False)
     _time.sleep(0.3)  # let the input box render the literal before submitting (eval precedent)
-    _run(["send-keys", "-t", target, "Enter"], check=False)
+    second = _run(["send-keys", "-t", target, "Enter"], check=False)
+    return first.returncode == 0 and second.returncode == 0
 
 
 # ---------------------------------------------------------------------------

@@ -519,14 +519,24 @@ def inbox_has_unacked(node, binding) -> bool:
 def wake_keystroke(node) -> str:
     """The ③-wake send-keys PAYLOAD (§2.9): a POINTER, never a fact/payload.
 
-    Returns a pointer that names the node's OWN .inbox.jsonl re-read + a resume nudge — the message
+    Returns a pointer that names the node's OWN wake-inbox re-read + a resume nudge — the message
     BODY is NEVER stuffed in (the agent's prompt loop does the actual per-turn re-read on its next
     turn, TRANSPORTS §2.3). A mutant that carries the message content is caught by the frozen test
     asserting the pointer names the inbox re-read, not a payload.
+
+    THE FILE IT NAMES (LT-10): the seat-qualified ``.inbox.<seat>.jsonl`` in the pane's own
+    workspace (the F18 cwd) — the SAME file the kickoff pointer names. The §2.9/TRANSPORTS
+    '<node>/.inbox.jsonl' wording predates the seat-qualified inbox: '<addr>#seat' is not a path
+    segment, so the old pointer named a NONEXISTENT file — a resumed/necro'd incarnation that
+    never saw the kickoff would `cat` nothing and report no-new-messages with the watermark
+    already advanced (a delivered wake converted into a missed message).
     """
+    from . import addressing
+
     node_address = _node_address(node)
+    seat = addressing.split_address(node_address)[1]
     return (
-        f"new message in your inbox — re-read {node_address}/.inbox.jsonl and resume"
+        f"new message in your inbox — re-read .inbox.{seat}.jsonl in your workspace and resume"
     )
 
 
