@@ -65,7 +65,18 @@ much as the feature is.
 | D5 | PASS | no bootstrap hunts (absolute manifests; LR-3) |
 | D6 | PASS | zero 'command not found' across all val2 transcripts (LR-2; run-1 had constant hits) |
 | D7 | PASS | no fence rejections in WAL |
-| D3, D8 | pending | upward collapse + promote not yet reached |
+| D3 | PASS | bottom-up collapse: 3 leaves -> L4 -> L2 -> L1, no coordinator wedge (d639e56 holds) |
+| D8 | PASS | promote accept -> delivered/in-place DERIVED from intent-spec §8 by the E3 gate |
+| A6 | PARTIAL | L1's Phase-3 concept validation was pure intent-altitude (B6 PASS, textbook); at the FINAL gate the L2 below it still re-ran suites and L1 leaned on chain results + its fidelity table — the gate-output contracts land before Run-2 |
+| A7 | PASS | operator-as-delegate Stage-5 evaluation (tool/error/README per intake) -> accept -> promote |
+| B6 | PASS | L1-fidelity-verdict.md: per-requirement intent mapping, scope-creep check, "WHETHER it serves intent — not HOW it works" |
+| C3 | PASS | L4 composition report: anti-theater seat table, report-reading verification, ID coverage, zero bounces |
+| D2b | PASS | E2 ALSO refused the ROOT's DONE (MISSING-REPORT); L1 recovered from its own auto-compact, wrote the delivery report, re-signaled, collapsed — the hook loop verified at BOTH ends of the tree |
+
+RUN-1 VERDICT: the enforcement spine + behavioral fixes turned a 60%-improvised
+cascade (run 1, md2html) into a near-conformant one in a single day. Remaining
+structural gaps are known and queued: gate-output contracts (A6), zero-L3 profile
+(B3 — spec extension pending user blessing), reviewer-authority wiring (LR-9/10).
 
 Run-1 incidents (both self-surfaced, both productive):
 - LR-16: first L5+ spawn pieces-refused (reviewer bundle never authored) -> bundle
