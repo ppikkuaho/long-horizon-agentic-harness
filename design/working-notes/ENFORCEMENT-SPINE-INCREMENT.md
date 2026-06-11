@@ -78,3 +78,47 @@ between, real-substrate smoke (preference 2) before declaring the increment done
 boot the daemon on a scratch runtime root, spawn one node with a broken manifest
 (E1 fires), one node signing DONE without a report (E2 fires), one promote
 without destination (E3 refuses).
+
+## E4 — Codex adapter at L5 (design, probed live 2026-06-11 on codex-cli 0.128.0)
+
+PROBE RESULTS (all against the REAL CLI + ChatGPT account, preference 2):
+- CODEX_HOME redirects ~/.codex fully; a COPIED auth.json authenticates ("Logged
+  in using ChatGPT") -> the pinned-home model works (.codex-pinned/config).
+- `-m gpt-5.5` is ACCEPTED and the rollout records "model":"gpt-5.5" as FACT —
+  the silent-fallback failure (runtime-and-model-map §contract) is detectable.
+- Transcript surface: CODEX_HOME/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl;
+  header line carries cwd + cli_version; file GROWS per turn (verify-new-turn
+  works). No session-id flag -> POST-BOOT DISCOVERY: bounded poll for the newest
+  rollout whose header cwd == node workspace realpath, created >= boot ts;
+  fail-loud SpawnFailure('transcript_undiscovered') on deadline.
+- First-boot trust dialog exists; trust persists as
+  [projects."<REALPATH>"] trust_level = "trusted" in CODEX_HOME/config.toml ->
+  deterministic pre-spawn seeding (the CC realpath precedent holds verbatim).
+- TUI idle marker is '›' (CC's is '❯') -> PER-RUNTIME PROMPT-MARKER MAP for the
+  kickoff gate / prod_precondition / wake delivery, keyed by runtime.
+- --dangerously-bypass-approvals-and-sandbox works in TUI ("permissions: YOLO
+  mode") — the unjailed_skip_permissions knob's codex rendering.
+- The user's `codex` on PATH is the Life-os bus WRAPPER (~/bin/codex); the
+  harness pins the VANILLA binary (/opt/homebrew/bin/codex now; npm
+  @openai/codex@0.128.0 into .codex-pinned for the true pin).
+
+BUILD PIECES:
+ 1. .codex-pinned/: npm-pinned 0.128.0 + config/ (CODEX_HOME: auth.json copied,
+    minimal config.toml; NO global AGENTS.md).
+ 2. config.py: LEVEL_CONFIGS['L5'] -> gpt-5.5/codex (retires the O1 stand-in);
+    NEW 'L5+' entry -> opus-4.8/claude-code (QUALITY-GATE judgment diversity:
+    the reviewer deliberately runs on the OTHER runtime); outbox _LEVEL_ORDER
+    gains L5+ (deeper than L5); CODEX_MODEL_FLAGS analog.
+ 3. adapters/codex.py CodexAdapter: verify_binary (pinned version), trust
+    seeding, SYSTEM-PROMPT delivery AS AGENTS.md in the node cwd (Codex's
+    idiomatic mechanism; --system-prompt-file does not exist; codex-audit of
+    Claude-isms is a follow-up), argv [codex -m <model>] + posture flag, env
+    floor {CODEX_HOME, HOME, PATH, TERM} (denylist posture: no OPENAI_API_KEY /
+    ANTHROPIC_API_KEY — auth rides auth.json), create_detached + post-boot
+    rollout discovery -> session_uuid (from filename) + transcript_path.
+ 4. Chokepoint ADAPTER REGISTRY keyed by level_config.runtime (claude-code ->
+    ClaudeCodeAdapter, codex -> CodexAdapter), bound at commissioning/boot; the
+    injected set_adapter seam remains the TEST override (registry-first in
+    production, ADAPTER fallback when registry has no key).
+ 5. Per-runtime prompt markers at the kickoff gate + prod_precondition + wake.
+ 6. Real-substrate smoke: spawn one codex L5 through the real chokepoint.
