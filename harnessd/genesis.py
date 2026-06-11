@@ -406,6 +406,12 @@ def run_genesis(executor, tmux, config) -> None:
         # lease_epoch to 1 / generation to 0 — un-fencing a prior incarnation (fencing never regresses).
         registered = survivor
     else:
+        if survivor is not None:
+            # LT-4/INT-1: a reaped/terminal prior root may still hold its WARM pane (the reap is a
+            # ledger write — nothing tears tmux down). The deterministic session name would collide
+            # the fresh spawn below ('duplicate session') on EVERY launchd relaunch — an invisible
+            # boot crash-loop. Tear the fenced dead incarnation's recorded pane down first.
+            chokepoint.kill_stale_pane(survivor.get("tmux_target"))
         registered = _register_l1_root(l1_address, l1_level, role_variant, runtime_root)
     result = chokepoint.claim_and_spawn(
         l1_address,

@@ -130,7 +130,25 @@ def create_detached(session_name: str, argv: list[str], env: dict, cwd: str | No
     here — it is used verbatim (NOT re-wrapped). A raw ``argv`` (the direct-call path the
     real-tmux tests use, e.g. ``["sh", "-c", …]``) is wrapped from-empty. Either way the pane is
     a single from-empty ``env -i`` isolator.
+
+    THE PLACEHOLDER REFUSAL (LT-1): this is the REAL transport — a pane launched with the
+    structural placeholder token (``chokepoint._spawn_env``'s ``<oauth-token-file>`` sentinel,
+    the dry-run shape that means "the daemon never bound the commissioned env") would boot an
+    UNAUTHENTICATED CC on a nonexistent config dir and freeze on first-boot dialogs the kickoff's
+    Enter then answers. Refuse it LOUDLY here (a ``SpawnFailure`` the chokepoint's §6.3 net
+    catches: claim released + spawn_failed escalation) — mock transports never reach this code,
+    so the structural tests keep their placeholder shape.
     """
+    from harnessd.spawn import oauth_guard as _oauth_guard
+
+    if isinstance(env, dict) and env.get("CLAUDE_CODE_OAUTH_TOKEN") == _oauth_guard.PLACEHOLDER_OAUTH_TOKEN:
+        raise _oauth_guard.SpawnFailure(
+            "REFUSING a real create_detached with the structural PLACEHOLDER env "
+            "(CLAUDE_CODE_OAUTH_TOKEN='<oauth-token-file>'): the daemon never bound the "
+            "commissioned spawn env (chokepoint.set_spawn_env — LT-1). A pane launched this way "
+            "boots an unauthenticated CC on an unseeded config dir.",
+            failure_class="placeholder_env",
+        )
     if list(argv[:2]) == ["env", "-i"]:
         pane_argv = list(argv)
     else:
@@ -144,7 +162,26 @@ def create_detached(session_name: str, argv: list[str], env: dict, cwd: str | No
         # .inbox.<seat>.jsonl) agree with the kickoff pointer — and the trust seed covers this dir.
         args += ["-c", str(cwd)]
     args += ["-P", "-F", "#{session_name}:#{window_index}.#{pane_index}"] + pane_argv
-    proc = _run(args)
+    # LT-4/INT-1: a failed new-session must NOT escape as a raw CalledProcessError — the
+    # chokepoint's §6.3 net catches only (SpawnFailure, ApiKeyForbidden), so an uncaught duplicate-
+    # session crash would LEAK the committed claim and kill genesis/IPC unstructured. Convert it:
+    # 'duplicate session' (the deterministic per-address name colliding with a still-live prior
+    # pane) -> failure_class='tmux_session_collision'; anything else -> 'runtime_down'. Either way
+    # the claim releases and the spawn_failed escalation names the class.
+    try:
+        proc = _run(args)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        if "duplicate session" in stderr:
+            raise _oauth_guard.SpawnFailure(
+                f"tmux session collision: a live session already holds {session_name!r} "
+                f"(a prior incarnation's pane was never torn down): {stderr}",
+                failure_class="tmux_session_collision",
+            ) from exc
+        raise _oauth_guard.SpawnFailure(
+            f"tmux new-session failed (rc={exc.returncode}): {stderr or exc}",
+            failure_class="runtime_down",
+        ) from exc
     return proc.stdout.strip()
 
 

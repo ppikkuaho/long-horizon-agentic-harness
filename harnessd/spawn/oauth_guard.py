@@ -47,6 +47,15 @@ _BARE_FLAG = "--bare"
 # The OAuth subscription token the Claude positive check requires (DAEMON §7).
 _OAUTH_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 
+# The STRUCTURAL placeholder sentinels ``chokepoint._spawn_env`` carries when no real env has been
+# bound into the spawn path (LT-1). Deliberately impossible values: ``env -i`` passes
+# ``$HARNESS/...`` literally (no shell expansion) and ``<oauth-token-file>`` is not a token. The
+# REAL ``tmux.create_detached`` REFUSES to launch a pane whose env still carries the token
+# sentinel (fail-loud — never a half-booted, unauthenticated CC frozen on its own trust dialog);
+# dry-run/mock transports never reach that refusal, so the structural tests keep their shape.
+PLACEHOLDER_OAUTH_TOKEN = "<oauth-token-file>"
+PLACEHOLDER_CONFIG_DIR = "$HARNESS/.cc-pinned/config"
+
 
 # --------------------------------------------------------------------------------------------------
 # Exception taxonomy (§2.13). ApiKeyForbidden (the negative-gate class) and AuthExpired (the

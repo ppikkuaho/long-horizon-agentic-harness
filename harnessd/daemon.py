@@ -164,7 +164,9 @@ def boot(runtime) -> None:
         refused loser clobbers nothing.
     (a) Wire the concrete RuntimeAdapter into the ONE spawn chokepoint (the module-level seam) WHEN
         the runtime supplies one — production wires the real adapter; a test pre-installs its fake and
-        passes no adapter (so boot does not clobber it).
+        passes no adapter (so boot does not clobber it). Then bind the REAL spawn env
+        (``runtime.config.env`` -> ``chokepoint.set_spawn_env``, LT-1) so the commissioned 4-var
+        OAuth env — not the structural placeholder — is what every production pane boots with.
     (b) Write ``runtime.json`` (the §2.3 daemon runtime descriptor: build-id / started_at / pid) so a
         crash between here and the first genesis write still leaves the descriptor on disk.
     (c) Run genesis END-TO-END (brief EX lock -> runtime.json -> preconditions ->
@@ -191,6 +193,15 @@ def boot(runtime) -> None:
     adapter = getattr(runtime, "adapter", None)
     if adapter is not None:
         chokepoint.set_adapter(adapter)
+
+    # (a2) Bind the REAL spawn env into the chokepoint (LT-1, the set_adapter-mirroring seam):
+    # commissioning assembled runtime.config.env (live OAuth token + pinned CLAUDE_CONFIG_DIR) for
+    # the genesis credential precondition — without THIS binding it never reached a pane, and every
+    # production spawn launched the structural placeholder env ('$HARNESS/...', '<oauth-token-file>').
+    # Bound only when the runtime carries one (a sparse test descriptor leaves the fallback intact).
+    spawn_env = getattr(cfg, "env", None) if cfg is not None else None
+    if spawn_env:
+        chokepoint.set_spawn_env(spawn_env)
 
     # (b) Write the §2.3 runtime descriptor (lock_path names the INSTANCE lock acquired in (0)).
     _genesis_mod.write_runtime_json(

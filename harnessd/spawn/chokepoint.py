@@ -67,7 +67,12 @@ from typing import Optional
 from harnessd import addressing, config, executor, fencing, ledger, states, store
 from harnessd.spawn import brief, sandbox
 from harnessd.spawn.adapters.base import SpawnResult
-from harnessd.spawn.oauth_guard import ApiKeyForbidden, SpawnFailure
+from harnessd.spawn.oauth_guard import (
+    PLACEHOLDER_CONFIG_DIR,
+    PLACEHOLDER_OAUTH_TOKEN,
+    ApiKeyForbidden,
+    SpawnFailure,
+)
 
 # ---------------------------------------------------------------------------
 # The adapter injection seam (§2.11 carries no adapter param — see module docstring).
@@ -92,6 +97,28 @@ def _require_adapter():
             "ledger.RUNTIME_ROOT)"
         )
     return ADAPTER
+
+
+# ---------------------------------------------------------------------------
+# The spawn-env injection seam (LT-1) — mirrors set_adapter. The daemon binds the REAL
+# commissioned 4-var OAuth env at boot (daemon.boot reads runtime.config.env); when nothing is
+# bound, _spawn_env() falls back to the STRUCTURAL placeholders (keeps the dry-run tests intact).
+# ---------------------------------------------------------------------------
+
+SPAWN_ENV: Optional[dict] = None
+
+
+def set_spawn_env(env: Optional[dict]) -> None:
+    """Bind (or clear) the REAL pane env every structural spawn opens with (module-level seam).
+
+    Production: ``daemon.boot`` binds commissioning's assembled 4-var OAuth-only env
+    (``runtime.config.env`` — live token + the pinned CLAUDE_CONFIG_DIR) so the env that passed
+    the genesis credential precondition is the SAME env the pane actually boots with (LT-1: the
+    placeholder env never reaches a real pane). ``set_spawn_env(None)`` restores the structural
+    placeholder fallback (the dry-run shape).
+    """
+    global SPAWN_ENV
+    SPAWN_ENV = dict(env) if env is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +183,35 @@ def subtree_paused(node_address: str) -> bool:
 
 
 _subtree_paused = subtree_paused  # back-compat alias (the pre-F16 private name)
+
+
+# ---------------------------------------------------------------------------
+# Stale-pane teardown (LT-4/INT-1) — the idempotent prior-incarnation kill the
+# resume / re-register paths run before reopening a deterministic session name.
+# ---------------------------------------------------------------------------
+
+def kill_stale_pane(tmux_target: Optional[str]) -> None:
+    """Best-effort, IDEMPOTENT teardown of a PRIOR incarnation's recorded pane (LT-4/INT-1).
+
+    ``addressing.session_name_for`` is deterministic per address, so a respawn at an address whose
+    previous incarnation's pane still exists collides in ``create_detached`` ('duplicate session' ->
+    SpawnFailure tmux_session_collision). The resume / re-register paths call this with the FENCED
+    prior incarnation's recorded ``tmux_target``, strictly AFTER the re-adopting claim committed
+    (the epoch bump already fenced the prior incarnation — no live owner holds that pane) and
+    strictly BEFORE the fresh ``create_detached``. Routed through the injected adapter's OWN tmux
+    seam (a mock without ``kill`` skips — the dry-run tears nothing down); ``tmux.kill`` itself is
+    idempotent (a session already gone is not an error), and any teardown hiccup is swallowed —
+    the collision SpawnFailure at create_detached remains the loud net.
+    """
+    if not tmux_target:
+        return
+    kill = getattr(getattr(ADAPTER, "tmux", None), "kill", None)
+    if kill is None:
+        return
+    try:
+        kill(tmux_target)
+    except Exception:  # noqa: BLE001 — best-effort teardown; the collision SpawnFailure is the net
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -500,13 +556,20 @@ def _rollback_spawning(node_address: str, expected_owner_token: str) -> None:
 def _spawn_env() -> dict:
     """The 4-var isolation env the adapter opens the pane with (DAEMON §6.2).
 
-    The chokepoint orchestrates; the env is the OAuth-only isolation set the adapter expects. The
-    concrete credential values are resolved by the daemon at boot; v1 carries the structural 4-var
-    shape (no raw API key, never a --resume token) so the gate firewall's no-resume scan is clean.
+    The chokepoint orchestrates; the env is the OAuth-only isolation set the adapter expects.
+    The concrete credential values are resolved by the daemon at boot and BOUND through
+    ``set_spawn_env`` (LT-1: ``daemon.boot`` threads ``runtime.config.env`` — commissioning's
+    live token + pinned CLAUDE_CONFIG_DIR — into this seam, so every production spawn boots the
+    pane with the SAME env that passed the genesis credential precondition). When nothing is
+    bound (the dry-run/structural tests), this falls back to the 4-var placeholder shape (no raw
+    API key, never a --resume token) so the gate firewall's no-resume scan stays clean — and the
+    REAL transport refuses to launch the token sentinel (tmux.create_detached, fail-loud).
     """
+    if SPAWN_ENV is not None:
+        return dict(SPAWN_ENV)
     return {
-        "CLAUDE_CONFIG_DIR": "$HARNESS/.cc-pinned/config",
-        "CLAUDE_CODE_OAUTH_TOKEN": "<oauth-token-file>",
+        "CLAUDE_CONFIG_DIR": PLACEHOLDER_CONFIG_DIR,
+        "CLAUDE_CODE_OAUTH_TOKEN": PLACEHOLDER_OAUTH_TOKEN,
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1",
     }
@@ -766,6 +829,12 @@ def _register_child(
     # Returning it lets the caller's planned-expected claim lose against it (no double-open, F35/F-024).
     if live is not None and not states.is_terminal(live.get("state")) and live.get("state") != "planned":
         return live
+    if live is not None and states.is_terminal(live.get("state")):
+        # LT-4/INT-1: a TERMINAL child being re-registered (e.g. a watchdog-FAILED leaf the parent
+        # re-spawns) may still hold its WARM pane — no production path killed it at FAILED/collapse.
+        # The deterministic session name means the fresh claim_and_spawn below would collide
+        # ('duplicate session'); tear the dead incarnation's recorded pane down first (idempotent).
+        kill_stale_pane(live.get("tmux_target"))
 
     level = getattr(child_level_config, "level", None) or "L3"
     role_variant = getattr(child_level_config, "role_variant", None) or level
@@ -995,6 +1064,14 @@ def resume(
     is no code path that builds a ``--resume`` under ``gate_crossed_at != null`` — the firewall cannot
     be bypassed (necro.resume_brief delegates here; it owns no second copy of the check).
     """
+    # STEP 0 (INT-2) — the SAME pause-subtree read-point claim_and_spawn runs: §6.4 resume is
+    # "re-adopt the address through claim (§6.1)", a spawn VARIANT, so the §6.1 STEP-0 gate applies
+    # here too. Without it a paused node could be re-claimed (epoch bump, token re-mint —
+    # invalidating the incarnation the human paused to inspect), re-spawned, and kicked off via the
+    # genesis RESUME leg — exactly the 'flag no one honors' failure mode (DAEMON L1225-1230).
+    if subtree_paused(node_address):
+        return _result_failed("paused_subtree", tmux_target=node_address)
+
     live = ledger.read_binding(node_address)
     if live is None:
         return _result_failed("absent_node", tmux_target=node_address)
@@ -1013,6 +1090,12 @@ def resume(
     )
     if not claim_result.ok:
         return _result_failed("claim_lost", tmux_target=node_address)
+
+    # LT-4/INT-1 — tear down the PRIOR incarnation's still-live pane BEFORE reopening: the genesis
+    # RESUME branch's own reachability is a uuid-MISMATCHED leftover pane holding the deterministic
+    # session name, which would collide create_detached ('duplicate session'). The claim above has
+    # already fenced the prior incarnation (epoch bump), so its recorded target is safe to kill.
+    kill_stale_pane(live.get("tmux_target"))
 
     # STEP2 — assemble the DELTA brief (what changed since the prior incarnation, pointing at the
     # durable work node). The prior incarnation is the pre-claim live binding.
