@@ -398,6 +398,17 @@ def test_role_delivered_via_brief_manifest_not_argv(runtime):
     child_a = _child_argv(pane_argv_a)
     child_b = _child_argv(pane_argv_b)
 
+    # The per-SPAWN ``--session-id <uuid>`` pair is the one sanctioned argv difference (it pins
+    # CC's transcript file to the recorded session_uuid — 2026-06-11 live-run fix); strip it
+    # before the identity check.
+    def _strip_session_id(argv):
+        argv = list(argv)
+        i = argv.index("--session-id")
+        return argv[:i] + argv[i + 2:]
+
+    child_a = _strip_session_id(child_a)
+    child_b = _strip_session_id(child_b)
+
     # The child argv MUST be byte-identical across role_variants L3/L4 (the shared prompt; the role
     # rides the brief). A mutant that bakes the role into argv (e.g. appends a per-level role path)
     # makes child_a != child_b -> caught here.

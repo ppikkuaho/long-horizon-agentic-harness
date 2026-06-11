@@ -118,14 +118,23 @@ def test_levelconfig_field_defaults_off_everywhere():
         )
 
 
+def _strip_session_id(argv):
+    """Drop the per-SPAWN ``--session-id <uuid>`` pair — the one sanctioned per-spawn argv
+    difference (it pins CC's transcript file to the recorded session_uuid; 2026-06-11 live-run
+    fix). Identity pins compare everything else byte-for-byte."""
+    argv = list(argv)
+    i = argv.index("--session-id")
+    return argv[:i] + argv[i + 2:]
+
+
 def test_default_unjailed_argv_is_byte_identical_no_flag():
     """Knob absent -> the unjailed argv is EXACTLY today's (no --dangerously-skip-permissions)."""
     res = _spawn(_PlainLC())
     cc = str(cca._harness_root() / cca._PINNED_CC)
     spf = str(cca._harness_root() / config.SYSTEM_PROMPT_FILE)
-    assert list(res.argv) == [cc, "--system-prompt-file", spf], (
-        "DEFAULT OFF must keep the unjailed argv byte-identical to today's assembly — "
-        f"got {list(res.argv)!r}"
+    assert _strip_session_id(res.argv) == [cc, "--system-prompt-file", spf], (
+        "DEFAULT OFF must keep the unjailed argv byte-identical to today's assembly (modulo the "
+        f"per-spawn --session-id pair) — got {list(res.argv)!r}"
     )
 
 
@@ -179,7 +188,7 @@ def test_jailed_argv_unchanged_by_knob():
     assert jailed_on.argv.count("--dangerously-skip-permissions") == 1, (
         "the knob must NOT double-add the flag on a JAILED spawn — jailed behavior is unchanged"
     )
-    assert list(jailed_on.argv) == list(jailed_off.argv)
+    assert _strip_session_id(jailed_on.argv) == _strip_session_id(jailed_off.argv)
 
 
 def test_jailed_posture_is_the_constraint4_coupling():

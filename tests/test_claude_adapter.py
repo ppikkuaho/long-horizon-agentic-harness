@@ -118,7 +118,7 @@ class _MockTmux:
         pane += list(argv)
         return pane
 
-    def create_detached(self, session_name, pane_argv, env):
+    def create_detached(self, session_name, pane_argv, env, cwd=None):
         self.created.append((session_name, list(pane_argv), dict(env)))
         # Post-F18 contract (mirrors the real wrapper): return the CANONICAL live target
         # '<session>:<window>.<pane>' — what `-P -F` prints and list_targets() keys on.
@@ -236,17 +236,32 @@ def test_system_prompt_is_not_a_per_level_role_path(no_real_exec):
     assert spf.endswith("operational/shared/system-prompt.md")
 
 
+def _strip_session_id(argv):
+    """Drop the per-SPAWN ``--session-id <uuid>`` pair — the ONE argv element that legitimately
+    differs between spawns (it pins CC's transcript file to the recorded session_uuid; minted
+    fresh per attempt). Returns (stripped_argv, session_id)."""
+    argv = list(argv)
+    i = argv.index("--session-id")
+    sid = argv[i + 1]
+    return tuple(argv[:i] + argv[i + 2:]), sid
+
+
 def test_argv_identical_across_role_variants(no_real_exec):
-    """argv is byte-identical across L1..L5 — the prompt is runtime-global, role rides the brief."""
-    argvs = []
+    """argv is byte-identical across L1..L5 — the prompt is runtime-global, role rides the brief.
+    The per-spawn ``--session-id`` uuid is the ONE sanctioned exception: unique per spawn (CC
+    refuses a duplicate id), so it is stripped before the identity check and pinned unique."""
+    argvs, sids = [], []
     for rv in ("L1", "L2", "L3", "L4", "L5"):
         tmux = _MockTmux()
         adapter = _make_adapter(tmux)
         result = _spawn(adapter, role_variant=rv)
-        argvs.append(tuple(_result_argv(result, tmux)))
+        stripped, sid = _strip_session_id(_result_argv(result, tmux))
+        argvs.append(stripped)
+        sids.append(sid)
     assert len(set(argvs)) == 1, (
         f"argv MUST be identical across role_variants (the shared prompt, not per-level); got {argvs!r}"
     )
+    assert len(set(sids)) == len(sids), f"--session-id must be unique per spawn; got {sids!r}"
 
 
 def test_argv_never_carries_forbidden_flags(no_real_exec):
@@ -403,6 +418,50 @@ def test_records_transcript_path_derived_from_session_uuid(no_real_exec):
         f"path {result.transcript_path!r}"
     )
     assert result.transcript_path.endswith(".jsonl"), "transcript_path is the <session-uuid>.jsonl file"
+
+
+def test_transcript_path_is_the_file_cc_actually_writes(no_real_exec, tmp_path):
+    """The 2026-06-11 live-run pin: transcript_path = <config>/projects/<encoded-REALPATH-cwd>/
+    <session_uuid>.jsonl with the uuid pinned into argv via --session-id. CC files transcripts by
+    the pane's realpath cwd, every non-[A-Za-z0-9-] char folded to '-' — NOT by session name. A
+    session-name-derived dir + an un-pinned uuid pointed verify-new-turn at a file CC never
+    writes, and the idle ladder failed a healthy waiting L1 (watchdog_nonresponse)."""
+    import os as _os
+    import re as _re
+    from pathlib import Path
+
+    workspace = tmp_path / "nodes" / "L1_seat.dir"
+    tmux = _MockTmux()
+    adapter = _make_adapter(tmux)
+    result = adapter.pin_and_open(
+        neutral_brief={
+            "load_manifest": ["operational/L1/role.md"],
+            "role_variant": "L1",
+            "workspace": str(workspace),
+        },
+        level_config=_level("L1"),
+        tmux_target="payments/gateway/stripe#exec",
+        env=_iso_env(),
+    )
+    # (a) argv pins CC's session id to the RECORDED uuid (without it CC mints its own).
+    argv = list(result.argv)
+    assert "--session-id" in argv, "argv must pin CC's session uuid (--session-id)"
+    assert argv[argv.index("--session-id") + 1] == result.session_uuid, (
+        "the --session-id argv value must BE the recorded session_uuid — any other uuid means the "
+        "detector stats a file CC never writes"
+    )
+    # (b) the directory segment is the ENCODED REALPATH cwd (CC's filing rule), never the session name.
+    expected_seg = _re.sub(r"[^A-Za-z0-9-]", "-", _os.path.realpath(str(workspace)))
+    expected = str(
+        Path(_iso_env()["CLAUDE_CONFIG_DIR"]) / "projects" / expected_seg / f"{result.session_uuid}.jsonl"
+    )
+    assert result.transcript_path == expected, (
+        f"transcript_path must be the encoded-realpath-cwd file CC writes;\n  got      "
+        f"{result.transcript_path!r}\n  expected {expected!r}"
+    )
+    assert "harness-" not in result.transcript_path.split("/projects/")[1].split("/")[0] or (
+        "harness-" in expected_seg
+    ), "the project segment must come from the cwd, not the tmux session name"
 
 
 # ===========================================================================

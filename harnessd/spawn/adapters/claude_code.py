@@ -39,11 +39,13 @@ BUILDER DECISIONS for the §2.11 details the plan leaves open (stated in the bui
   * deterministic first-boot trust — NOT a send-keys race against the trust dialog; it is the
     pre-seeded clean ``CLAUDE_CONFIG_DIR`` (.cc-pinned/config, pre-trusted, non-interactive) the
     env already points at. v1 carries this as a no-op marker (the config dir IS the mechanism).
-  * transcript_path derivation — ``<CLAUDE_CONFIG_DIR>/projects/<collapsed-target>/<uuid>.jsonl``:
-    Claude Code files transcripts under ``<config>/projects/<encoded-cwd>/<session-uuid>.jsonl``;
-    we derive the path from the recorded session_uuid (the test requires only: non-null, contains
-    the uuid, ends ``.jsonl``). FORK-TRANSCRIPT: the exact encoded-cwd segment is commissioning's
-    to finalize; the uuid-derived filename is the load-bearing contract the detector reads.
+  * transcript_path derivation — ``<CLAUDE_CONFIG_DIR>/projects/<encoded-cwd>/<uuid>.jsonl``:
+    Claude Code files transcripts under ``<config>/projects/<encoded-cwd>/<session-uuid>.jsonl``,
+    where <encoded-cwd> is the pane's REALPATH cwd with every non-[A-Za-z0-9-] char folded to '-'.
+    The uuid is OURS: argv carries ``--session-id <uuid>`` so CC writes the EXACT file we record
+    (first-live-run finding 2026-06-11: a session-NAME-derived segment + an un-pinned uuid pointed
+    the detector at a file CC never writes; verify-new-turn read size-0 forever and the idle
+    ladder failed a healthy waiting L1 with watchdog_nonresponse).
   * CC binary path — the pinned ``.cc-pinned/node_modules/@anthropic-ai/claude-code/bin/claude.exe``
     resolved relative to HARNESS_ROOT. Never execed in the dry-run (the no_real_exec spy proves it).
 """
@@ -52,6 +54,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -125,16 +128,20 @@ def _system_prompt_hash() -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _transcript_path(env: dict, session_name: str, session_uuid: str) -> str:
-    """Derive ``<CLAUDE_CONFIG_DIR>/projects/<collapsed-session>/<session_uuid>.jsonl``.
+def _transcript_path(env: dict, cwd: str | None, session_uuid: str) -> str:
+    """Derive ``<CLAUDE_CONFIG_DIR>/projects/<encoded-cwd>/<session_uuid>.jsonl``.
 
-    Claude Code writes transcripts under ``<config>/projects/<encoded-cwd>/<session-uuid>.jsonl``.
-    The detector stats this path; the load-bearing contract (test) is: non-null, DERIVED from the
-    session_uuid (uuid in the path), ending ``.jsonl``. We anchor it under the pane's own
-    CLAUDE_CONFIG_DIR so the path the detector reads matches where the actor actually writes.
+    Claude Code files transcripts by the pane's REALPATH cwd — every char outside [A-Za-z0-9-]
+    folded to '-' (probed on pinned 2.1.152: '/', '.', '_' all fold; case preserved; the leading
+    '/' yields the leading '-'; macOS /var/... realpaths to /private/var/...). The session_uuid
+    must be pinned into CC's argv via ``--session-id`` by the caller — only then is this path the
+    file CC actually writes. The detector/watchdog stat this path for verify-new-turn; a wrong
+    path here reads size-0 forever and the idle ladder kills healthy agents (2026-06-11 live run).
+    A None cwd means the pane inherits the daemon's cwd (no ``-c``), so encode that.
     """
     config_dir = env.get("CLAUDE_CONFIG_DIR", "")
-    project_seg = session_name.replace("/", "-").replace(":", "-")
+    real = os.path.realpath(cwd) if cwd else os.path.realpath(os.getcwd())
+    project_seg = re.sub(r"[^A-Za-z0-9-]", "-", real)
     return str(Path(config_dir) / "projects" / project_seg / f"{session_uuid}.jsonl")
 
 
@@ -296,6 +303,13 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         cc_model = config.CC_MODEL_FLAGS.get(getattr(level_config, "model", None))
         if cc_model:
             argv += ["--model", cc_model]
+        # --session-id pins CC's session uuid to OURS, so the recorded transcript_path is the
+        # file CC actually writes (verify-new-turn's stat target). Without the pin CC mints its
+        # own uuid and the detector watches a file that never exists (2026-06-11 live-run
+        # finding: the idle ladder failed a healthy L1 as watchdog_nonresponse). Minted fresh
+        # per spawn attempt — never reused across incarnations (CC refuses a duplicate id).
+        session_uuid = str(uuid.uuid4())
+        argv += ["--session-id", session_uuid]
         if containment is not None:
             argv.append("--dangerously-skip-permissions")
             permission_posture = "jailed-skip-permissions"
@@ -409,9 +423,10 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         else:
             canonical_target = self.tmux.create_detached(session_name, launch_argv, env)
 
-        # (8) Record the facts (config = intent, model_used = fact).
-        session_uuid = str(uuid.uuid4())
-        transcript_path = _transcript_path(env, session_name, session_uuid)
+        # (8) Record the facts (config = intent, model_used = fact). session_uuid was minted at
+        #     argv assembly (--session-id pins it into CC); the transcript path is the encoded
+        #     REALPATH-cwd file CC will write under that uuid.
+        transcript_path = _transcript_path(env, cwd, session_uuid)
 
         return SpawnResult(
             ok=True,
