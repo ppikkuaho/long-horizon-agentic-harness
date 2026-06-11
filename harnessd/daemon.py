@@ -243,12 +243,75 @@ def poll_once(executor, tmux, detector) -> None:
     surface the external harnessd-pinger reads. End-of-body placement = completed-tick semantics: a
     wedge inside the tick body stops the stamp advancing IMMEDIATELY. Best-effort (the same isolation
     as the outbox drain), zero WAL rows; recovery never trusts it.
+
+    THE RECONCILE REPORT IS CONSUMED (RR-4): the v1 escalation seat ("ship the detect+escalate
+    loop in v1", DAEMON L859-866) was a dead end in the resident loop — an alive-but-unowned
+    ORPHAN pane (the F35 double-spawn symptom) was detected and dropped every tick with zero
+    trace, and a CAS-aborted leaf-necro's ``necro_failed`` escalation evaporated. Each escalation
+    now lands ONE edge-triggered ``reconcile_escalation`` WAL row (keyed node+kind, the
+    watchdog_checkpoint edge-trigger pattern: steady-state re-detection never spams).
     """
-    _reconcile_mod.reconcile_tick(executor, tmux, detector)
+    report = _reconcile_mod.reconcile_tick(executor, tmux, detector)
+    _route_reconcile_escalations(report)
     _watchdog_tick(executor, tmux, detector)
     _service_outboxes_best_effort()
     _stamp_last_tick_best_effort()
     return None
+
+
+def _route_reconcile_escalations(report) -> None:
+    """Journal each ReconcileReport escalation ONCE (edge-triggered on node+kind) — RR-4.
+
+    Best-effort and isolated (the outbox-drain discipline): a journaling fault must never abort
+    the sweep. The row is the v1 escalation seat's durable surface — an L1 reconcile reader (and
+    the operator's WAL tail) sees orphan / necro_failed / coordinator_died with their evidence.
+    """
+    for escalation in (getattr(report, "escalations", None) or []):
+        try:
+            node = escalation.get("node_address")
+            kind = escalation.get("kind") or "unknown"
+            _journal_escalation_once(
+                node,
+                kind=kind,
+                summary=(
+                    f"reconcile escalation ({kind}) for {node}: "
+                    f"{escalation.get('reason', 'no reason recorded')} (RR-4 — the v1 "
+                    "detect+escalate seat, edge-triggered)"
+                ),
+                detail=dict(escalation),
+            )
+        except Exception:  # noqa: BLE001 — escalation routing must never abort the sweep
+            continue
+
+
+def _journal_escalation_once(node_address, *, kind: str, summary: str, detail: dict) -> None:
+    """Append ONE ``reconcile_escalation`` row for (node, kind) — re-detection journals nothing.
+
+    The dedup scans the WAL (the same pattern as watchdog._has_coordinator_died_event): a
+    steady-state condition (an orphan pane nobody resolves; a persistently aborting necro) is
+    re-detected every tick but journaled once. The journal rides ``executor.journal`` (SWL-01).
+    NOTE: the row is keyed to the escalation's node identity — for an ORPHAN that identity is its
+    tmux_target (no binding exists); journal rows are non-transition rows (expected_generation
+    None), which boot replay deliberately never reconstructs a binding from.
+    """
+    for record in ledger.load_wal():
+        if (
+            record.get("event") == "reconcile_escalation"
+            and record.get("node_address") == node_address
+            and (record.get("binding_delta") or {}).get("kind") == kind
+        ):
+            return  # already journaled — the edge already fired
+    try:
+        from harnessd import executor as _executor_mod
+
+        _executor_mod.journal(
+            node_address,
+            event="reconcile_escalation",
+            binding_delta={"kind": kind, **{k: v for k, v in detail.items() if k != "node_address"}},
+            summary=summary,
+        )
+    except Exception:  # noqa: BLE001 — best-effort visibility row
+        pass
 
 
 def _service_outboxes_best_effort() -> None:
@@ -323,7 +386,24 @@ def _watchdog_tick(executor, tmux, detector) -> None:
             # The binding dict carries those fields, so it serves as both ``node`` and ``binding``.
             try:
                 if _is_coordinator(address, bindings):
-                    _watchdog_mod.check_coordinator_death(binding, binding, ledger)
+                    # ROUTE the verdict (RR-4): check_coordinator_death is PURE — its ESCALATE
+                    # (the only carrier of target=parent_address + reason=recoverable_orphan)
+                    # used to evaporate right here every tick. One edge-triggered row per
+                    # (node, reason); WATCHDOG §5.5's v1 escalation seat is now actually wired.
+                    cd_action = _watchdog_mod.check_coordinator_death(binding, binding, ledger)
+                    if getattr(cd_action, "kind", None) == _watchdog_mod.ESCALATE:
+                        detail = dict(getattr(cd_action, "detail", None) or {})
+                        kind = detail.get("reason") or "coordinator_escalate"
+                        detail["target"] = getattr(cd_action, "target", None)
+                        _journal_escalation_once(
+                            address, kind=kind,
+                            summary=(
+                                f"watchdog escalation ({kind}) for {address}: dead coordinator "
+                                f"over live children -> escalate to "
+                                f"{detail.get('target')!r} (WATCHDOG §5.1/§5.5; RR-4)"
+                            ),
+                            detail=detail,
+                        )
                 else:
                     action = _watchdog_mod.check_leaf(binding, binding, now=now)
                     # ENACT the keystroke half of a PROD (the ledger half — the stale-counter
@@ -337,11 +417,49 @@ def _watchdog_tick(executor, tmux, detector) -> None:
                                 _deliver_keystroke(tmux, live, keystroke, kind="prod")
                 # The ③-wake runs for EVERY live node (the answer verb wakes the PARENT inbox).
                 _wake_on_unacked_inbox(executor, tmux, address, binding)
-            except Exception:  # noqa: BLE001 — one node's watchdog fault must not abort the whole sweep
+            except Exception as exc:  # noqa: BLE001 — one node's fault must not abort the whole sweep
+                # RR-6: fault isolation per node is correct, but ZERO-journaling was the defect —
+                # the deliberate fail-loud raises (e.g. MissingTranscriptPath) terminated in a
+                # silent `continue`, permanently disabling STEP-A collapse, the idle ladder AND
+                # the ③-wake for that node with no trace. Journal it (edge-triggered per node on
+                # the error text, so a persistently-broken node is one row, not one per tick).
+                _journal_sweep_error(binding, address, exc)
                 continue
     finally:
         if detector is not None:
             _watchdog_mod.set_liveness(None)  # restore the default detector.liveness seam
+
+
+# RR-6 edge-trigger memory: node_address -> the last journaled sweep-error text. A node whose
+# watchdog evaluation throws the SAME error every tick is journaled ONCE per daemon incarnation
+# (a changed error re-journals); in-memory on purpose — the row is a visibility aid, not control
+# state, and a relaunch re-detecting the fault SHOULD re-journal it once.
+_SWEEP_ERRORS_JOURNALED: dict = {}
+
+
+def _journal_sweep_error(binding, address: str, exc: BaseException) -> None:
+    """Best-effort, edge-triggered ``watchdog_sweep_error`` run-ledger row (RR-6)."""
+    error = f"{type(exc).__name__}: {exc}"
+    if _SWEEP_ERRORS_JOURNALED.get(address) == error:
+        return  # steady-state re-detection of the same fault — already journaled
+    try:
+        from harnessd import executor as _executor_mod
+
+        _executor_mod.journal(
+            address,
+            event="watchdog_sweep_error",
+            from_state=binding.get("state"),
+            to_state=binding.get("state"),
+            lease_epoch=binding.get("lease_epoch"),
+            binding_delta={"error": error},
+            summary=(
+                f"watchdog sweep error for {address}: {error} — node isolated this tick "
+                "(STEP-A/ladder/③-wake skipped); fault journaled, sweep continues (RR-6)"
+            ),
+        )
+        _SWEEP_ERRORS_JOURNALED[address] = error
+    except Exception:  # noqa: BLE001 — the journal itself is best-effort
+        pass
 
 
 def _deliver_keystroke(tmux, binding, keystroke: str, *, kind: str) -> bool:
@@ -373,23 +491,23 @@ def _deliver_keystroke(tmux, binding, keystroke: str, *, kind: str) -> bool:
 
 
 def _journal_send_failed(binding, target, kind: str, error: str) -> None:
-    """Best-effort ``<kind>_send_failed`` run-ledger row — a lost nudge is visible, never silent."""
+    """Best-effort ``<kind>_send_failed`` run-ledger row — a lost nudge is visible, never silent.
+
+    Routed through ``executor.journal`` (SWL-01): the seq allocation + append run under the
+    per-mutation EX lock, never racing the locked single writer on the other thread.
+    """
     try:
-        record = ledger.build_wal_record(
-            node_address=binding.get("node_address"),
+        from harnessd import executor as _executor_mod
+
+        _executor_mod.journal(
+            binding.get("node_address"),
             event=f"{kind}_send_failed",
             from_state=binding.get("state"),
             to_state=binding.get("state"),
-            expected_generation=None,
-            generation=None,
             lease_epoch=binding.get("lease_epoch"),
-            owner_token=None,
             binding_delta={"tmux_target": target, "error": error},
             summary=f"{kind} keystroke send to {target} failed: {error} (retried next tick)",
-            artifacts=[],
-            seq=ledger.next_seq(),
         )
-        ledger.append_wal(record)
     except Exception:  # noqa: BLE001 — the journal itself is best-effort
         pass
 

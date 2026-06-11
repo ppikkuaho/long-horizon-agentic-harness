@@ -431,6 +431,56 @@ def _regenerate_handoff_packet(candidate_binding: dict, entry: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# journal() — the LOCKED direct-WAL-append primitive for non-transition journal rows (SWL-01).
+# ---------------------------------------------------------------------------
+
+def journal(
+    node_address,
+    *,
+    event: str,
+    from_state=None,
+    to_state=None,
+    lease_epoch=None,
+    owner_token=None,
+    binding_delta: Optional[dict] = None,
+    summary: str = "",
+    artifacts: Optional[list] = None,
+) -> None:
+    """Append ONE non-transition journal row to the run-ledger UNDER the per-mutation EX lock.
+
+    SWL-01: the failure-path journal appends (spawn_failed escalations, *_send_failed,
+    kickoff_*, delivery_failed_escalation, ipc_request_failed, …) used to run an UNLOCKED
+    ``ledger.next_seq() + ledger.append_wal`` — racing the locked single writer across the
+    daemon's two threads (IPC + poll), so two near-simultaneous allocations could both read
+    ``max(seq)+1`` and append DUPLICATE seq values, breaking the FORK-SEQ global-monotonic
+    contract the replay watermark and audit ordering key on (DAEMON §4.3: one serialization
+    domain — "every mutation is a read→validate→commit fully inside the lock").
+
+    This primitive owns the lock: seq allocation + append are one critical section. It writes
+    NO binding (journal rows are not lifecycle transitions — ``expected_generation`` /
+    ``generation`` are None so replay can never apply them). Callers must NOT already hold the
+    EX lock (fcntl flock is not re-entrant); every journal site runs outside the executor's
+    per-mutation acquire by construction.
+    """
+    with store.file_lock(_resolve_lock_path(), shared=False):
+        record = ledger.build_wal_record(
+            node_address=node_address,
+            event=event,
+            from_state=from_state,
+            to_state=to_state,
+            expected_generation=None,
+            generation=None,
+            lease_epoch=lease_epoch,
+            owner_token=owner_token,
+            binding_delta=binding_delta or {},
+            summary=summary,
+            artifacts=artifacts or [],
+            seq=ledger.next_seq(),
+        )
+        ledger.append_wal(record)
+
+
+# ---------------------------------------------------------------------------
 # heartbeat() — own-slice liveness ping, owner_token REQUIRED (§4.5). Blind-overwrites its own
 # slice under the lock but is fenced on owner_token so a stale owner cannot heartbeat over a live one.
 # ---------------------------------------------------------------------------

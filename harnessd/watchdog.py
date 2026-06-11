@@ -411,7 +411,7 @@ def _fail_and_escalate(node_address: str, binding: dict) -> WatchdogAction:
     # the delta/summary so the row is NOT conflated with an agent-self-emitted FAILED. NOT a collapse
     # call (collapse journals the §3.6 signal_FAILED event); this is the watchdog-imposed,
     # non-response FAILED.
-    executor.transition(
+    result = executor.transition(
         node_address,
         expected_state=binding["state"],
         expected_generation=binding["generation"],
@@ -428,6 +428,18 @@ def _fail_and_escalate(node_address: str, binding: dict) -> WatchdogAction:
             "(v1 does NOT auto-respawn from harnessd — §4.4 / §2.9 INCLUDE-item #5)"
         ),
     )
+    # ROUTE THE RESULT (RR-3 — the third terminal write in this function tree; its two siblings,
+    # collapse (watchdog-2) and escalate (F5), were already routed): an ABORTED running->failed
+    # transition (a CAS state/generation miss racing the concurrent IPC writer thread, or a
+    # validate abort) writes NO WAL row and leaves the binding running — reporting kind=FAILED
+    # there is a phantom success in the F2 sense. Return NOOP so the next tick recomputes from
+    # durable truth and retries; only a COMMITTED transition reports FAILED.
+    if not result.ok:
+        return WatchdogAction(
+            kind=NOOP, node=node_address,
+            detail={"reason": "fail_transition_aborted",
+                    "errors": list(result.errors or [])},
+        )
 
     return WatchdogAction(
         kind=FAILED, node=node_address, target=parent_address,

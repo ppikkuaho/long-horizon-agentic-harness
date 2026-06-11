@@ -178,6 +178,44 @@ def _signal_path(node):
     return addressing.signal_path(_node_address(node), root)
 
 
+def _quarantine_invalid_signal(path, node, reason: str) -> None:
+    """Contain a MALFORMED agent-written .signal artifact (RR-2): journal + quarantine, never crash.
+
+    The artifact is untrusted agent input (the agent writes it inside its own jail-writable node
+    dir, F19; the tmp+rename instruction is advisory). A torn/invalid file used to either crash
+    the daemon process (detector.liveness path — a deterministic relaunch crash-loop, the poison
+    file surviving every relaunch) or be swallowed silently per tick (the watchdog path). The
+    WATCHDOG §7 torn-artifact rule is "rejected, not adopted" — so the caller treats it as
+    no-actionable-signal — but the rejection is made VISIBLE:
+
+      * ONE best-effort ``signal_artifact_invalid`` run-ledger row (via the SWL-01 locked
+        ``executor.journal``) names the node + the parse fault, and
+      * the artifact is renamed to ``<name>.invalid`` (best-effort) so the agent/operator can
+        inspect it and the next tick does not re-trip — the rename IS the edge-trigger.
+
+    Distinct from MissingTranscriptPath (a daemon-side spawn<->detector CONTRACT violation, which
+    stays deliberately fail-loud): agent-supplied bytes must degrade to a journaled rejection.
+    """
+    try:
+        from . import executor as _executor_mod  # local import: keep this module import-light
+
+        _executor_mod.journal(
+            _node_address(node),
+            event="signal_artifact_invalid",
+            binding_delta={"artifact": str(path), "error": reason},
+            summary=(
+                f"malformed terminal-signal artifact for {_node_address(node)}: {reason} — "
+                "rejected (not adopted, WATCHDOG §7); quarantined to *.invalid"
+            ),
+        )
+    except Exception:  # noqa: BLE001 — the journal is best-effort; rejection must never crash
+        pass
+    try:
+        path.rename(path.with_name(path.name + ".invalid"))
+    except OSError:
+        pass  # quarantine is best-effort; a re-trip next tick re-journals (still contained)
+
+
 def read_terminal_signal(node, binding) -> dict | None:
     """Read the FENCED terminal-signal artifact for a node (§2.8 / §4.1).
 
@@ -188,6 +226,10 @@ def read_terminal_signal(node, binding) -> dict | None:
       * a STALE owner_token (a prior incarnation's leftover) -> None  (THE LOAD-BEARING FENCE:
         a dead incarnation's leftover signal must NEVER collapse a re-spawned node at the same
         address — the watchdog journals stale_return_ignored and falls through to liveness).
+      * MALFORMED bytes (invalid JSON / non-UTF-8 / a JSON non-dict — RR-2) -> None, contained
+        fail-loud: the fault is journaled (``signal_artifact_invalid``) and the artifact is
+        quarantined to ``*.invalid`` — agent-written input must NEVER crash the watchdog tick
+        or the detector/reconcile path (WATCHDOG §7: a torn artifact is rejected, not adopted).
 
     The reader does NOT decide collapse-vs-noop and does NOT filter by signal kind — an ESCALATED
     signal with a live token is returned unchanged (the verdict needs it as the waiting-reason;
@@ -198,8 +240,21 @@ def read_terminal_signal(node, binding) -> dict | None:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None  # no signal artifact present -> no terminal event
+    except (UnicodeDecodeError, OSError) as exc:
+        # Unreadable agent-written bytes (non-UTF-8, or e.g. a directory squatting on the path) —
+        # the RR-2 contained rejection, never a daemon crash.
+        _quarantine_invalid_signal(path, node, f"unreadable artifact: {type(exc).__name__}: {exc}")
+        return None
 
-    payload = json.loads(text)
+    try:
+        payload = json.loads(text)
+    except ValueError as exc:  # json.JSONDecodeError — torn/garbled agent write
+        _quarantine_invalid_signal(path, node, f"invalid JSON: {exc}")
+        return None
+    if not isinstance(payload, dict):
+        # A JSON non-dict would AttributeError on .get below — same malformed-input class.
+        _quarantine_invalid_signal(path, node, f"JSON payload is {type(payload).__name__}, not an object")
+        return None
 
     # THE FENCE: only a signal whose owner_token matches the LIVE binding's owner_token is the
     # current incarnation's. A lower/other-epoch token is a stale leftover -> ignore (None).

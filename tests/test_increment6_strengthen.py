@@ -75,10 +75,13 @@ def test_stampless_binding_reads_idle_not_working(tmp_path, monkeypatch):
 
 # --- _w_window: the task-type key is reachable (no longer inert) ----------------------------------
 
-def test_corrupt_signal_json_propagates_not_silent_idle(tmp_path, monkeypatch):
-    """A corrupt .signal.json (live owner_token) must FAIL LOUD (propagate), not silently degrade an
-    escalated node to idle. Pins the narrowed except (RuntimeError only; JSONDecodeError propagates)."""
-    import pytest
+def test_corrupt_signal_json_is_contained_fail_loud_not_a_crash_and_not_silent(tmp_path, monkeypatch):
+    """RR-2 (supersedes the propagate-pin): a corrupt .signal.json is AGENT-WRITTEN input — it must
+    neither crash the daemon (the old JSONDecodeError propagated through reconcile_tick -> poll_loop
+    -> process death, a deterministic relaunch crash-loop: the poison file survives relaunch) NOR
+    silently degrade the node. Contained fail-loud: the verdict still computes (here `waiting` — the
+    binding's own ESCALATED stamp carries the reason), the fault is journaled
+    ``signal_artifact_invalid``, and the artifact is quarantined to ``*.invalid``."""
     addr, transcript = _seed(tmp_path, monkeypatch, last_progress_at="2020-01-01T00:00:00+00:00",
                              terminal_signal="ESCALATED")  # flat beyond W, escalated
     monkeypatch.setattr(ds, "pane_alive", lambda node: (True, 123))  # warm pane
@@ -88,9 +91,18 @@ def test_corrupt_signal_json_propagates_not_silent_idle(tmp_path, monkeypatch):
     sigp.parent.mkdir(parents=True, exist_ok=True)
     sigp.write_text("{not valid json", encoding="utf-8")
     # flat-beyond-W (grew=False on a baseline read) reaches step 6 -> reads the corrupt signal ->
-    # must PROPAGATE the JSONDecodeError, NOT silently fall through to idle.
-    with pytest.raises(json.JSONDecodeError):
-        detector.liveness(addr)
+    # the reader REJECTS it (WATCHDOG SS7: torn artifacts are rejected, not adopted) and the verdict
+    # falls back to the binding's ESCALATED stamp: `waiting`, never a raise, never a silent idle.
+    verdict = detector.liveness(addr)
+    assert verdict.state == "waiting", (
+        f"the escalated node must still read 'waiting' off its binding stamp (got {verdict.state!r})"
+    )
+    # NOT SILENT: the rejection is journaled and the artifact quarantined for inspection.
+    events = [r.get("event") for r in ledger.load_wal() if r.get("node_address") == addr]
+    assert "signal_artifact_invalid" in events, "the malformed artifact must be journaled (RR-2)"
+    assert not sigp.exists() and sigp.with_name(sigp.name + ".invalid").exists(), (
+        "the malformed artifact must be quarantined to *.invalid"
+    )
 
 
 def test_w_window_task_type_key_reachable():

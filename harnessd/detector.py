@@ -120,9 +120,11 @@ def _has_legit_waiting_reason(node_address: str, binding) -> bool:
     # Prefer the fenced on-disk signal (the producer side); a stale token yields None there.
     # Narrow the except to the EXPECTED unbound-RUNTIME_ROOT case only (RuntimeError): when the
     # runtime root isn't bound we fall back to the binding's terminal_signal field. A corrupt
-    # .signal.json (json.JSONDecodeError) or any other fault must PROPAGATE (fail-loud) — a broad
-    # `except Exception` here would silently degrade an escalated node to `idle`, the exact
-    # silent-collapse this module exists to prevent.
+    # .signal.json is CONTAINED inside the reader itself (RR-2: read_terminal_signal journals
+    # ``signal_artifact_invalid`` + quarantines the artifact and returns None — agent-written
+    # bytes must never crash the daemon's poll loop into a relaunch crash-loop); the binding's
+    # own terminal_signal fallback below still carries an escalated node's waiting reason, so
+    # the contained rejection does not silently degrade it to `idle`.
     node = {"node_address": node_address,
             "transcript_path": binding.get("transcript_path"),
             "tmux_target": binding.get("tmux_target")}

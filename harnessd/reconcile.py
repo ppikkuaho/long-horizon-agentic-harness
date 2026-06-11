@@ -176,9 +176,18 @@ def replay_wal(bindings: dict, wal: list) -> dict:
             # Copy so the input map is never mutated (idempotency: replay is a pure function of inputs).
             current = dict(bindings[node_address])
         elif node_events:
-            # Reconstruct the pre-image base from the FIRST event (its from_state + expected_generation
-            # are the pre-image the chain applies against); last_applied_seq=0 so every event is pending.
-            first = node_events[0]
+            # Reconstruct the pre-image base from the FIRST TRANSITION event (its from_state +
+            # expected_generation are the pre-image the chain applies against); last_applied_seq=0
+            # so every event is pending. JOURNAL-ONLY rows (expected_generation is None — the
+            # §6.3/RR-4 escalation + visibility rows, never lifecycle transitions) cannot seed a
+            # reconstruction: a row keyed to a non-binding identity (e.g. an ORPHAN escalation
+            # keyed by its tmux_target) must never materialize a PHANTOM binding the next sweep
+            # would then try to classify/necro.
+            first = next(
+                (ev for ev in node_events if ev.get("expected_generation") is not None), None
+            )
+            if first is None:
+                continue  # journal-only chain — nothing to reconstruct
             current = {
                 "node_address": node_address,
                 "state": first.get("from_state"),

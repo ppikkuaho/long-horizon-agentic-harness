@@ -237,30 +237,24 @@ def _emit_delivery_failure_escalation(node_address: str, destination: Optional[s
     hard-coded by the ledger) naming the node + the failure, so an L1 reconcile reader sees the
     ``delivery_failed`` event. Best-effort: a journaling hiccup must not mask the underlying failure
     (the result already carries it, and the binding is stamped delivery-failed by the single writer).
+    Routed through ``executor.journal`` (SWL-01): seq allocation + append under the EX lock.
     """
     try:
-        record = ledger.build_wal_record(
-            node_address=node_address,
+        executor.journal(
+            node_address,
             # DISTINCT event from the deliverable_state stamp (executor.deliver event='delivery_failed'),
             # so the §6.3 escalation row is INDEPENDENTLY assertable from the state-record row (they are
             # two separate concerns: the binding stamp vs the L1-readable escalation).
             event="delivery_failed_escalation",
             from_state="done",
             to_state="done",  # lifecycle unchanged — a delivery is orthogonal to the lifecycle axis
-            expected_generation=None,
-            generation=None,
-            lease_epoch=None,
-            owner_token=None,
             binding_delta={"deliverable_state": "delivery-failed", "delivery_destination": destination,
                            "escalation": "delivery_failed"},
             summary=(
                 f"delivery-failure escalation -> L1: node {node_address} failed to promote to "
                 f"{destination!r} ({reason}); deliverable_state=delivery-failed (§6.3)"
             ),
-            artifacts=[],
-            seq=ledger.next_seq(),
         )
-        ledger.append_wal(record)
     except Exception:
         # The result + the delivery-failed binding stamp already carry the failure; a WAL hiccup
         # must not swallow it.

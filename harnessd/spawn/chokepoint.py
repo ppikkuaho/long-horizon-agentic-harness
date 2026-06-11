@@ -218,7 +218,9 @@ def kill_stale_pane(tmux_target: Optional[str]) -> None:
 # The escalation seam (§6.3) — emit an L1 spawn-failure escalation WAL row.
 # ---------------------------------------------------------------------------
 
-def _emit_spawn_failure_escalation(node_address: str, failure_class: str, model_used: str) -> None:
+def _emit_spawn_failure_escalation(
+    node_address: str, failure_class: str, model_used: str, *, released: bool = True,
+) -> None:
     """Append a spawn-failure escalation row to the run-ledger naming the child + which class fired.
 
     §6.3: on a refused spawn, RELEASE the claim and emit a spawn-failure escalation to L1
@@ -226,26 +228,31 @@ def _emit_spawn_failure_escalation(node_address: str, failure_class: str, model_
     lifecycle transition — the lifecycle rollback is the separate release_claim): an L1 reconcile
     reader sees the ``spawn_failed`` event naming the node + the class. Best-effort journaling — a
     journaling hiccup must not mask the underlying spawn failure, which is also carried on the result.
+    Routed through ``executor.journal`` (SWL-01): the seq allocation + append run under the
+    per-mutation EX lock, never racing the locked single writer on the other daemon thread.
+
+    ``released`` threads the rollback's TRUE outcome (RR-7): the row used to hard-code 'claim
+    released (§6.3)' even when the release_claim/_rollback_spawning CAS aborted — a journaled
+    phantom rollback. A released=False row says so explicitly (the slot is still claimed/spawning;
+    reconcile will eventually reap it, and the audit trail must not lie about the mutation outcome).
     """
     try:
-        record = ledger.build_wal_record(
-            node_address=node_address,
+        rollback_note = (
+            "claim released (§6.3)" if released
+            else "CLAIM ROLLBACK ABORTED — slot NOT released (the rollback CAS missed; §6.3 routing)"
+        )
+        executor.journal(
+            node_address,
             event="spawn_failed",
             from_state="claimed",
-            to_state="planned",
-            expected_generation=None,
-            generation=None,
-            lease_epoch=None,
-            owner_token=None,
-            binding_delta={"failure_class": failure_class, "model_used": model_used},
+            to_state="planned" if released else "claimed",
+            binding_delta={"failure_class": failure_class, "model_used": model_used,
+                           "claim_released": released},
             summary=(
                 f"spawn-failure escalation -> L1: node {node_address} failed to spawn "
-                f"(class={failure_class}, model_used={model_used}); claim released (§6.3)"
+                f"(class={failure_class}, model_used={model_used}); {rollback_note}"
             ),
-            artifacts=[],
-            seq=ledger.next_seq(),
         )
-        ledger.append_wal(record)
     except Exception:
         # The result already carries failure_class; a WAL hiccup must not swallow the spawn failure.
         return None
@@ -255,7 +262,7 @@ def _emit_spawn_failure_escalation(node_address: str, failure_class: str, model_
 # release_claim — the standalone rollback edge (CAS claimed -> planned, bump epoch).
 # ---------------------------------------------------------------------------
 
-def release_claim(node_address: str, *, expected_owner_token: Optional[str]) -> None:
+def release_claim(node_address: str, *, expected_owner_token: Optional[str]):
     """Release a claim: CAS ``claimed`` -> ``planned``, BUMP the epoch (§6.1 rollback edge).
 
     The first-class rollback edge. The release is itself a CAS-guarded transition (replayable via the
@@ -263,6 +270,12 @@ def release_claim(node_address: str, *, expected_owner_token: Optional[str]) -> 
     AGAIN (claim 1->2, release 2->3) so the rolled-back slot fences the failed incarnation. NOT a
     writer itself — routes through ``executor.transition`` (the single writer). Re-mints the
     owner_token at the bumped epoch in the SAME candidate (F-012, no split window).
+
+    RETURNS the ``TransitionResult`` (RR-7 — the last unrouted TransitionResult on the spawn
+    path): a CAS-aborted rollback leaves the slot ``claimed``, and the §6.3 escalation row must
+    record the TRUE rollback outcome, never assert 'claim released' for a release that aborted.
+    Returns None only when the node is absent (nothing to release). Callers MAY ignore an ok=True
+    result — only the failure leg is load-bearing.
     """
     live = ledger.read_binding(node_address)
     if live is None:
@@ -275,7 +288,7 @@ def release_claim(node_address: str, *, expected_owner_token: Optional[str]) -> 
         live.get("session_uuid"),
         new_lease_epoch,
     )
-    executor.transition(
+    return executor.transition(
         node_address,
         expected_state="claimed",
         expected_generation=live["generation"],
@@ -291,7 +304,6 @@ def release_claim(node_address: str, *, expected_owner_token: Optional[str]) -> 
         event="release_claim",
         summary="claim released: CAS claimed->planned, bump epoch (rollback edge, §6.1)",
     )
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -385,15 +397,38 @@ def _spawn_after_claim(
         # (auth_expired / api_key_forbidden / …) so an auth lapse no longer masquerades as a model outage.
         failure_class = getattr(exc, "failure_class", None) or "model_unavailable"
         model_used = getattr(exc, "model_used", "")
-        release_claim(node_address, expected_owner_token=post_claim_token)
-        _emit_spawn_failure_escalation(node_address, failure_class, model_used)
+        released = release_claim(node_address, expected_owner_token=post_claim_token)
+        _emit_spawn_failure_escalation(
+            node_address, failure_class, model_used,
+            released=bool(getattr(released, "ok", False)),
+        )
         return _result_failed(failure_class, tmux_target=node_address, model_used=model_used)
+    except Exception as exc:  # noqa: BLE001 — RR-5: the §6.3 rollback net must be TOTAL
+        # ANY non-blessed exception (a tmux CalledProcessError the LT-4 conversion missed, a
+        # FileNotFoundError on the tmux binary, an AttributeError from a garbled .claude.json in
+        # seed_trust, an OSError on a profile write, …) used to escape with the claim COMMITTED:
+        # no release, no spawn_failed escalation, the node stranded `claimed` until reconcile
+        # mis-necro'd it DIED_INFRA (a death class — the §6.3 'which class fired' row L1 should
+        # see never existed), and on the IPC route it killed the control-plane thread (RR-1).
+        # The module's own STEP2-5 contract is 'on ANY failure the claim is RELEASED + a
+        # spawn-failure escalation is emitted' — make the catch total, preserving the specific
+        # classes above. Mirrors outbox._service_one's catch-all rationale.
+        failure_class = f"spawn_exception:{type(exc).__name__}"
+        released = release_claim(node_address, expected_owner_token=post_claim_token)
+        _emit_spawn_failure_escalation(
+            node_address, failure_class, "",
+            released=bool(getattr(released, "ok", False)),
+        )
+        return _result_failed(failure_class, tmux_target=node_address)
 
     if not getattr(spawn_result, "ok", False):
         # The adapter reported a non-ok spawn without raising — treat as a post-claim failure too.
         failure_class = getattr(spawn_result, "failure_class", None) or "runtime_down"
-        release_claim(node_address, expected_owner_token=post_claim_token)
-        _emit_spawn_failure_escalation(node_address, failure_class, getattr(spawn_result, "model_used", ""))
+        released = release_claim(node_address, expected_owner_token=post_claim_token)
+        _emit_spawn_failure_escalation(
+            node_address, failure_class, getattr(spawn_result, "model_used", ""),
+            released=bool(getattr(released, "ok", False)),
+        )
         return _result_failed(failure_class, tmux_target=node_address)
 
     # STEP4 — record the actor's products (session_uuid + the NON-NULL transcript_path + the ACTUAL
@@ -430,8 +465,11 @@ def _spawn_after_claim(
                 "tmux_target (claimed->spawning)",
     )
     if not step4.ok:
-        release_claim(node_address, expected_owner_token=post_claim_token)
-        _emit_spawn_failure_escalation(node_address, "runtime_down", spawn_result.model_used)
+        released = release_claim(node_address, expected_owner_token=post_claim_token)
+        _emit_spawn_failure_escalation(
+            node_address, "runtime_down", spawn_result.model_used,
+            released=bool(getattr(released, "ok", False)),
+        )
         return _result_failed("runtime_down", tmux_target=node_address)
 
     # STEP5 — confirm boot: spawning -> running. The owner_token/epoch are unchanged across STEP4/5
@@ -450,8 +488,11 @@ def _spawn_after_claim(
         # The actor opened but the running transition failed: still a post-claim failure -> rollback.
         # (release_claim CAS targets 'claimed'; the node is now 'spawning', so route the rollback
         # spawning->planned through the executor directly with the live token.)
-        _rollback_spawning(node_address, post_claim_token)
-        _emit_spawn_failure_escalation(node_address, "runtime_down", spawn_result.model_used)
+        released = _rollback_spawning(node_address, post_claim_token)
+        _emit_spawn_failure_escalation(
+            node_address, "runtime_down", spawn_result.model_used,
+            released=bool(getattr(released, "ok", False)),
+        )
         return _result_failed("runtime_down", tmux_target=node_address)
 
     # STEP6 — the KICKOFF (the transport increment): deliver the agent's starting instruction.
@@ -513,16 +554,17 @@ def _await_kickoff_gate(capture, target) -> bool:
 
 
 def _journal_kickoff_event(node_address: str, event: str, inbox, target, note: str) -> None:
-    """Best-effort kickoff-journal row — a skipped/failed nudge is visible, never silent."""
+    """Best-effort kickoff-journal row — a skipped/failed nudge is visible, never silent.
+
+    Routed through ``executor.journal`` (SWL-01): seq allocation + append under the EX lock.
+    """
     try:
-        ledger.append_wal(ledger.build_wal_record(
-            node_address=node_address, event=event,
-            from_state="running", to_state="running", expected_generation=None,
-            generation=None, lease_epoch=None, owner_token=None,
+        executor.journal(
+            node_address, event=event,
+            from_state="running", to_state="running",
             binding_delta={"inbox": str(inbox), "tmux_target": target},
             summary=f"{event} for {node_address}: {note}",
-            artifacts=[], seq=ledger.next_seq(),
-        ))
+        )
     except Exception:  # noqa: BLE001 — the journal itself is best-effort
         pass
 
@@ -621,8 +663,12 @@ def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
         pass
 
 
-def _rollback_spawning(node_address: str, expected_owner_token: str) -> None:
-    """Roll a ``spawning`` node back to ``planned`` (the §6.1 spawning->planned rollback edge)."""
+def _rollback_spawning(node_address: str, expected_owner_token: str):
+    """Roll a ``spawning`` node back to ``planned`` (the §6.1 spawning->planned rollback edge).
+
+    RETURNS the ``TransitionResult`` (RR-7, mirroring release_claim) so the §6.3 escalation row
+    records the true rollback outcome; None when the node is absent / not ``spawning``.
+    """
     live = ledger.read_binding(node_address)
     if live is None or live.get("state") != "spawning":
         return None
@@ -633,7 +679,7 @@ def _rollback_spawning(node_address: str, expected_owner_token: str) -> None:
         live.get("session_uuid"),
         new_lease_epoch,
     )
-    executor.transition(
+    return executor.transition(
         node_address,
         expected_state="spawning",
         expected_generation=live["generation"],
@@ -649,7 +695,6 @@ def _rollback_spawning(node_address: str, expected_owner_token: str) -> None:
         event="release_claim",
         summary="actor-open-confirm failed: spawning->planned rollback, bump epoch (§6.1)",
     )
-    return None
 
 
 def _spawn_env() -> dict:

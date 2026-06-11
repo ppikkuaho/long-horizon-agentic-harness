@@ -518,6 +518,29 @@ _DISPATCH = {
 # ---------------------------------------------------------------------------
 
 
+def _journal_ipc_request_failed(stage: str, error: str, request=None) -> None:
+    """Best-effort ``ipc_request_failed`` run-ledger row (RR-1): a control-plane fault is VISIBLE.
+
+    Routed through ``executor.journal`` (the SWL-01 locked append). The row is keyed to the
+    request's ``addr`` when it names an EXISTING binding (so the fault is legible per node), else
+    to no node (a malformed request carries no trustworthy address — a row keyed to a nonexistent
+    address would be reconstructed into a phantom binding by boot replay). Swallows its own
+    failures — the journal must never re-kill the serve loop it exists to keep alive.
+    """
+    try:
+        addr = request.get("addr") if isinstance(request, dict) else None
+        node_address = addr if (addr and ledger.read_binding(addr) is not None) else None
+        command = request.get("command") if isinstance(request, dict) else None
+        _executor.journal(
+            node_address,
+            event="ipc_request_failed",
+            binding_delta={"stage": stage, "command": command, "addr": addr, "error": error},
+            summary=f"IPC request failed at {stage}: {error} (command={command!r}, addr={addr!r})",
+        )
+    except Exception:  # noqa: BLE001 — best-effort: the journal never crashes the control plane
+        pass
+
+
 def serve_one(listener: socket.socket, *, handler=handle_request) -> Optional[dict]:
     """Accept EXACTLY ONE connection on ``listener``, handle the framed request, write the response.
 
@@ -529,26 +552,75 @@ def serve_one(listener: socket.socket, *, handler=handle_request) -> Optional[di
 
     Takes the ``listener`` it accepts on as an explicit argument (no implicit global serve-forever): the
     caller owns the socket's lifecycle (bind / listen / close).
+
+    HARDENED PER CONNECTION (RR-1) — a client must not be able to kill the daemon's control plane:
+      * non-JSON bytes -> a structured ``{ok: false, errors}`` response + an ``ipc_request_failed``
+        journal row (the request is NOT dispatched);
+      * a handler exception -> the same structured-error + journal treatment (the daemon-side mirror
+        of F2r's never-a-traceback client rule);
+      * a ``sendall`` failure (the peer hung up before reading — BrokenPipe/ConnectionReset, both
+        OSError) is a PER-CONNECTION fault, journaled and swallowed — it must never be misread as
+        listener shutdown (the pre-fix ``except OSError: return`` in serve_forever did exactly that).
+    Only ``listener.accept()`` is left unguarded — its OSError IS the listener-lifecycle signal
+    ``serve_forever`` routes.
     """
     conn, _addr = listener.accept()
+    request: Optional[dict] = None
     with conn:
         raw = _recv_all(conn)
-        request = json.loads(raw.decode("utf-8")) if raw.strip() else {}
-        response = handler(request)
-        conn.sendall(json.dumps(response).encode("utf-8"))
+        try:
+            request = json.loads(raw.decode("utf-8")) if raw.strip() else {}
+        except (ValueError, UnicodeDecodeError) as exc:
+            # ValueError covers json.JSONDecodeError. Malformed bytes — structured abort, no dispatch.
+            response: dict = {
+                "ok": False,
+                "errors": [f"malformed request: not valid JSON ({exc})"],
+            }
+            _journal_ipc_request_failed("decode", str(exc))
+            request = None
+        else:
+            try:
+                response = handler(request)
+            except Exception as exc:  # noqa: BLE001 — a handler fault is per-request, never fatal
+                response = {
+                    "ok": False,
+                    "command": request.get("command") if isinstance(request, dict) else None,
+                    "errors": [f"internal error handling request: {type(exc).__name__}: {exc}"],
+                }
+                _journal_ipc_request_failed("handle", f"{type(exc).__name__}: {exc}", request)
+        try:
+            conn.sendall(json.dumps(response).encode("utf-8"))
+        except OSError as exc:
+            # The peer disconnected before reading the response — per-connection, NOT listener-closed.
+            _journal_ipc_request_failed("respond", f"{type(exc).__name__}: {exc}", request)
     return request
 
 
-def serve_forever(listener: socket.socket, *, handler=handle_request) -> None:  # pragma: no cover
-    """The production resident IPC loop — loops ``serve_one`` forever. NEVER driven in a test path.
+def serve_forever(listener: socket.socket, *, handler=handle_request) -> None:
+    """The production resident IPC loop — loops ``serve_one`` forever; one bad connection never ends it.
 
     The daemon assembles + binds the listener at boot and runs this in its serve thread. It is the
-    unbounded composition of the BOUNDED ``serve_one`` (the single drivable step the tests exercise);
-    the unbounded loop itself is never entered by a test (mirrors ``daemon.poll_loop`` vs ``poll_once``).
+    unbounded composition of the BOUNDED ``serve_one`` (the single drivable step the tests exercise).
+
+    FAULT DISCIPLINE (RR-1): the pre-fix loop caught ONLY OSError and RETURNED — so a client that
+    disconnected before reading its response (BrokenPipeError IS OSError) ended the accept loop
+    CLEANLY and permanently, and any non-OSError (bad JSON, a handler bug) killed the thread raw:
+    either way pause/resume/answer/kill/promote/spawn died silently until a daemon restart. Now:
+      * listener-CLOSED (the one legitimate shutdown signal: ``accept`` raises OSError with the
+        socket's fileno already -1) -> exit the resident loop cleanly;
+      * ANY other exception is a per-connection fault -> journal ``ipc_request_failed`` (best-effort)
+        and CONTINUE accepting. serve_one already contains decode/handler/sendall faults itself;
+        this catch is the backstop.
     """
     while True:
         try:
             serve_one(listener, handler=handler)
-        except OSError:
-            # The listener was closed (shutdown) — exit the resident loop cleanly.
-            return
+        except OSError as exc:
+            if listener.fileno() == -1:
+                # The listener was closed (shutdown) — exit the resident loop cleanly.
+                return
+            _journal_ipc_request_failed("serve", f"{type(exc).__name__}: {exc}")
+            continue
+        except Exception as exc:  # noqa: BLE001 — the control plane must outlive any one connection
+            _journal_ipc_request_failed("serve", f"{type(exc).__name__}: {exc}")
+            continue
