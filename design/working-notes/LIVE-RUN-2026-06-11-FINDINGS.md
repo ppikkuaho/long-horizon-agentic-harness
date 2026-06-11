@@ -85,6 +85,35 @@ the entire cascade toward verification; four levels re-ran the same suite. Intak
 wording propagates down the tree with compounding force; the intake template
 should carry intent-language, not verification-language.
 
+## The behavioral wave IS Phase 6 (mapping, 2026-06-11, from the full corpus read)
+
+BEHAVIOURAL-VALIDATION.md already specifies the spec→system translation machinery;
+today's run was effectively an UNPLANNED Inc-24 full trace executed before Inc
+18-23. Every behavioral finding maps onto a Phase-6 instrument that would have
+caught it:
+- LR-3/LR-4 (docs not loaded, briefs hand-prose, dangling relative paths) →
+  Inc 18 PIECES-PRESENT (deterministic, no model, front-loaded — "every manifest
+  doc path resolves; the brief carries every field the receiving level needs").
+- L1 no grilling session / no reflect-back / self-certify (LR-8c, LR-13) →
+  Inc 19 rubric items 6-7 + the leak test.
+- Four-levels-re-ran-tests, L2→L4 skip, prose briefs (LR-13, LR-6) → Inc 20/22
+  workflow-adherence rubrics ("did it FOLLOW ITS PRESCRIBED WORKFLOW" — explicitly
+  process-adherence ≠ output-plausibility).
+- Collapse-not-waking-parent (LR-11) → Inc 23 cascade-dynamics ("report-up reaches
+  the parent AND IS ACTED ON; collapsing a coordinator cascades").
+- Reviewer independence/authority (LR-9/10) → fold into the Inc 22/22b contracts.
+EXECUTION ORDER for the behavioral wave = Phase 6's own order: Inc 18 first (cheap,
+deterministic), then 19-22b per-level evals with the rubrics UPDATED for today's
+user decisions (gate output contracts, consulting-partner L1 frame, reviewer
+authority), then Inc 23, then a CONFORMANT Inc 24 re-run. Per the doc: "behavioural
+contracts are the user's to set" — the drafted rubrics go to the user for editing
+before they're executed.
+Also: INTAKE-TO-DELIVERY Stage 5 (L1 judges vs frozen spec, triggers promote) vs
+QUALITY-GATE L1 gate (user renders verdict via playback) — reconcilable (user
+authority = the reflect-back-confirmed frozen spec) but needs an explicit ruling;
+today's L1 had NEITHER form of user authority, which is the hole self-certification
+fell through.
+
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
 ### LR-2 — no PATH in the pane env: every shell call pays a tax (HIGH, ergonomics)
