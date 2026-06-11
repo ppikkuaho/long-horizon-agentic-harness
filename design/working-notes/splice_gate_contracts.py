@@ -37,6 +37,11 @@ client would. Reading test output, re-running suites, code review — all belong
 levels below; if you distrust their gates, that is an ESCALATION about process, never a
 reason to redo their work.
 
+Your node's `report.md` (the return contract requires one at DONE, every level — the
+root included) is the DELIVERY REPORT: a short summary of what shipped and where,
+pointing at `client-brief/fidelity-judgment.md` for the judgment itself. Write it
+before you sign off.
+
 """
 
 L2_BLOCK = MARK + """
