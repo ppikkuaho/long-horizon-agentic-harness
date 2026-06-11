@@ -162,3 +162,6 @@ DEFERRED-REGISTER sync for tonight's rows.
 - Watch-item: the ESCALATED stamp lingers on the binding after an AGENT-channel
   answer (answered_at is F16-only); clears at the next real sign-off overwrite.
   Cosmetic in flow; note for ledger semantics (SM-4 family).
+- ~01:05 E2 refused markdown-L3's DONE (MISSING-REPORT) — third live firing; left
+  to self-heal (loop proven at leaf+root). Follow-up: extend the report.md duty
+  line to L3's role doc (splice covered L1/L2/L4; L5 already carries it).
