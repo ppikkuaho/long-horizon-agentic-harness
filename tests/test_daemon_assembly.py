@@ -227,6 +227,10 @@ def test_poll_once_autonomously_collapses_a_leaf_that_signed_off_DONE(runtime):
     _install_adapter()
     addr, token = _seed_running_leaf(runtime)
     _write_signal(runtime, addr, signal="DONE", owner_token=token)
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    _e2_report_dir = addressing.node_dir(addr, runtime)
+    _e2_report_dir.mkdir(parents=True, exist_ok=True)
+    (_e2_report_dir / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
     tmux = _Tmux({"harness:" + addr: {"pane_pid": 4242, "pane_dead": 0}})
     det = _Detector(default="working")
 
@@ -347,6 +351,8 @@ def test_agent_visible_signoff_collapses_through_real_tick(runtime):
     # ---- The "agent": ONLY agent-visible inputs (files in its own node dir; no ledger read). ----
     handshake = json.loads((ws / ".sign-off.exec.json").read_text(encoding="utf-8"))
     signal_path = Path(handshake["signal_path"])  # absolute, delivered by the handshake
+    # E2 fixture completion: the agent fills its report BEFORE signing off (the role-doc order).
+    (ws / "report.md").write_text("# report\n\ndone per brief; verified.\n", encoding="utf-8")
     tmp = signal_path.with_name(signal_path.name + ".tmp")
     tmp.write_text(json.dumps({"signal": "DONE", "ts": clock.now_utc(),
                                "owner_token": handshake["owner_token"],
@@ -431,6 +437,10 @@ def test_poll_once_collapses_a_coordinator_whose_children_are_all_terminal(runti
     m[child]["terminal_signal"] = "DONE"
     ledger.write_binding(m, _lock_held=True)
     _write_signal(runtime, parent, signal="DONE", owner_token=ptoken)
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    _e2_report_dir = addressing.node_dir(parent, runtime)
+    _e2_report_dir.mkdir(parents=True, exist_ok=True)
+    (_e2_report_dir / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
     tmux = _Tmux({"harness:" + parent: {"pane_pid": 1, "pane_dead": 0}})
     det = _Detector(default="working")
 
@@ -581,6 +591,10 @@ def test_poll_once_survives_a_failed_stamp(runtime, monkeypatch):
     whose disk hiccup aborts the reconcile sweep."""
     addr, token, tmux, det = _tick_fixture(runtime)
     _write_signal(runtime, addr, signal="DONE", owner_token=token)
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    _e2_report_dir = addressing.node_dir(addr, runtime)
+    _e2_report_dir.mkdir(parents=True, exist_ok=True)
+    (_e2_report_dir / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
 
     def _raising_stamp(*_args, **_kwargs):
         raise OSError("disk hiccup — the runtime root is briefly unwritable")

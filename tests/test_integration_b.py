@@ -450,6 +450,10 @@ def test_full_arc_spawn_detect_signoff_collapse_through_single_writer(runtime):
 
     # The agent signs off: a REAL .signal.json {DONE, owner_token=<current>} in the node dir.
     _write_signal(runtime, NODE, signal="DONE", owner_token=live_token, evidence={"report": "report.md"})
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    _e2_report_dir = _addressing.node_dir(NODE, runtime)
+    _e2_report_dir.mkdir(parents=True, exist_ok=True)
+    (_e2_report_dir / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
 
     # The watchdog reads the REAL fenced reader -> DONE -> COLLAPSE through the REAL executor.
     action = watchdog.check_leaf(_node_view(running), running, now=_now_iso())

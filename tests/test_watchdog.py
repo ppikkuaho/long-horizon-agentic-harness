@@ -296,6 +296,10 @@ def test_done_signal_live_token_collapses(runtime):
     binding, token = _binding(state="running", generation=4, lease_epoch=2)
     _seed([binding])
     _write_signal(runtime, LEAF, signal="DONE", owner_token=token, evidence={"report": "report.md"})
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    _e2_report_dir = _addressing.node_dir(LEAF, runtime)
+    _e2_report_dir.mkdir(parents=True, exist_ok=True)
+    (_e2_report_dir / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
 
     # liveness would say idle (so a liveness-first impl would mis-FAIL) — but terminal-signal wins.
     import harnessd.watchdog as _mod
@@ -879,3 +883,145 @@ def test_coordinator_quiet_alive_with_children_is_waiting(runtime):
     assert not _is(action, "ESCALATE", "COLLAPSE", "FAILED", "REAP"), (
         "a merely-quiet coordinator with live children must not be escalated or reaped (it is waiting)"
     )
+
+
+# ===========================================================================
+# E2 — the RETURN-CONTRACT walker on the sign-off path (enforcement spine).
+#
+# "The hook rejects it — you cannot report complete" (L1/L2 role docs,
+# intent-spec-contract) made TRUE at runtime: a fenced DONE whose return
+# artifacts fail the deterministic floor is REFUSED before collapse — one
+# edge-triggered typed-defect WAL row + one inbox defect line; the agent fixes
+# and re-signals. FAILED/ESCALATED are exempt (never trap).
+# ===========================================================================
+
+def _prepare_node(runtime, node_address=LEAF, *, report="# report\n\nDone per brief; verified.\n"):
+    d = _addressing.node_dir(node_address, runtime)
+    d.mkdir(parents=True, exist_ok=True)
+    if report is not None:
+        (d / "report.md").write_text(report, encoding="utf-8")
+    return d
+
+
+def _wal_rows(event):
+    return [r for r in ledger.load_wal() if r.get("event") == event]
+
+
+def test_e2_done_without_report_is_refused_edge_triggered(runtime):
+    """DONE with NO report.md -> the collapse is REFUSED (NOOP return_contract_failed, the node
+    stays running), ONE typed-defect WAL row + ONE inbox line land, and a steady-state re-poll
+    journals NOTHING more. (Mutant: collapse without the walker -> state done -> caught.)"""
+    wd = _wd()
+    binding, token = _binding(state="running", generation=4, lease_epoch=2)
+    _seed([binding])
+    _prepare_node(runtime, report=None)  # node dir exists, NO report.md
+    _write_signal(runtime, LEAF, signal="DONE", owner_token=token)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+        assert _is(action, "NOOP"), f"a contract-failing DONE must NOT collapse (got {_tag(action)!r})"
+        assert (getattr(action, "detail", None) or {}).get("reason") == "return_contract_failed"
+        assert _read()["state"] == "running", "the node must STAY running (signal deferred, not lost)"
+        rows = _wal_rows("return_contract_failed")
+        assert len(rows) == 1, "exactly ONE typed-defect row on first detection"
+        assert "MISSING-REPORT" in (rows[0].get("summary") or ""), "the row must NAME the defect"
+        inbox = _addressing.inbox_path(LEAF, runtime)
+        assert inbox.is_file() and "return_contract_defect" in inbox.read_text(encoding="utf-8")
+
+        # steady-state re-poll: refused again, but NO second row / inbox line (edge-triggered)
+        action2 = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+        assert _is(action2, "NOOP")
+        assert len(_wal_rows("return_contract_failed")) == 1, "re-poll must journal NOTHING more"
+    finally:
+        mp.undo()
+
+
+def test_e2_done_with_report_collapses(runtime):
+    """The floor satisfied (report.md present) -> the DONE collapse proceeds exactly as before."""
+    wd = _wd()
+    binding, token = _binding(state="running", generation=4, lease_epoch=2)
+    _seed([binding])
+    _prepare_node(runtime)
+    _write_signal(runtime, LEAF, signal="DONE", owner_token=token)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+    finally:
+        mp.undo()
+    assert _is(action, "COLLAPSE")
+    assert _read()["state"] == "done"
+
+
+def test_e2_given_ids_must_be_cited_then_fix_collapses(runtime):
+    """An L5 node GIVEN minted IDs (acceptance.md carries R-007) must cite one in report.md.
+    Uncited -> refused (MISSING-REQUIREMENT-CITATION). The agent fixes the report -> the SAME
+    still-present signal collapses on the next poll (deferred, never lost)."""
+    wd = _wd()
+    binding, token = _binding(state="running", generation=4, lease_epoch=2)  # level L5 default
+    _seed([binding])
+    d = _prepare_node(runtime, report="# report\n\nAll tests pass.\n")
+    (d / "acceptance.md").write_text("- R-007: never double-charge\n", encoding="utf-8")
+    _write_signal(runtime, LEAF, signal="DONE", owner_token=token)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+        assert _is(action, "NOOP")
+        assert any("MISSING-REQUIREMENT-CITATION" in (r.get("summary") or "")
+                   for r in _wal_rows("return_contract_failed"))
+        # the agent fixes the report; the still-present signal now passes
+        (d / "report.md").write_text("# report\n\nDischarged R-007; suite green.\n", encoding="utf-8")
+        action2 = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+        assert _is(action2, "COLLAPSE"), "a fixed report must let the SAME signal collapse"
+        assert _read()["state"] == "done"
+    finally:
+        mp.undo()
+
+
+def test_e2_trace_contradiction_refused(runtime):
+    """A kind:requirement stanza whose dotted id does NOT truncate into its serves list is a
+    TRACE-CONTRADICTION; a stanza with a non-canonical field is MALFORMED-TRACE — both refuse."""
+    wd = _wd()
+    binding, token = _binding(state="running", generation=4, lease_epoch=2)
+    _seed([binding])
+    d = _prepare_node(runtime)
+    (d / "plan.md").write_text(
+        "# plan\n\n"
+        "<!-- trace: { id: R-1.2, serves: [R-9], kind: requirement, level: L4, node: proj/widget } -->\n",
+        encoding="utf-8",
+    )
+    _write_signal(runtime, LEAF, signal="DONE", owner_token=token)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+    finally:
+        mp.undo()
+    assert _is(action, "NOOP")
+    assert any("TRACE-CONTRADICTION" in (r.get("summary") or "")
+               for r in _wal_rows("return_contract_failed"))
+    assert _read()["state"] == "running"
+
+
+def test_e2_failed_signal_is_exempt(runtime):
+    """FAILED collapses WITHOUT contract checks — an agent can always fail loud (never trap)."""
+    wd = _wd()
+    binding, token = _binding(state="running", generation=1, lease_epoch=1)
+    _seed([binding])
+    _prepare_node(runtime, report=None)  # no report.md — would refuse a DONE
+    _write_signal(runtime, LEAF, signal="FAILED", owner_token=token)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+    finally:
+        mp.undo()
+    assert _is(action, "COLLAPSE"), "FAILED must collapse with NO contract gate"
+    assert _read()["state"] == "failed"

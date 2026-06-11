@@ -233,6 +233,8 @@ def test_collapse_tick_does_not_nudge_the_collapsed_leaf(runtime, monkeypatch):
     # The fenced DONE sign-off (the real handshake shape — owner_token copied verbatim).
     sig = addressing.signal_path(LEAF, runtime)
     sig.parent.mkdir(parents=True, exist_ok=True)
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    (sig.parent / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
     sig.write_text(json.dumps({
         "signal": "DONE", "ts": "2026-06-11T00:00:00+00:00", "owner_token": token,
         "evidence": {"report": "report.md"},

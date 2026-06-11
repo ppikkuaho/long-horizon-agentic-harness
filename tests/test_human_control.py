@@ -359,6 +359,10 @@ def test_paused_leaf_terminal_signal_still_collapses(runtime, liveness_seam):
     leaf, token = _binding(paused_at=_now_iso())
     _seed([parent, leaf])
     _write_signal(runtime, LEAF, signal="DONE", owner_token=token)
+    # E2 fixture completion: the return contract requires report.md at DONE.
+    _e2_report_dir = addressing.node_dir(LEAF, runtime)
+    _e2_report_dir.mkdir(parents=True, exist_ok=True)
+    (_e2_report_dir / "report.md").write_text("# report\n\ndone per brief.\n", encoding="utf-8")
 
     action = watchdog.check_leaf(_node_from(leaf), leaf, now=_now_iso())
 

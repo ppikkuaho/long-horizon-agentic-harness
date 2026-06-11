@@ -71,7 +71,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from . import config, clock, detector, detector_signals, ledger
+from . import config, clock, detector, detector_signals, ledger, return_contract
 from .spawn import chokepoint
 
 
@@ -262,6 +262,23 @@ def check_terminal_signal(node, binding) -> Optional[WatchdogAction]:
         # None so the caller falls through (leaf: STEP 0/STEP B revives the ladder post-answer,
         # WATCHDOG §3.5); a NEW question (a fresh artifact) re-journals above and re-arms the hold.
         return None
+    if signal == "DONE":
+        # E2 — THE RETURN-CONTRACT WALKER (enforcement spine): a DONE sign-off whose return
+        # artifacts fail the deterministic floor (report.md present; given requirement IDs cited;
+        # trace stanzas parse) is REFUSED — the collapse does not run, ONE edge-triggered typed-
+        # defect row + ONE inbox defect line land (the ③-wake nudges the agent to fix + re-signal).
+        # FAILED/ESCALATED are exempt (never trap an agent in its own refusal loop). This makes the
+        # role docs' "the hook rejects it — you cannot report complete" true at runtime (LR-14).
+        verdict = return_contract.check_done_contract(node_address, binding)
+        if not verdict.ok:
+            return_contract.journal_defects_once(
+                node_address, binding, sig.get("ts"), verdict.defects
+            )
+            return WatchdogAction(
+                kind=NOOP, node=node_address,
+                detail={"reason": "return_contract_failed", "terminal_signal": signal,
+                        "defects": list(verdict.defects)},
+            )
     if signal in ("DONE", "FAILED"):
         # Route the terminal collapse through the REAL chokepoint/executor (running -> done/failed).
         # ROUTE THE RESULT (review watchdog-2): a FAILED terminal transition (a CAS miss / fencing
