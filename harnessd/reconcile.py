@@ -352,6 +352,17 @@ def _reconcile(executor, tmux, *, replay: bool, detector=None) -> ReconcileRepor
         if states.is_terminal(state):
             continue
 
+        # PRE-SPAWN ``planned`` slots own NO pane (INT-4(a)): their tmux_target is still the
+        # registration PLACEHOLDER (the bare session name — real ``list_targets`` keys are ALWAYS
+        # '<session>:<window>.<pane>' triples, so the placeholder can never match), and no actor
+        # has opened. Classifying them owned-but-dead necro'd EVERY planned slot on boot
+        # (planned->failed is legal via the F5 fold), which made genesis's F21 claim-the-survivor
+        # branch unreachable and forced the epoch-resetting re-register leg instead. A planned
+        # slot is pure intent: nothing live to adopt, nothing dead to reap — the claim path
+        # (genesis STEP 5 / register_and_spawn_child) is its owner. SKIP.
+        if state == "planned":
+            continue
+
         target_name = binding.get("tmux_target")
         target = targets.get(target_name)
 

@@ -215,6 +215,72 @@ def kill_stale_pane(tmux_target: Optional[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Re-registration identity seeding (SM-1 / SM-2 / INT-4(b)) — fencing NEVER regresses.
+# ---------------------------------------------------------------------------
+
+def reregister_identity_seed(node_address: str) -> tuple:
+    """The fencing-monotonic ``(lease_epoch, last_applied_seq)`` seed for (re-)registering an address.
+
+    A FRESH address (no prior binding AND no WAL rows naming it) seeds ``(1, 0)`` — the first-boot
+    shape. An address WITH PRIOR HISTORY seeds:
+
+      * ``lease_epoch = max(prior binding epoch, max WAL epoch for the address) + 1`` — DAEMON §8's
+        per-node epoch monotonicity must hold ACROSS incarnations (SM-1): the old reset-to-1 meant
+        the next ``executor.claim`` (epoch 2) re-minted the PRIOR incarnation's byte-identical
+        owner_token (mint_owner_token is a pure composite over deterministic placeholder identity),
+        so a leftover ``.signal.<seat>.json`` passed the F19 fence and collapsed every respawn at
+        the same address — and a uuid-mismatched zombie actor retained a VALID token over the new
+        incarnation. The WAL max is consulted too: a crash between a necro's WAL append and its
+        binding checkpoint must not lose the bump.
+      * ``last_applied_seq = the current max WAL seq`` — the per-node replay watermark NEVER
+        regresses (SM-2): a reset-to-0 against the append-only WAL let boot replay re-apply the
+        dead incarnation's ENTIRE chain (each old row pre-image-matches the re-registered gen-0
+        binding), resurrecting the prior terminal state and orphaning the new claim row. Seeding
+        the watermark at the current max puts every prior row below it; the new incarnation's own
+        rows allocate above and replay normally.
+    """
+    prior = ledger.read_binding(node_address)
+    has_history = prior is not None
+    max_epoch = 0
+    if prior is not None:
+        epoch = prior.get("lease_epoch")
+        if isinstance(epoch, int):
+            max_epoch = epoch
+    max_seq = 0
+    for record in ledger.load_wal():
+        seq = record.get("seq")
+        if isinstance(seq, int) and seq > max_seq:
+            max_seq = seq
+        if record.get("node_address") == node_address:
+            has_history = True
+            epoch = record.get("lease_epoch")
+            if isinstance(epoch, int) and epoch > max_epoch:
+                max_epoch = epoch
+    if not has_history:
+        return 1, 0
+    return max_epoch + 1, max_seq
+
+
+def purge_stale_seat_artifacts(node_address: str) -> None:
+    """Delete the PRIOR incarnation's seat artifacts at re-register time (SM-1 belt-and-braces).
+
+    ``.signal.<seat>.json`` / ``.sign-off.<seat>.json`` in the node dir belong to the incarnation
+    being REPLACED — no production path ever unlinked them (promote only excludes them). Epoch
+    monotonicity (reregister_identity_seed) already fences them out, but the stale artifact is
+    dead weight every future tick re-reads; deleting it at the re-register write-point keeps the
+    node dir truthful. SEAT-SCOPED on purpose: the address carries its seat, so a co-located
+    ``#review`` seat's live artifacts are never touched. Best-effort (the fence is the guarantee).
+    """
+    if ledger.RUNTIME_ROOT is None:
+        return
+    for derive in (addressing.signal_path, addressing.signoff_path):
+        try:
+            derive(node_address, ledger.RUNTIME_ROOT).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # The escalation seam (§6.3) — emit an L1 spawn-failure escalation WAL row.
 # ---------------------------------------------------------------------------
 
@@ -984,9 +1050,16 @@ def _register_child(
     role_variant = getattr(child_level_config, "role_variant", None) or level
     subagent_id = "subagent-" + _sanitize_address(child_address)
     session_uuid = "registered-" + _sanitize_address(child_address)
-    lease_epoch = 1
+    # SM-1/SM-2: a RE-register (a terminal child being respawned -- the ONLY recovery path for a
+    # failed child) must never reset the fence or the replay watermark: the epoch seeds at
+    # prior+1 (so the next claim's re-minted token can never equal a prior incarnation's -- the
+    # leftover .signal fence holds) and last_applied_seq seeds at the current max WAL seq (so
+    # boot replay never re-applies the dead incarnation's chain). A fresh child seeds (1, 0).
+    lease_epoch, last_applied_seq = reregister_identity_seed(child_address)
     generation = 0
     owner_token = fencing.mint_owner_token(child_address, subagent_id, session_uuid, lease_epoch)
+    # SM-1 belt-and-braces: drop the dead incarnation's seat artifacts before the slot reopens.
+    purge_stale_seat_artifacts(child_address)
     node_dir = _child_node_dir(child_address)
     binding = {
         "node_address": child_address,
@@ -1002,7 +1075,7 @@ def _register_child(
         "generation": generation,
         "lease_epoch": lease_epoch,
         "owner_token": owner_token,
-        "last_applied_seq": 0,
+        "last_applied_seq": last_applied_seq,
         "liveness_state": "claimed",
         "terminal_signal": None,
         "terminal_signal_at": None,

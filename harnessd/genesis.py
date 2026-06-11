@@ -228,9 +228,19 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
     """
     subagent_id = "subagent-l1-root"
     session_uuid = "genesis-l1-root"
-    lease_epoch = 1
+    # SM-1/SM-2/INT-4(b): on a RE-register (a terminal/reaped prior root — e.g. a daemon reboot
+    # after a terminal childless L1, or the STEP-5 intermediate-state reap above) the fence and
+    # the replay watermark must NEVER regress: lease_epoch seeds at prior+1 (the old reset-to-1
+    # made the next claim re-mint the PRIOR incarnation's byte-identical owner_token — the fixed
+    # placeholder identity is deterministic — so a leftover .signal passed the F19 fence and
+    # collapsed every fresh root, and F21's reap-leg epoch bump was immediately undone) and
+    # last_applied_seq seeds at the current max WAL seq (boot replay must not re-apply the dead
+    # incarnation's chain, SM-2). A true first boot seeds (1, 0) — unchanged.
+    lease_epoch, last_applied_seq = chokepoint.reregister_identity_seed(l1_address)
     generation = 0
     owner_token = fencing.mint_owner_token(l1_address, subagent_id, session_uuid, lease_epoch)
+    # SM-1 belt-and-braces: drop the dead incarnation's seat artifacts before the slot reopens.
+    chokepoint.purge_stale_seat_artifacts(l1_address)
     binding = {
         "node_address": l1_address,
         "parent_address": None,  # the L1 root is the ONLY parentless node (DAEMON §7)
@@ -244,7 +254,7 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
         "generation": generation,
         "lease_epoch": lease_epoch,
         "owner_token": owner_token,
-        "last_applied_seq": 0,
+        "last_applied_seq": last_applied_seq,
         "liveness_state": "claimed",
         "terminal_signal": None,
         "terminal_signal_at": None,
