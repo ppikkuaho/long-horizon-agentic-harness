@@ -151,23 +151,27 @@ Still unread (honesty ledger): L2/L3/L5 role.md in full, intake-session-template
 intent-spec-contract, COMMUNICATION.md, PLAN-ALIGNMENT-GATE.md in full,
 DESIGN-PRINCIPLES.md — queued before any role-doc rewrites land.
 
-### LR-14 — THE ENFORCEMENT SPINE IS UNBUILT (capstone, found by the corpus read)
-The operational docs' primary mechanical forcing functions DO NOT EXIST in the
-harness. Grep evidence (2026-06-11): zero hits in harnessd/ for preflight /
-trace-block / return-contract / MISSING-TRACE. Yet the docs lean on them as THE
-enforcement at every boundary: "the return-contract hook walks your artifact and
-REJECTS it — you cannot report complete" (L2 role, L1 role, intent-spec-contract);
-"reflect-back status pending BLOCKS FREEZE" (intent-spec-contract §2 — the user-
-authority forcing function); typed defects (MISSING-TRACE-*, DUP-ID-*, etc.).
-Also: pieces_present.py EXISTS (Inc 18) but is referenced nowhere in the runtime —
-it is not wired into the spawn chokepoint, which is why dangling relative manifest
-paths shipped in live briefs (LR-3).
-CONSEQUENCE: at runtime the behavioral layer currently runs on exhortation alone —
-and today's run proved exhortation loses to completion bias every time, while
-structure (signals, fencing, collapse — the substrate's enforced half) held every
-time. HIGHEST-LEVERAGE SINGLE BUILD of the behavioral wave: the return-contract /
-preflight hook family + wiring pieces_present into the chokepoint, so the docs'
-"the hook rejects it" sentences become true.
+### LR-14 — BUILT-AS-EVAL ≠ WIRED-AS-ENFORCEMENT (capstone; amended after user
+### challenge "I thought we built it earlier")
+CREDIT WHERE DUE (user was right): the Phase-6 instruments WERE built — the full
+eval suite tools/eval_{l1_intake,l2_architect,l3_design,l4_coordinate,l5_execute,
+reviews,full_trace}.py with committed results in dev/eval-runs/ (incl. the md2pdf
+full trace-through capstone f36a3a3, review-machinery planted-issue evals), the
+dry-run plan-alignment gate run (gate-report.md — an agent ROLE-PLAYING the gate,
+2026-06-02), and pieces_present.py (Inc 18).
+THE PRECISE GAP: all of it runs OFFLINE, after the fact, largely via agent judges.
+At RUNTIME nothing sits on the report/freeze/spawn paths: zero hits in harnessd/
+for preflight / return-contract / MISSING-TRACE; pieces_present is referenced
+nowhere in the runtime; no freeze-block on reflect-back=pending. The role docs'
+"the hook rejects it — you cannot report complete" sentences (L1/L2 role,
+intent-spec-contract) describe enforcement that exists only as eval-time scoring.
+No separate validation daemon exists in either repo (checked: launchd plist = the
+harnessd wrapper; the §2.6 harnessd-pinger has its F14 surface but no built pinger).
+CONSEQUENCE unchanged: at runtime the behavioral layer runs on exhortation, and
+today exhortation lost to completion bias every time while enforced structure held.
+HIGHEST-LEVERAGE BUILD: promote the existing eval logic into runtime hooks —
+pieces_present into the chokepoint (deterministic half), the return-contract
+walkers onto the report/sign-off path, the freeze-block onto the gate path.
 
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
