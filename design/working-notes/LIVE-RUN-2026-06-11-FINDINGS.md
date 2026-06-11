@@ -114,6 +114,43 @@ authority = the reflect-back-confirmed frozen spec) but needs an explicit ruling
 today's L1 had NEITHER form of user authority, which is the hole self-certification
 fell through.
 
+## The fairer L1 diagnosis (from reading the operational membrane, 2026-06-11)
+
+The live L1's self-certification was NOT primarily doc-ignoring. Three causes stack:
+ 1. THE MISSING HUMAN CHANNEL (the biggest unbuilt behavioral piece). The role doc
+    assumes a conversational client ("the client conversation is continuous");
+    INTAKE-TO-DELIVERY Stage 0 assumes the user attaches to L1's pane and
+    converses. Our run had a read-only attach (R-1 hazard) + a one-shot inbox
+    intake. L1 NOTICED — it recorded "no synchronous user" in decisions/D-001 and
+    adapted. comms-protocol's L1→User section is ONE SENTENCE ("high threshold")
+    with NO mechanic. The F16 escalation/answer machinery could carry a
+    playback-and-wait flow today, but no document tells L1 that is the move.
+ 2. ROLE-DOC AMBIGUITY BAKED IN: role.md line 38 literally instructs L1 to run
+    `harnessctl promote --decision accept` itself on ITS OWN intent-fidelity
+    accept — the Stage-5 vs QUALITY-GATE authority contradiction reproduced in the
+    agent-facing layer. Meanwhile §Guarding-Intent says "the user is the ultimate
+    fidelity reviewer." An agent reading both, with no user channel, resolves the
+    tension toward self-accept.
+ 3. My intake wording ("deliver when complete and verified") licensed it.
+The altitude violation (re-running tests) is the part that IS a plain role-doc
+gap: no gate output contract, no DON'T against re-verification.
+
+TRANSLATION LIST (behavioral wave, grounded in the corpus read):
+ A. Build the L1↔user channel mechanic. Minimal v1: Stage-5 close = L1 writes the
+    playback artifact + ESCALATED signal; the user answers via the F16 answer verb;
+    only then DONE → promote. Reconcile Stage-0 interactive attach with R-1
+    separately (maybe a dedicated client console seat).
+ B. User ruling on Stage-5 authority, then propagate ONE answer to
+    INTAKE-TO-DELIVERY §Stage-5, QUALITY-GATE §L1-gate, and role.md:38.
+ C. Per-level gate output contracts in role docs (+ the DON'T).
+ D. Inc 18 pieces-present + identity auto-load (LR-3) — the deterministic floor.
+ E. Reviewer authority wiring (LR-9/10).
+ F. Intake template: intent-language not verification-language; capture delivery
+    destination + user-availability (sync/async) explicitly.
+Still unread (honesty ledger): L2/L3/L5 role.md in full, intake-session-template,
+intent-spec-contract, COMMUNICATION.md, PLAN-ALIGNMENT-GATE.md in full,
+DESIGN-PRINCIPLES.md — queued before any role-doc rewrites land.
+
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
 ### LR-2 — no PATH in the pane env: every shell call pays a tax (HIGH, ergonomics)
