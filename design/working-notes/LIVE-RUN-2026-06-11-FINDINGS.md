@@ -158,3 +158,21 @@ written under the REVIEWER's own owner_token (the producer cannot forge or own i
 the fencing primitive already exists). Today's L5+ -as-child of L4 was acceptable
 only because L4 wasn't the code's producer; the L4→L2 boundary in this run has no
 independent gate at all unless L2/harness spawns one.
+
+### LR-10 — invocation vs authority; levels manage WORK, not agents (user, mid-run)
+"L5+ should actually also be invoked by L5. L4 should have minimal need to manage
+agents. Its focus is the work. It's not an agent manager — the agents are the
+vehicle."
+Model: WHO PULLS THE TRIGGER is mechanical and belongs at the point of work — L5
+finishing IS the trigger for its own L5+ review (a deterministic lifecycle step,
+like CI; agent-lifecycle.md already treats the pair as one unit that "on accept,
+both collapse and forward upward"). WHO HOLDS AUTHORITY is where independence
+lives: rubric frozen at planning (producer can't author it), reviewer
+identity/config resolved by the harness (producer can't pick a friendly reviewer),
+verdict under the reviewer's own owner_token (producer can't forge/suppress — LR-9).
+Observed overhead this run: L4 hand-sequenced tester → build → review, spending its
+turns on agent choreography instead of workstream-level work. Remedy direction:
+make pair-completion (and review invocation generally) harness machinery — L4's
+products are the decomposition, spec, and gate rubric; the lifecycle runs itself.
+Connects to LR-4 (one-command spawn): same theme — agent mechanics should be
+deterministic, frictionless, and near-invisible to every level.
