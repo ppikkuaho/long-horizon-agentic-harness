@@ -761,10 +761,14 @@ def ack_inbox(
 ) -> TransitionResult:
     """Advance ``last_inbox_acked_offset`` — the ③-wake edge-trigger watermark (TRANSPORTS §2).
 
-    The daemon's wake path calls this AFTER a wake nudge is actually delivered: the watermark
-    moves to the inbox's end-of-file so the SAME line is never re-nudged on the next poll
-    (``inbox_has_unacked`` is edge-triggered — one nudge per NEW line, no per-poll storm).
-    A suppressed/failed send deliberately does NOT ack, so the next tick retries.
+    The daemon's wake resolver calls this AFTER a delivered nudge is VERIFIED CONSUMED (R-1 /
+    TRANSPORTS §3.2 P3: the transcript JSONL grew past the at-send baseline — a NEW turn): the
+    watermark moves to the nudge's pre-send inbox size so the SAME line is never re-nudged on
+    the next poll (``inbox_has_unacked`` is edge-triggered — one nudge per NEW line, no per-poll
+    storm). A suppressed/failed/UNVERIFIED send deliberately does NOT ack, so the next tick
+    retries. The ack CLEARS the pending-verification record (``wake_pending_ack_offset`` /
+    ``wake_sent_transcript_size``) in the SAME atomic write — a resolved pending can never be
+    re-resolved (no double-ack).
 
     An own-slice CONTROL-PLANE write (the deliver()/pause() discipline): the lifecycle ``state``
     is unchanged, no legality gate runs, no generation bumps; one WAL row journals the ack.
@@ -774,11 +778,56 @@ def ack_inbox(
     return _own_slice_write(
         node_address,
         expected_owner_token=expected_owner_token,
-        delta={"last_inbox_acked_offset": int(acked_offset)},
+        delta={
+            "last_inbox_acked_offset": int(acked_offset),
+            "wake_pending_ack_offset": None,
+            "wake_sent_transcript_size": None,
+        },
         event="inbox_acked",
         summary=(
-            f"③-wake delivered: last_inbox_acked_offset -> {int(acked_offset)} "
-            "(edge-trigger watermark; one nudge per new line)"
+            f"③-wake verified consumed: last_inbox_acked_offset -> {int(acked_offset)} "
+            "(edge-trigger watermark; pending verification cleared in the same write)"
+        ),
+    )
+
+
+def record_wake_pending(
+    node_address: str,
+    *,
+    pending_ack_offset: int,
+    sent_transcript_size: int,
+    expected_owner_token: Optional[str] = None,
+) -> TransitionResult:
+    """Record a DELIVERED-but-unverified wake/kickoff nudge (R-1: verify-new-turn, TRANSPORTS §3.2 P3).
+
+    send-keys rc=0 only proves tmux accepted the bytes — NOT that the agent consumed them (an
+    operator's interactive attach in copy-mode eats the keystrokes while capture-pane still shows
+    the idle prompt and send-keys still exits 0). So a delivered send does NOT ack the inbox
+    watermark; it records the pending verification on the binding:
+
+      * ``wake_pending_ack_offset`` — the PRE-send inbox size (the SWL-03 ack target: lines
+        appended mid-send stay above it and re-trigger);
+      * ``wake_sent_transcript_size`` — the transcript JSONL byte size at send time (the
+        verify-new-turn growth baseline; an absent transcript records 0).
+
+    The daemon's wake resolver acks to the recorded offset ONLY after the transcript grows past
+    the baseline (``watchdog.confirm_prod_worked``); until then the unacked watermark keeps the
+    retry armed, and a re-send OVERWRITES this record with ITS pre-send sizes (one pending
+    verification at a time per node). Same own-slice control-plane discipline as ``ack_inbox``
+    (unfenced daemon-internal posture; the EX lock is the serialization).
+    """
+    return _own_slice_write(
+        node_address,
+        expected_owner_token=expected_owner_token,
+        delta={
+            "wake_pending_ack_offset": int(pending_ack_offset),
+            "wake_sent_transcript_size": int(sent_transcript_size),
+        },
+        event="wake_verify_pending",
+        summary=(
+            f"wake nudge delivered (rc=0) — ack DEFERRED pending verify-new-turn: ack to "
+            f"{int(pending_ack_offset)} once the transcript grows past "
+            f"{int(sent_transcript_size)} bytes (R-1; TRANSPORTS §3.2 P3)"
         ),
     )
 

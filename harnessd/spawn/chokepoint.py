@@ -636,7 +636,7 @@ def _journal_kickoff_event(node_address: str, event: str, inbox, target, note: s
 
 
 def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
-    """STEP6: durable kickoff line -> prompt-gated pointer nudge -> ack the delivered line.
+    """STEP6: durable kickoff line -> prompt-gated pointer nudge -> verify-then-ack the line.
 
     (1) DURABLE FIRST — one JSON line in ``addressing.inbox_path`` (the same line discipline the
         F16 answer verb uses: from/type/message/ts). This is the artifact the ③-wake edge-trigger
@@ -656,11 +656,16 @@ def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
         simply skip — the dry-run never types). The pointer names WHO the agent is, WHERE its
         brief lands (the workspace it booted in, F18 cwd), and WHICH inbox messages arrive in —
         never the brief/task content itself.
-    (4) ACK ON DELIVERY (LT-9) — a kickoff whose send REPORTED delivery acks the watermark to
-        the kickoff line's own end-offset, terminating the heal loop: without this every spawn
-        owed one guaranteed spurious ③-wake re-nudge of the already-actioned kickoff (landing at
-        the agent's first idle moment — or, for a straight-through leaf, in its collapse tick).
-        A failed/skipped send leaves the watermark unmoved — the wake delivers instead.
+    (4) VERIFY-THEN-ACK (LT-9 + R-1) — a kickoff whose send REPORTED delivery does NOT ack on
+        rc=0 (rc=0 is not consumption — verify-new-turn, TRANSPORTS §3.2 P3: an operator's
+        copy-mode attach eats the keystrokes while send-keys still exits 0). It records the
+        pending verification instead (``executor.record_wake_pending``: the kickoff line's own
+        end-offset + the transcript size at send time); the daemon's ③-wake resolver acks once
+        the transcript grows (the agent's FIRST turn), terminating the heal loop — LT-9's
+        no-spurious-re-nudge goal now holds only for kickoffs that were actually consumed, while
+        a SWALLOWED kickoff keeps the watermark unmoved so the ③-wake re-nudges from the durable
+        line (at worst one duplicate nudge in the consume-to-verify window — tolerated). A
+        failed/skipped send records nothing — the wake delivers instead.
     """
     from harnessd import clock
 
@@ -720,11 +725,21 @@ def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
         )
         return
 
-    # (4) LT-9: terminate the heal loop for the DELIVERED kickoff — ack the watermark to the
-    # kickoff line's own end-offset through the single writer (best-effort: a failed ack only
-    # costs one redundant wake, the pre-fix steady state).
+    # (4) LT-9 + R-1: a DELIVERED kickoff does NOT ack on rc=0 — record the pending verification
+    # through the single writer (the kickoff line's own end-offset + the transcript baseline at
+    # send time); the daemon's ③-wake resolver acks once the transcript grows (the agent's first
+    # turn). Best-effort: a failed record only costs redundant wakes, the pre-LT-9 steady state.
+    transcript_path = getattr(spawn_result, "transcript_path", None)
     try:
-        executor.ack_inbox(node_address, acked_offset=kickoff_end_offset)
+        baseline = os.stat(transcript_path).st_size if transcript_path else 0
+    except OSError:
+        baseline = 0  # absent at send time — any later content reads as the first turn
+    try:
+        executor.record_wake_pending(
+            node_address,
+            pending_ack_offset=kickoff_end_offset,
+            sent_transcript_size=baseline,
+        )
     except Exception:  # noqa: BLE001
         pass
 

@@ -51,6 +51,7 @@ BUILDER DECISIONS (the §2.12 details the frozen tests leave open — stated in 
 from __future__ import annotations
 
 import fcntl
+import os
 import time
 from pathlib import Path
 from typing import IO, NoReturn, Optional, Tuple
@@ -363,9 +364,11 @@ def _watchdog_tick(executor, tmux, detector) -> None:
     the answer verb wakes the PARENT's inbox) with a line appended past its acked watermark
     (``watchdog.inbox_has_unacked``) gets ONE pointer nudge (``watchdog.wake_keystroke`` — never
     the payload), gated by ``prod_precondition`` (never type into a mid-turn pane) and skipped
-    for a PAUSED subtree (§3.4 STEP 0: no recovery actions). Only a DELIVERED nudge advances the
-    edge-trigger watermark (``executor.ack_inbox``); a suppressed/failed send leaves it unmoved
-    so the next tick retries — deferred, never lost.
+    for a PAUSED subtree (§3.4 STEP 0: no recovery actions). A DELIVERED nudge does NOT advance
+    the edge-trigger watermark (R-1: send-keys rc=0 is not consumption) — it records a pending
+    verification (``executor.record_wake_pending``); a LATER tick acks (``executor.ack_inbox``)
+    only after verify-new-turn confirms the transcript grew. A suppressed/failed/unverified send
+    leaves the watermark unmoved so the next tick retries — deferred, never lost.
 
     Liveness is injected into the watchdog via its ``set_liveness`` seam so ``check_leaf`` reads THIS
     sweep's detector verdict. Each node is isolated: one node's watchdog error never aborts the sweep
@@ -541,23 +544,34 @@ def _send_fence_open(address: str, snapshot: dict) -> Optional[dict]:
 
 
 def _wake_on_unacked_inbox(executor, tmux, address: str, binding: dict) -> None:
-    """The ③-wake delivery: unacked inbox line -> ONE gated+fenced pointer nudge -> ack the watermark.
+    """The ③-wake delivery: unacked inbox line -> ONE gated+fenced pointer nudge -> VERIFIED ack.
 
     EDGE-TRIGGERED: ``inbox_has_unacked`` compares the inbox size to the binding's
-    ``last_inbox_acked_offset``; only a DELIVERED nudge advances the watermark (executor.ack_inbox,
-    the single writer), so a gate-closed pane or a failed send is retried next tick and an acked
-    line is never re-nudged. PAUSED subtrees get no nudge (§3.4 STEP 0 — no recovery actions);
-    the pointer (``wake_keystroke``) names the inbox re-read, NEVER the message payload.
+    ``last_inbox_acked_offset``. PAUSED subtrees get no nudge (§3.4 STEP 0 — no recovery
+    actions); the pointer (``wake_keystroke``) names the inbox re-read, NEVER the message payload.
 
-    Two transport-correctness rules (the pre-live-run fixes):
-      * SWL-03 — the inbox size is captured BEFORE the send and THAT size is acked: the inbox is
-        a multi-writer append log (the IPC thread appends answer_posted/kickoff lines), so a line
-        landing in the send->stat window must stay ABOVE the watermark and re-trigger next tick
-        (at worst one duplicate nudge — tolerated by the edge-trigger design; a lost wake is not).
+    Three transport-correctness rules (the pre-live-run fixes):
+      * R-1 / VERIFY-NEW-TURN (TRANSPORTS §3.2 P3) — a DELIVERED send does NOT ack: send-keys
+        rc=0 only proves tmux accepted the bytes, not that the agent consumed them (an operator's
+        interactive attach in copy-mode EATS the keystrokes while capture-pane still shows the
+        idle prompt and send-keys still exits 0 — for a coordinator, which has no prod-ladder
+        healer, a swallowed human-answer wake wedged the run silently and permanently). The send
+        records a pending verification instead (``wake_pending_ack_offset`` = the pre-send inbox
+        size, ``wake_sent_transcript_size`` = the transcript byte size at send time); a LATER
+        tick resolves it FIRST — transcript grew past the baseline (``confirm_prod_worked``;
+        absent/unreadable reads NOT-grown, conservative) -> ``ack_inbox`` to the recorded offset
+        (which clears the pending fields in the same write — never a double-ack); not grown ->
+        watermark unmoved, and the still-unacked line permits a gated RE-SEND that OVERWRITES the
+        pending record (one pending verification at a time per node; one send per tick, no spin).
+      * SWL-03 — the inbox size is captured BEFORE the send and THAT size is the (eventual) ack
+        target: the inbox is a multi-writer append log (the IPC thread appends answer_posted/
+        kickoff lines), so a line landing in the send->stat window must stay ABOVE the watermark
+        and re-trigger next tick (at worst one duplicate nudge — tolerated by the edge-trigger
+        design; a lost wake is not).
       * LT-3 — the sender-side fence (``_send_fence_open``, TRANSPORTS §3.2 P2) re-reads the live
-        binding immediately before the send and aborts on terminal state / token / epoch /
-        session_uuid drift — the same tick that collapses a signed-off leaf must NOT then nudge
-        its pane 'resume' nor ack the inbox on the terminal binding.
+        binding immediately before the send (and before the verified ack) and aborts on terminal
+        state / token / epoch / session_uuid drift — the same tick that collapses a signed-off
+        leaf must NOT then nudge its pane 'resume' nor ack the inbox on the terminal binding.
     """
     from harnessd.spawn import chokepoint as _chokepoint
 
@@ -568,9 +582,33 @@ def _wake_on_unacked_inbox(executor, tmux, address: str, binding: dict) -> None:
         return
     if _chokepoint.subtree_paused(address):
         return  # a paused subtree gets NO recovery nudge (WATCHDOG §3.4 STEP 0)
+
+    # R-1: resolve a PRIOR delivered-but-unverified nudge BEFORE considering a new one.
+    pending_offset = binding.get("wake_pending_ack_offset")
+    if pending_offset is not None:
+        baseline = binding.get("wake_sent_transcript_size") or 0
+        if _watchdog_mod.confirm_prod_worked(binding, baseline):
+            # Verified: a NEW turn landed in the transcript — the agent actually resumed.
+            # Fence the ack too (LT-3): no inbox-ack WAL write may land on a terminal/
+            # re-claimed/respawned binding.
+            if _send_fence_open(address, binding) is None:
+                return
+            executor.ack_inbox(address, acked_offset=int(pending_offset))
+            binding = dict(binding)
+            binding["last_inbox_acked_offset"] = int(pending_offset)
+            binding["wake_pending_ack_offset"] = None
+            binding["wake_sent_transcript_size"] = None
+            try:
+                if not _watchdog_mod.inbox_has_unacked(binding, binding):
+                    return  # everything covered by the verified nudge — no new nudge owed
+            except Exception:  # noqa: BLE001
+                return
+        # Not grown -> conservative: watermark unmoved; fall through to the gated re-send
+        # (which OVERWRITES the pending record with ITS pre-send sizes).
+
     if not _watchdog_mod.prod_precondition(binding):
         return  # pane mid-turn / unreadable -> defer; the un-acked watermark retries next tick
-    # SWL-03: capture the ack watermark BEFORE the send (the size whose lines THIS nudge covers).
+    # SWL-03: capture the ack target BEFORE the send (the size whose lines THIS nudge covers).
     try:
         inbox = _watchdog_mod._inbox_path(binding)
         size_before_send = inbox.stat().st_size
@@ -582,9 +620,27 @@ def _wake_on_unacked_inbox(executor, tmux, address: str, binding: dict) -> None:
         return  # terminal/collapsing/re-claimed/respawned -> no nudge, watermark unmoved
     if not _deliver_keystroke(tmux, live, _watchdog_mod.wake_keystroke(live), kind="wake"):
         return  # failed/unsupported send -> watermark unmoved -> next tick retries
-    # Delivered: advance the edge-trigger watermark to the PRE-send size (one nudge per line;
-    # lines appended mid-send stay above the watermark and re-trigger next tick).
-    executor.ack_inbox(address, acked_offset=size_before_send)
+    # R-1: delivered != consumed — do NOT ack on rc=0. Record the pending verification: the
+    # pre-send inbox size (the SWL-03 ack target) + the transcript baseline at send time.
+    executor.record_wake_pending(
+        address,
+        pending_ack_offset=size_before_send,
+        sent_transcript_size=_transcript_size(live),
+    )
+
+
+def _transcript_size(binding) -> int:
+    """The verify-new-turn baseline (R-1): the transcript JSONL byte size at send time.
+
+    An absent/unreadable transcript records 0 — the conservative direction: the eventual
+    verification then requires the transcript to EXIST with content before any ack."""
+    path = binding.get("transcript_path")
+    if not path:
+        return 0
+    try:
+        return os.stat(path).st_size
+    except OSError:
+        return 0
 
 
 def poll_loop(interval_s, executor=None, tmux=None, detector=None) -> NoReturn:

@@ -323,7 +323,8 @@ def test_daemon_delivers_the_prod_keystroke_via_send_keys(runtime, monkeypatch):
 def test_daemon_wakes_a_node_with_an_unacked_inbox_line_and_advances_the_watermark(runtime, monkeypatch):
     """The ③-wake, wired end-to-end: an unacked .inbox.<seat>.jsonl line nudges the pane ONCE
     (a pointer, never the payload) and the edge-trigger watermark (last_inbox_acked_offset)
-    advances through the single-writer executor — a second tick with nothing new sends nothing."""
+    advances through the single-writer executor once the nudge is VERIFIED consumed (R-1:
+    the transcript grew — never on send-keys rc=0 alone); a tick with nothing new sends nothing."""
     rec, _token, target = _seed_leaf(runtime)
     inbox = addressing.inbox_path(LEAF, runtime)
     inbox.parent.mkdir(parents=True, exist_ok=True)
@@ -343,10 +344,25 @@ def test_daemon_wakes_a_node_with_an_unacked_inbox_line_and_advances_the_waterma
     assert "SECRET-PAYLOAD" not in sent_text, "the wake is a pointer, NEVER the message payload"
 
     live = ledger.read_binding(LEAF)
+    assert live.get("last_inbox_acked_offset", 0) == 0, (
+        "R-1: rc=0 is NOT consumption — the watermark must not advance until the transcript grows"
+    )
+    assert live.get("wake_pending_ack_offset") == size, (
+        "the delivered nudge records its pending verification at the pre-send inbox size; got "
+        f"{live.get('wake_pending_ack_offset')!r}"
+    )
+
+    # The agent consumes the nudge: a new turn lands in the transcript JSONL.
+    with open(rec["transcript_path"], "w", encoding="utf-8") as fh:
+        fh.write('{"type": "assistant", "turn": "new"}\n')
+
+    daemon._watchdog_tick(executor, tmux, _Detector("working"))  # verified -> ack, no new nudge
+    live = ledger.read_binding(LEAF)
     assert live.get("last_inbox_acked_offset") == size, (
-        "the watermark must advance to end-of-file after a delivered wake (edge-triggered, "
+        "the verified wake must advance the watermark to the pre-send size (edge-triggered, "
         f"one nudge per new line); got {live.get('last_inbox_acked_offset')!r}"
     )
+    assert len(tmux.sent) == 1, "the resolving tick owes no new nudge (nothing else unacked)"
 
     daemon._watchdog_tick(executor, tmux, _Detector("working"))  # nothing new -> no second nudge
     assert len(tmux.sent) == 1, "a re-tick with NOTHING new must not re-nudge (no per-poll storm)"

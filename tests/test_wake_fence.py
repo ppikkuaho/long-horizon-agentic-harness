@@ -24,6 +24,11 @@ The pre-live-run findings pinned here:
   * LT-10 — ``wake_keystroke`` pointed at '<node_address>/.inbox.jsonl' — a NONEXISTENT path
     ('#' is not a path segment; the real file is seat-qualified). The pointer now names
     ``.inbox.<seat>.jsonl`` in the pane's own workspace, mirroring the kickoff's wording.
+
+R-1 (tests/test_wake_verify.py) tightened the ack further: a DELIVERED send no longer acks on
+rc=0 — it records a pending verification, and the watermark advances only after verify-new-turn
+(transcript growth) on a later tick. The tests here exercise the fence/pre-send-size semantics
+THROUGH that discipline (growing the transcript where an ack is expected).
 """
 
 from __future__ import annotations
@@ -176,6 +181,9 @@ def test_failed_wake_send_is_journaled_and_not_acked(runtime, monkeypatch):
 
 def test_concurrent_append_during_send_is_not_acked_and_renudges(runtime, monkeypatch):
     rec, _token, _target = _seed_leaf(runtime)
+    # The transcript exists so the R-1 verification can be satisfied by growing it.
+    with open(rec["transcript_path"], "w", encoding="utf-8") as fh:
+        fh.write('{"type": "summary", "boot": true}\n')
     size_a = _append_inbox(runtime, LEAF, {"from": "parent", "msg": "line A"})
 
     def _append_b():
@@ -188,16 +196,28 @@ def test_concurrent_append_during_send_is_not_acked_and_renudges(runtime, monkey
 
     assert len(tmux.sent) == 1
     live = ledger.read_binding(LEAF)
-    assert live.get("last_inbox_acked_offset") == size_a, (
-        "the ack must be the PRE-send size: line B (appended in the send->stat window) must stay "
-        f"ABOVE the watermark; got {live.get('last_inbox_acked_offset')!r}, want {size_a}"
+    assert live.get("wake_pending_ack_offset") == size_a, (
+        "the (pending) ack target must be the PRE-send size: line B (appended in the send->stat "
+        "window) must stay ABOVE the eventual watermark; got "
+        f"{live.get('wake_pending_ack_offset')!r}, want {size_a}"
+    )
+    assert live.get("last_inbox_acked_offset", 0) == 0, (
+        "R-1: a delivered send records the pending verification — it does NOT ack on rc=0"
     )
     assert watchdog.inbox_has_unacked({"node_address": LEAF}, live) is True, (
         "line B still owes a nudge — 'deferred, never lost'"
     )
 
+    # The agent consumes the nudge (a new turn grows the transcript) — the next tick acks the
+    # PRE-send size (SWL-03), leaving line B above the watermark, and re-nudges for it.
+    with open(rec["transcript_path"], "a", encoding="utf-8") as fh:
+        fh.write('{"type": "assistant", "turn": "new"}\n')
     daemon._watchdog_tick(executor, tmux, _Detector("working"))
-    assert len(tmux.sent) >= 2, "the next tick must re-nudge for line B (the wake is never lost)"
+    live = ledger.read_binding(LEAF)
+    assert live.get("last_inbox_acked_offset") == size_a, (
+        "the verified ack must land at the PRE-send size — line B stays above the watermark"
+    )
+    assert len(tmux.sent) >= 2, "the resolving tick must re-nudge for line B (the wake is never lost)"
 
 
 # ---------------------------------------------------------------------------------------
@@ -270,7 +290,7 @@ def test_wake_aborts_when_the_session_uuid_rotated(runtime, monkeypatch):
 
 def test_healthy_wake_still_delivers_and_acks_through_the_fence(runtime, monkeypatch):
     """The fence is a guard, not a regression: an un-drifted live binding still gets its ONE nudge
-    and the watermark advances (the test_daemon wake contract holds end-to-end)."""
+    and the watermark advances once the turn is VERIFIED (R-1: the transcript grew)."""
     rec, _token, target = _seed_leaf(runtime)
     size = _append_inbox(runtime, LEAF, {"from": "parent", "msg": "wake"})
     tmux = _RecordingTmux()
@@ -279,6 +299,16 @@ def test_healthy_wake_still_delivers_and_acks_through_the_fence(runtime, monkeyp
     daemon._watchdog_tick(executor, tmux, _Detector("working"))
 
     assert len(tmux.sent) == 1 and tmux.sent[0][0] == target
+    assert ledger.read_binding(LEAF).get("wake_pending_ack_offset") == size, (
+        "the delivered nudge records its pending verification (R-1: no ack on rc=0 alone)"
+    )
+
+    # The agent takes its turn (the transcript grows) -> the next tick acks through the fence.
+    with open(rec["transcript_path"], "w", encoding="utf-8") as fh:
+        fh.write('{"type": "assistant", "turn": "new"}\n')
+    daemon._watchdog_tick(executor, tmux, _Detector("working"))
+
+    assert len(tmux.sent) == 1, "nothing else unacked -> no second nudge"
     assert ledger.read_binding(LEAF).get("last_inbox_acked_offset") == size
 
 
