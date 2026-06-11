@@ -31,8 +31,9 @@ oauth_guard (no change expected), SECURITY.md §6.2 wording.
 
 ### LR-3 — identity documents are not auto-loaded; relative paths dangle (HIGH)
 Briefs list identity docs as repo-relative paths (`operational/L1/soul.md`) but the
-pane boots in the NODE workspace — the agent must first hunt for the harness root
-(L1 and L2 both did). Options (not exclusive):
+pane boots in the NODE workspace — the agent must first hunt for the harness root.
+User-confirmed: this happened at EVERY level of the cascade, not just L1/L2 — the
+navigation tax is paid once per spawned agent, so it scales linearly with tree size. Options (not exclusive):
   (a) absolute paths in the brief manifest (cheapest; matches the
       --system-prompt-file absolutization precedent from the transport fix);
   (b) kickoff message carries the harness root explicitly;
