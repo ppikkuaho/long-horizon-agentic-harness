@@ -22,7 +22,8 @@ inline constants buried at the spawn site.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass, field, replace
 
 # ---------------------------------------------------------------------------
 # CONSTANT shared system prompt (DAEMON §3.2 H40 spawn fact; ROLE-RESOLUTION §1).
@@ -139,6 +140,14 @@ class LevelConfig:
     # The shared `--system-prompt-file` — CONSTANT, identical across L1..L5.
     system_prompt_file: str = SYSTEM_PROMPT_FILE
     pinned_binary: PinnedBinary = field(default_factory=lambda: PINNED_BINARY)
+    # SUPERVISED-SMOKE OVERRIDE (user-approved 2026-06-10; see
+    # `unjailed_skip_permissions_requested` below): when True, an UNJAILED spawn adds
+    # --dangerously-skip-permissions — explicitly decoupling SECURITY.md constraint 4's
+    # skip-perms<->jail coupling for the small supervised smoke run. Default False: absent
+    # the explicit opt-in, behavior is byte-identical to before the knob existed. NEVER set
+    # in the LEVEL_CONFIGS registry — only the launch-path assemblers
+    # (commissioning.build_runtime / get_level_config) stamp it from the env knob.
+    unjailed_skip_permissions: bool = False
 
     @classmethod
     def for_level(cls, level: str) -> "LevelConfig":
@@ -203,6 +212,50 @@ LEVEL_CONFIGS: dict[str, LevelConfig] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# SUPERVISED-SMOKE OVERRIDE — the explicit unjailed --dangerously-skip-permissions knob.
+#
+# SECURITY.md constraint 4 couples skip-permissions to the jail ("skip-permissions INSIDE
+# the jail … containment bounds the blast radius"), so the adapter adds
+# --dangerously-skip-permissions ONLY when a containment block is resolved. The FIRST
+# supervised live run is a small UNJAILED smoke run; the user explicitly decided
+# (2026-06-10): "Unjailed + dangerously skip permissions. It is a small run, the risk of
+# something catastrophic happening is minimal." This knob is that decision as an explicit,
+# loud, opt-in seam — never a silent decoupling:
+#
+#   * opt-in is STRICTLY HARNESS_UNJAILED_SKIP_PERMISSIONS=1 (no fuzzy truthiness);
+#   * the env var is read at the LAUNCH-PATH ASSEMBLERS (commissioning.build_runtime for
+#     the genesis L1; get_level_config for the ipc/outbox child-spawn resolution) — NEVER
+#     inside the adapter (the adapter reads only the explicit LevelConfig field);
+#   * the posture is journaled (SpawnResult.permission_posture +/ the STEP4 binding stamp
+#     `permission_posture: unjailed-skip-permissions-override`, SECURITY.md §4.3);
+#   * RETIREMENT TRIGGER: the jail tier (REMEDIATION F9–F13) retires this knob — once the
+#     first run is jailed, constraint 4's coupled posture is the only one.
+# ---------------------------------------------------------------------------
+
+UNJAILED_SKIP_PERMISSIONS_ENV: str = "HARNESS_UNJAILED_SKIP_PERMISSIONS"
+
+
+def unjailed_skip_permissions_requested(environ=None) -> bool:
+    """True iff the operator EXPLICITLY set HARNESS_UNJAILED_SKIP_PERMISSIONS=1 (strictly "1").
+
+    The single read seam for the supervised-smoke override (see the block comment above).
+    Called only by the launch-path assemblers; the adapter never calls this.
+    """
+    env = os.environ if environ is None else environ
+    return env.get(UNJAILED_SKIP_PERMISSIONS_ENV) == "1"
+
+
 def get_level_config(level: str) -> LevelConfig:
-    """Module-level accessor: resolve the LevelConfig for an L1..L5 token."""
-    return LevelConfig.for_level(level)
+    """Module-level accessor: resolve the LevelConfig for an L1..L5 token.
+
+    THIS is the launch-path resolver the daemon's child-spawn paths use (ipc.spawn /
+    outbox.service — the L2..L5 children of the L1->L5 smoke run), so it applies the
+    SUPERVISED-SMOKE OVERRIDE here, mirroring commissioning.build_runtime for genesis.
+    The override lands on a per-call COPY (`dataclasses.replace`) — the shared
+    LEVEL_CONFIGS singletons and the pure `LevelConfig.for_level` accessor stay pristine.
+    """
+    lc = LevelConfig.for_level(level)
+    if unjailed_skip_permissions_requested():
+        lc = replace(lc, unjailed_skip_permissions=True)
+    return lc

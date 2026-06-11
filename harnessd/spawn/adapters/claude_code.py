@@ -251,7 +251,9 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         # (1a) Resolve the §2.5a containment block FIRST — it decides both the jail AND the
         #      permission posture: --dangerously-skip-permissions is added ONLY for a jailed spawn
         #      (the safety invariant — auto-approve is safe ONLY because the seatbelt jail is the
-        #      structural bound, SECURITY.md constraint 4; an UNJAILED dry-run never auto-approves).
+        #      structural bound, SECURITY.md constraint 4; an UNJAILED dry-run never auto-approves)
+        #      …with ONE explicit exception: the USER-APPROVED supervised-smoke override
+        #      (level_config.unjailed_skip_permissions — see the loud branch at (2)).
         containment = _resolve_containment(neutral_brief, level_config)
 
         # (2) Assemble argv: the SHARED system-prompt, identical L1..L5 — the per-level role is
@@ -276,6 +278,24 @@ class ClaudeCodeAdapter(RuntimeAdapter):
             argv += ["--model", cc_model]
         if containment is not None:
             argv.append("--dangerously-skip-permissions")
+            permission_posture = "jailed-skip-permissions"
+        elif getattr(level_config, "unjailed_skip_permissions", False):
+            # SUPERVISED-SMOKE OVERRIDE (USER-APPROVED, 2026-06-10) — the LOUD, EXPLICIT
+            # decoupling of SECURITY.md constraint 4 ("skip-permissions INSIDE the jail …
+            # containment bounds the blast radius"). The user's decision for the first
+            # supervised live run: "Unjailed + dangerously skip permissions. It is a small
+            # run, the risk of something catastrophic happening is minimal." The knob is
+            # NEVER read from the environment here — it rides ONLY level_config (stamped by
+            # commissioning.build_runtime / config.get_level_config from the strict
+            # HARNESS_UNJAILED_SKIP_PERMISSIONS=1 opt-in) and NEVER the brief (§2.5b: a
+            # per-spawn brief may TIGHTEN, never RELAX — an injected brief cannot
+            # self-escalate to auto-approve). Journaled below as
+            # permission_posture="unjailed-skip-permissions-override" (SECURITY.md §4.3).
+            # RETIREMENT: the jail tier (REMEDIATION F9–F13) retires this branch.
+            argv.append("--dangerously-skip-permissions")
+            permission_posture = "unjailed-skip-permissions-override"
+        else:
+            permission_posture = "unjailed-prompting"
 
         # (3) The from-empty pane (the SAME isolator seam the wrapper uses). The adapter builds
         #     the EXACT pane it hands to create_detached so the guard checks the real pane vector;
@@ -385,4 +405,5 @@ class ClaudeCodeAdapter(RuntimeAdapter):
             failure_class=None,
             argv=tuple(argv),
             env=dict(env),
+            permission_posture=permission_posture,
         )

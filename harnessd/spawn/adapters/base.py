@@ -34,6 +34,12 @@ class SpawnResult:
     ``<session-uuid>.jsonl`` file derived from ``session_uuid``); a null path breaks the contract.
     ``argv`` / ``env`` carry the assembled child command + the 4-var isolation env so a dry-run
     caller can inspect the assembly without a real exec.
+
+    ``permission_posture`` journals the spawn's permission stance (SECURITY.md §4.3 — auditable
+    the same way OAuth-only is): ``jailed-skip-permissions`` (the constraint-4 coupling),
+    ``unjailed-prompting`` (the unjailed default), or ``unjailed-skip-permissions-override``
+    (the USER-APPROVED supervised-smoke knob — see ``config.unjailed_skip_permissions_requested``).
+    Default None so pre-existing fakes/fills that do not stamp it stay valid.
     """
 
     ok: bool
@@ -47,6 +53,7 @@ class SpawnResult:
     failure_class: str | None = None
     argv: tuple[str, ...] = ()
     env: dict | None = None
+    permission_posture: str | None = None
 
 
 class RuntimeAdapter(ABC):

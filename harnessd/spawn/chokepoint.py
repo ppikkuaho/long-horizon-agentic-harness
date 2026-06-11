@@ -358,6 +358,16 @@ def _spawn_after_claim(
             # post-rename report returned by create_detached) overwrites the registration
             # placeholder — pane_alive / the reconcile sweep / send-keys key off THIS value.
             **({"tmux_target": spawn_result.tmux_target} if spawn_result.tmux_target else {}),
+            # The journaled permission posture (SECURITY.md §4.3 — auditable like OAuth-only):
+            # 'jailed-skip-permissions' | 'unjailed-prompting' |
+            # 'unjailed-skip-permissions-override' (the USER-APPROVED supervised-smoke knob).
+            # Stamped only when the adapter reports it (a fake/legacy fill omitting the field
+            # leaves the binding unchanged).
+            **(
+                {"permission_posture": spawn_result.permission_posture}
+                if getattr(spawn_result, "permission_posture", None)
+                else {}
+            ),
         },
         event="spawn_open",
         summary="STEP4: actor opened; record session_uuid + transcript_path + model_used + canonical "

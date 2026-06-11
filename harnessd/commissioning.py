@@ -15,6 +15,7 @@ adapter here would cycle config<->adapter). It is imported only by the daemon's 
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,6 +95,20 @@ def build_runtime(*, runtime_root=None, build_id: str = None, oauth_token: str =
         "DISABLE_AUTOUPDATER": "1",
     }
 
+    # SUPERVISED-SMOKE OVERRIDE (user-approved 2026-06-10): when the operator launched this
+    # daemon with HARNESS_UNJAILED_SKIP_PERMISSIONS=1 (strictly "1" — config owns the read seam),
+    # the genesis L1 LevelConfig carries unjailed_skip_permissions=True, and the adapter adds
+    # --dangerously-skip-permissions to the UNJAILED argv. This EXPLICITLY decouples SECURITY.md
+    # constraint 4's skip-perms<->jail coupling for the small supervised smoke run — the user's
+    # call: "Unjailed + dangerously skip permissions. It is a small run, the risk of something
+    # catastrophic happening is minimal." Default OFF = byte-identical behavior. The jail tier
+    # (REMEDIATION F9–F13) RETIRES this knob. Child spawns resolve the same posture via
+    # config.get_level_config (the ipc/outbox resolver). The posture is journaled per spawn
+    # (SpawnResult.permission_posture + the STEP4 binding stamp).
+    level_config = config.LevelConfig.for_level(L1_LEVEL)
+    if config.unjailed_skip_permissions_requested():
+        level_config = dataclasses.replace(level_config, unjailed_skip_permissions=True)
+
     cfg = SimpleNamespace(
         env=env,
         l1_address=L1_ADDRESS,
@@ -101,7 +116,7 @@ def build_runtime(*, runtime_root=None, build_id: str = None, oauth_token: str =
         runtime_root=runtime_root,
         build_id=build_id,
         pinned_binary=config.PINNED_BINARY,
-        level_config=config.LevelConfig.for_level(L1_LEVEL),
+        level_config=level_config,
     )
 
     # The REAL Claude-Code adapter (wired to the real tmux transport by its own default).
