@@ -79,12 +79,79 @@ orchestrator — see the module-return + this docstring):
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import NamedTuple, Optional
 
 from . import addressing, executor, ledger
+
+
+# ---------------------------------------------------------------------------
+# E3 — the intake gate at the delivery edge (enforcement spine, 2026-06-11).
+# Deterministic reads of the node's frozen intent-spec (client-brief/intent-spec.md,
+# fallback intent-spec.md): the §8 delivery destination (DERIVED when the binding
+# lacks it; explicit `in-place` = the sanctioned no-external-delivery) and the
+# FREEZE-ON-PENDING block (a load-bearing requirement row still `pending`
+# reflect-back REFUSES accept — PLAN-ALIGNMENT-GATE: nothing is frozen against an
+# unconfirmed foundation; intent-spec-contract §2 Reflect-back status).
+# ---------------------------------------------------------------------------
+
+IN_PLACE = "in-place"
+# A requirements-table row carrying BOTH a minted R-id and a `pending` cell.
+_PENDING_ROW = re.compile(r"^.*\bR-\d+(?:\.\d+)*\b.*\bpending\b.*$", re.IGNORECASE | re.MULTILINE)
+_DEST_ROW = re.compile(r"^\|?\s*`?Destination`?\s*\|\s*(.+?)\s*\|?\s*$", re.IGNORECASE | re.MULTILINE)
+_KIND_TOKEN = re.compile(r"\b(filesystem-path|git-remote|in-place)\b", re.IGNORECASE)
+
+
+def _find_intent_spec(node_address: str) -> Optional[Path]:
+    if ledger.RUNTIME_ROOT is None:
+        return None
+    try:
+        node_dir = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
+    except (OSError, ValueError):
+        return None
+    for rel in ("client-brief/intent-spec.md", "intent-spec.md"):
+        candidate = node_dir / rel
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _intake_gate(node_address: str) -> tuple:
+    """Read the frozen intent-spec (when present): (derived_destination, derived_kind,
+    refusal_errors). Absent spec -> (None, None, []) — derivation has nothing to read and the
+    freeze block nothing to enforce (a binding-stamped destination then carries the promote,
+    the pre-E3 behavior)."""
+    spec = _find_intent_spec(node_address)
+    if spec is None:
+        return None, None, []
+    try:
+        text = spec.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None, []
+
+    errors: list = []
+    pending = _PENDING_ROW.findall(text)
+    if pending:
+        errors.append(
+            f"FREEZE-ON-PENDING: the frozen intent-spec at {spec} carries {len(pending)} "
+            f"load-bearing requirement row(s) still pending reflect-back confirmation — accept "
+            f"refuses to deliver on an unconfirmed foundation (first: {pending[0].strip()[:140]!r})"
+        )
+
+    derived_dest: Optional[str] = None
+    derived_kind: Optional[str] = None
+    dest_match = _DEST_ROW.search(text)
+    if dest_match:
+        derived_dest = dest_match.group(1).strip().strip("`")
+    if derived_dest and IN_PLACE in derived_dest.lower():
+        derived_dest, derived_kind = IN_PLACE, IN_PLACE
+    elif derived_dest:
+        kind_match = _KIND_TOKEN.search(text)
+        derived_kind = kind_match.group(1).lower() if kind_match else None
+    return derived_dest, derived_kind, errors
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +380,22 @@ def promote(node_address: str, *, accept_signal) -> PromoteResult:
                     "is not bound to this node_address) — promote is a no-op"],
         )
 
+    # --- E3: THE INTAKE GATE at the delivery edge. The freeze block REFUSES (a refusal, not a
+    # delivery failure: the artifact is unconfirmed, not the delivery broken — deliverable_state
+    # stays untouched); the §8 destination is DERIVED from the frozen intent-spec when the binding
+    # lacks it (the E1 derive-from-prepared-artifacts pattern at the delivery edge). ---
+    derived_dest, derived_kind, gate_errors = _intake_gate(node_address)
+    if gate_errors:
+        return PromoteResult(
+            ok=False,
+            delivered=False,
+            deliverable_state=binding.get("deliverable_state"),
+            delivery_destination=destination,
+            errors=gate_errors,
+        )
+    if not destination and derived_dest:
+        destination, delivery_kind = derived_dest, derived_kind
+
     # --- ON ACCEPT: cross the jail boundary (copy-out / push), then record via the single writer. ---
     # EVERYTHING that can fail (source resolution / an absent workspace, a missing destination, the
     # copy-out/push) lives
@@ -326,8 +409,13 @@ def promote(node_address: str, *, accept_signal) -> PromoteResult:
             raise ValueError(
                 "no delivery_destination captured at intake (intent-spec §8) — cannot promote"
             )
-        source_tree = _source_tree(node_address)
-        _promote_out(source_tree, destination, delivery_kind)
+        if destination == IN_PLACE:
+            # The sanctioned no-external-delivery (intent-spec-contract §8): the deliverable stays
+            # in the node; promote stamps delivered WITHOUT a cross-jail copy.
+            pass
+        else:
+            source_tree = _source_tree(node_address)
+            _promote_out(source_tree, destination, delivery_kind)
     except Exception as exc:  # a GENUINE precondition / copy-out / push failure (no mock)
         # ON FAILURE: record delivery-failed via the single writer + escalate (the §6.3 seam).
         executor.deliver(

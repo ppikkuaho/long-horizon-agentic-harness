@@ -699,3 +699,102 @@ def test_promote_does_not_read_the_legacy_proj_layout(runtime, tmp_path):
     assert all(r.get("actor") == "harnessd" for r in escalation_rows), (
         "the escalation row must be attributable to harnessd (the control plane)"
     )
+
+
+# ===========================================================================
+# E3 — the PROMOTE GATE half of the enforcement spine (2026-06-11).
+#
+# (a) DERIVATION: the §8 delivery destination is read from the node's frozen
+#     intent-spec (client-brief/intent-spec.md) when the binding lacks it —
+#     INTAKE-TO-DELIVERY §3 / intent-spec-contract §8; an EXPLICIT `in-place`
+#     marking is the sanctioned no-external-delivery (the deliverable stays in
+#     the node; promote stamps delivered without a cross-jail copy).
+# (b) FREEZE-ON-PENDING: an intent-spec carrying a load-bearing requirement row
+#     still `pending` reflect-back BLOCKS accept (PLAN-ALIGNMENT-GATE: "the gate
+#     refuses to let anything be built on or frozen against an unconfirmed
+#     foundation") — the user-authority forcing function at the delivery edge.
+# ===========================================================================
+
+def _write_intent_spec(runtime_root, body, node_address=NODE):
+    d = addressing.node_dir(node_address, runtime_root) / "client-brief"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "intent-spec.md").write_text(body, encoding="utf-8")
+
+
+_SPEC_IN_PLACE = """# intent-spec — demo widget
+## 2. Requirements
+| ID | Requirement | Tag | Reflect-back status |
+| R-001 | render the widget | decided | confirmed |
+## 8. Delivery destination
+| Destination | in-place / no external delivery |
+| Kind | in-place |
+"""
+
+_SPEC_PENDING = """# intent-spec — demo widget
+## 2. Requirements
+| ID | Requirement | Tag | Reflect-back status |
+| R-001 | render the widget | decided | pending |
+## 8. Delivery destination
+| Destination | in-place / no external delivery |
+| Kind | in-place |
+"""
+
+
+def test_e3_accept_derives_in_place_destination_from_intent_spec(runtime):
+    """Binding lacks delivery_destination; the frozen intent-spec marks §8 in-place -> promote
+    accept DERIVES it, skips the cross-jail copy, and stamps delivered/in-place.
+    (Mutant: no derivation -> ValueError no-destination -> delivery-failed -> caught.)"""
+    promote_mod = _promote_module()
+    _build_runtime_tree(runtime)
+    binding, _token = _binding(delivery_destination=None, delivery_kind=None)
+    _seed(binding)
+    _write_intent_spec(runtime, _SPEC_IN_PLACE)
+
+    result = promote_mod.promote(NODE, accept_signal=_accept_signal(NODE))
+
+    assert result.ok is True and result.delivered is True, (
+        f"an explicit in-place §8 must promote (errors: {getattr(result, 'errors', None)})"
+    )
+    after = _read()
+    assert after["deliverable_state"] == "delivered"
+    assert "in-place" in (after.get("delivery_destination") or ""), (
+        "the derived in-place destination must be stamped on the binding"
+    )
+
+
+def test_e3_pending_reflect_back_blocks_accept(runtime):
+    """FREEZE-ON-PENDING: a load-bearing requirement row still `pending` reflect-back REFUSES the
+    accept-promote — deliverable_state untouched, nothing crosses the jail, the error NAMES the
+    block. (Mutant: promote ignores the intent-spec -> delivers on an unconfirmed foundation.)"""
+    promote_mod = _promote_module()
+    _build_runtime_tree(runtime)
+    binding, _token = _binding(delivery_destination=None, delivery_kind=None)
+    _seed(binding)
+    _write_intent_spec(runtime, _SPEC_PENDING)
+
+    result = promote_mod.promote(NODE, accept_signal=_accept_signal(NODE))
+
+    assert result.ok is False and result.delivered is False
+    assert any("FREEZE-ON-PENDING" in str(e) for e in (result.errors or [])), (
+        f"the refusal must NAME the freeze block; got {result.errors!r}"
+    )
+    after = _read()
+    assert after["deliverable_state"] == "completed", (
+        "a freeze-blocked accept must leave the deliverable state UNTOUCHED (no delivery-failed "
+        "stamp — the artifact is unconfirmed, not the delivery broken)"
+    )
+
+
+def test_e3_binding_destination_still_respects_freeze_block(runtime):
+    """Even with a binding-stamped destination, a pending load-bearing row blocks accept — the
+    freeze block reads the ARTIFACT, not the binding."""
+    promote_mod = _promote_module()
+    _build_runtime_tree(runtime)
+    binding, _token = _binding(delivery_destination="/tmp/never-used-e3", delivery_kind="filesystem-path")
+    _seed(binding)
+    _write_intent_spec(runtime, _SPEC_PENDING)
+
+    result = promote_mod.promote(NODE, accept_signal=_accept_signal(NODE))
+
+    assert result.ok is False and result.delivered is False
+    assert any("FREEZE-ON-PENDING" in str(e) for e in (result.errors or []))
