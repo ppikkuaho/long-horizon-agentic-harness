@@ -104,6 +104,16 @@ in CC_MODEL_FLAGS — verify the OAuth subscription tier honors it on pinned 2.1
 POSITIVE observation: post-compact the L4 re-read brief/plan/status/log.md and
 continued correctly — files-as-continuity absorbed the compact as designed.
 
+### LR-7 — tmux panes carry no human-readable identity (MEDIUM, observability)
+User: "you can't identify what identity each window holds — L1, L2, L3 (and what
+variant)." The default status bar truncates the session name to ~10 chars and the
+window shows "claude.exe". Fixed live mid-run via per-session options; make it
+spawn-time behavior in tmux.create_detached: status-left = "[<level> <variant>:
+<node-name>]" (status-left-length 50), automatic-rename off, window renamed to the
+label, server-wide set-titles on + set-titles-string "#S" (full session name into
+the terminal title bar). Update the label when the node reaches a terminal state
+(e.g. "(done)") — the watchdog collapse path can do this.
+
 ### LR-6 — L2 spawned an L4 directly (level skip) (OBSERVATION, verify intent)
 `L1/md2html#exec` (L2) spawned `L1/md2html/tool#exec` as L4 — no L3 Module Designer.
 Reasonable for a single-module project (intake said keep the tree minimal), but
