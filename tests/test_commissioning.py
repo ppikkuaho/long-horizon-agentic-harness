@@ -33,7 +33,10 @@ def test_build_runtime_assembles_the_oauth_env_and_l1_config(tmp_path):
     assert cfg.env.get("DISABLE_AUTOUPDATER") == "1"
     assert "CLAUDE_CONFIG_DIR" in cfg.env
     assert cfg.l1_address and cfg.l1_level == "L1"
-    assert isinstance(rt.adapter, ClaudeCodeAdapter)
+    # E4: production ships adapter=None — the chokepoint resolves adapters from the
+    # per-runtime REGISTRY (daemon._apply_global_seams); injecting a single adapter here
+    # would override the registry and recreate the LT-8/O1 silent divergence.
+    assert rt.adapter is None
     # the genesis collaborators are present
     assert rt.executor is not None and rt.tmux is not None
 

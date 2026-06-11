@@ -90,7 +90,7 @@ def check_done_contract(node_address: str, binding: dict) -> ContractVerdict:
 
     # --- 2. MISSING-REQUIREMENT-CITATION (L5-class, only when IDs were GIVEN) ----------------
     level = (binding.get("level") or "").strip()
-    if level == "L5" and report_text:
+    if level in ("L5", "L5+") and report_text:
         given: set = set()
         for name in ("brief.md", "acceptance.md"):
             f = node_dir / name

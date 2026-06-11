@@ -503,37 +503,108 @@ def test_no_real_subprocess_exec_during_dry_run(no_real_exec):
 
 
 # ===========================================================================
-# Part (a) — the Codex stub RAISES + asserts OPENAI_API_KEY absent.
+# Part (a) — the REAL CodexAdapter (E4 — the O1 stub is retired): argv/trust/
+# rollout-discovery dry-run pins, mock tmux, no real exec.
 # ===========================================================================
 
-def test_codex_stub_raises_not_implemented():
-    """CodexAdapter.pin_and_open RAISES 'adapter port to be supplied' — never a silent fallback."""
+def _codex_spawn(tmp_path, monkeypatch, *, env_extra=None, brief_extra=None, knob=False):
+    """Drive the REAL CodexAdapter dry: pinned home -> tmp, fake rollout pre-created so the
+    post-boot discovery resolves instantly (the REAL codex never execs)."""
+    import dataclasses as _dc
+    import json as _json
+    import os as _os
+
     codex = _codex()
-    base = _base()
-    assert issubclass(codex.CodexAdapter, base.RuntimeAdapter)
-    a = codex.CodexAdapter()
-    with pytest.raises(NotImplementedError) as exc:
-        a.pin_and_open(
-            neutral_brief={},
-            level_config=_level("L5#exec"),
-            tmux_target="proj/x#exec",
-            env={},
-        )
-    assert "adapter port to be supplied" in str(exc.value).lower()
+    home = tmp_path / "codex-home"
+    (home / "sessions" / "2026" / "06" / "11").mkdir(parents=True)
+    monkeypatch.setattr(config, "PINNED_CODEX_HOME", str(home), raising=True)
+    # the pinned binary check: point at a real file (this test file) — presence-only in v1
+    monkeypatch.setattr(config, "PINNED_CODEX_BINARY", __file__, raising=True)
+    monkeypatch.setattr(codex, "_harness_root", lambda: pathlib_Path("/"))
+
+    ws = tmp_path / "nodes" / "task"
+    ws.mkdir(parents=True)
+    rollout = home / "sessions" / "2026" / "06" / "11" / "rollout-2026-06-11T00-00-00-uuid-e4.jsonl"
+    rollout.write_text(_json.dumps({"timestamp": "t", "type": "session_meta",
+                                    "payload": {"id": "uuid-e4",
+                                                "cwd": _os.path.realpath(str(ws)),
+                                                "model": "gpt-5.5"}}) + "\n", encoding="utf-8")
+
+    lc = config.LevelConfig.for_level("L5")
+    if knob:
+        lc = _dc.replace(lc, unjailed_skip_permissions=True)
+    brief = {"role_variant": "L5#exec", "workspace": str(ws)}
+    if brief_extra:
+        brief.update(brief_extra)
+    env = {}
+    if env_extra:
+        env.update(env_extra)
+    adapter = codex.CodexAdapter(tmux=_MockTmux())
+    return adapter.pin_and_open(brief, lc, "proj/x#exec", env), home
 
 
-def test_codex_stub_asserts_no_openai_key():
-    """The Codex stub asserts OPENAI_API_KEY is ABSENT — the shared negative invariant the
-    unbuilt Codex fill cannot delete."""
+from pathlib import Path as pathlib_Path
+
+
+def test_codex_adapter_assembles_model_flag_and_records_facts(tmp_path, monkeypatch, no_real_exec):
+    """The E32 pins: argv carries the EXPLICIT -m gpt-5.5; session_uuid + transcript_path come
+    from the DISCOVERED rollout (never invented); system_prompt_file is the native-instructions
+    sentinel (user decision: codex's own system message stays)."""
+    result, home = _codex_spawn(tmp_path, monkeypatch)
+    argv = list(result.argv)
+    assert "-m" in argv and argv[argv.index("-m") + 1] == "gpt-5.5"
+    assert result.session_uuid == "uuid-e4", "the uuid must come from the DISCOVERED rollout"
+    assert result.transcript_path.endswith("rollout-2026-06-11T00-00-00-uuid-e4.jsonl")
+    assert result.model_used == "gpt-5.5 / codex"
+    assert "codex-native" in result.system_prompt_file, (
+        "codex runs its NATIVE base instructions (user decision) — never the CC shared prompt"
+    )
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv, "knob OFF adds no bypass"
+    assert result.env.get("CODEX_HOME"), "the pane env must carry the pinned CODEX_HOME"
+    assert no_real_exec == [], "the dry-run must not exec a real codex"
+
+
+def test_codex_adapter_knob_on_adds_bypass_and_seeds_trust(tmp_path, monkeypatch, no_real_exec):
+    """unjailed_skip_permissions -> --dangerously-bypass-approvals-and-sandbox (probed: YOLO
+    mode), posture journaled; the cwd is trust-seeded realpath-keyed in the pinned config.toml."""
+    import os as _os
+    result, home = _codex_spawn(tmp_path, monkeypatch, knob=True)
+    assert "--dangerously-bypass-approvals-and-sandbox" in result.argv
+    assert result.permission_posture == "unjailed-skip-permissions-override"
+    cfg = (home / "config.toml").read_text(encoding="utf-8")
+    ws_real = _os.path.realpath(str(tmp_path / "nodes" / "task"))
+    assert f'[projects."{ws_real}"]' in cfg and 'trust_level = "trusted"' in cfg, (
+        "the pane cwd must be deterministically trust-seeded (realpath-keyed — the probe result)"
+    )
+
+
+def test_codex_adapter_refuses_openai_key(tmp_path, monkeypatch):
+    """The shared negative invariant survives the real fill: OPENAI_API_KEY in env refuses."""
+    with pytest.raises(oauth_guard.ApiKeyForbidden):
+        _codex_spawn(tmp_path, monkeypatch, env_extra={"OPENAI_API_KEY": "sk-nope"})
+
+
+def test_codex_adapter_refuses_containment(tmp_path, monkeypatch):
+    """The v1 jail is CC-only: a containment-requesting codex spawn refuses LOUD (never a
+    silent unjailed spawn)."""
     codex = _codex()
-    a = codex.CodexAdapter()
-    with pytest.raises((AssertionError, oauth_guard.ApiKeyForbidden)):
-        a.pin_and_open(
-            neutral_brief={},
-            level_config=_level("L5#exec"),
-            tmux_target="proj/x#exec",
-            env={"OPENAI_API_KEY": "sk-nope"},
+    with pytest.raises(Exception) as exc:
+        _codex_spawn(tmp_path, monkeypatch, brief_extra={"containment_profile": {"WORKROOT": "/x"}})
+    assert "containment" in str(exc.value).lower()
+
+
+def test_codex_discovery_fail_loud_on_no_rollout(tmp_path, monkeypatch):
+    """No matching rollout within the deadline -> SpawnFailure('transcript_undiscovered') — a
+    blind binding is the 2026-06-11 watchdog-blindness class; refuse, never guess."""
+    import os as _os
+    codex = _codex()
+    empty = tmp_path / "empty-sessions"
+    empty.mkdir()
+    with pytest.raises(Exception) as exc:
+        codex.CodexAdapter.discover_rollout(
+            empty, _os.path.realpath(str(tmp_path)), 0.0, deadline_s=0.2, poll_s=0.05
         )
+    assert getattr(exc.value, "failure_class", "") == "transcript_undiscovered"
 
 
 # ===========================================================================

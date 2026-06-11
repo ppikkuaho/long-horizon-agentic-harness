@@ -22,3 +22,15 @@ node_modules/
 .runtime-obs/
 .eval-tmp/
 dev/eval-runs/
+.codex-pinned/config/auth.json
+.codex-pinned/config/sessions/
+.codex-pinned/config/cache/
+.codex-pinned/config/logs_2.sqlite*
+.codex-pinned/config/state_5.sqlite*
+.codex-pinned/config/history.jsonl
+.codex-pinned/config/memories/
+.codex-pinned/config/tmp/
+.codex-pinned/config/shell_snapshots/
+.codex-pinned/config/skills/
+.codex-pinned/config/log/
+.codex-pinned/node_modules/

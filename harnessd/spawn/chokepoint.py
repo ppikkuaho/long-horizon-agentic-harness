@@ -81,6 +81,17 @@ from harnessd.spawn.oauth_guard import (
 
 ADAPTER = None
 
+# E4 — the per-runtime adapter REGISTRY (runtime-and-model-map E32: the runtime is a
+# config-time dimension, so the chokepoint resolves the adapter from level_config.runtime).
+# PRECEDENCE: the single injected ADAPTER (set_adapter) ALWAYS WINS when set — it is the
+# explicit override every test uses (and pytest shares one process: a registry-wins rule let
+# one daemon-boot test poison every later FakeAdapter test with the real adapters). The
+# registry is the PRODUCTION resolution: boot registers both real adapters and injects NO
+# single adapter (commissioning ships adapter=None), so a codex-configured L5 resolves the
+# CodexAdapter and can never again be silently driven through the ClaudeCodeAdapter (the
+# LT-8/O1 divergence, structurally closed).
+ADAPTER_REGISTRY: dict = {}
+
 
 def set_adapter(adapter) -> None:
     """Inject the RuntimeAdapter the chokepoint opens actors through (module-level seam)."""
@@ -88,15 +99,30 @@ def set_adapter(adapter) -> None:
     ADAPTER = adapter
 
 
-def _require_adapter():
-    """Return the injected adapter, or fail loud (the chokepoint cannot spawn without a port)."""
-    if ADAPTER is None:
-        raise RuntimeError(
-            "no RuntimeAdapter injected into the chokepoint: wire one via set_adapter(adapter) "
-            "(the §2.11 signature carries no adapter param — the adapter is injected like "
-            "ledger.RUNTIME_ROOT)"
-        )
-    return ADAPTER
+def register_runtime_adapter(runtime: str, adapter) -> None:
+    """Register the adapter for one runtime key (production boot wiring; E4)."""
+    ADAPTER_REGISTRY[runtime] = adapter
+
+
+def clear_runtime_adapters() -> None:
+    """Reset the registry (test hygiene)."""
+    ADAPTER_REGISTRY.clear()
+
+
+def _require_adapter(level_config=None):
+    """Resolve the adapter: the injected ADAPTER when set (the explicit test/legacy override);
+    else the registered per-runtime adapter for level_config.runtime; else fail loud."""
+    if ADAPTER is not None:
+        return ADAPTER
+    runtime = getattr(level_config, "runtime", None) if level_config is not None else None
+    if runtime and runtime in ADAPTER_REGISTRY:
+        return ADAPTER_REGISTRY[runtime]
+    raise RuntimeError(
+        "no RuntimeAdapter available for this spawn: register one via "
+        "register_runtime_adapter(runtime, adapter) or inject via set_adapter(adapter) "
+        "(the §2.11 signature carries no adapter param — the adapter is injected like "
+        "ledger.RUNTIME_ROOT)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +467,7 @@ def _spawn_after_claim(
     the bare 4-var ``_spawn_env()`` (UNJAILED — exactly the 4 isolation vars, the Increment-14
     integration-B contract).
     """
-    adapter = _require_adapter()
+    adapter = _require_adapter(level_config)
     post_claim_token = claimed_binding["owner_token"]
     post_claim_generation = claimed_binding["generation"]
     pane_env = _spawn_env() if spawn_env is None else spawn_env
@@ -599,7 +625,7 @@ def _kickoff_gate_open(pane_text: str) -> bool:
         return False
     if any(marker in pane_text for marker in _watchdog._DIALOG_MARKERS):
         return False
-    return _watchdog.FORK_PROMPT in pane_text
+    return any(marker in pane_text for marker in _watchdog.PROMPT_MARKERS)  # E4: '❯' or '›'
 
 
 def _await_kickoff_gate(capture, target) -> bool:

@@ -204,23 +204,52 @@ LEVEL_CONFIGS: dict[str, LevelConfig] = {
         role_variant="L4",
         tool_manifest=_CLAUDE_CODE_TOOLS,
     ),
-    # L5 SMOKE STAND-IN (LT-8; DEFERRED-REGISTER O1 — user-approved 2026-06-06 "start on Opus,
-    # wire Codex later"): the E32 spec assignment is gpt-5.5/codex, but the Codex adapter (O1)
-    # has not landed and the ONE injected adapter is the ClaudeCodeAdapter — a codex-configured
-    # L5 driven through it spawned CC with NO --model flag (the pinned CC defaults to Sonnet)
-    # while the binding recorded a different intent: a silent three-way divergence
-    # (configured vs recorded vs actual). Until O1 lands, L5 runs the pinned opus-4.8/claude-code
-    # stand-in so config, record, and actual AGREE for the supervised smoke run.
-    # RETIREMENT TRIGGER: the Codex adapter fill (O1) flips this back to gpt-5.5/codex/_CODEX_TOOLS
-    # — and re-runs the L5/L5+ cross-runtime judgment-diversity eval (the O1 eval caveat).
+    # O1 RETIRED (E4, 2026-06-11): the CodexAdapter is live — L5 runs the E32 spec assignment
+    # gpt-5.5 on the Codex runtime (spec-anchored, literal execution; the pedantic
+    # engineering-brain fit). The adapter registry at the chokepoint resolves per
+    # level_config.runtime, so the old single-injected-adapter divergence (a codex-configured
+    # L5 silently driven through the ClaudeCodeAdapter) is structurally gone. The rollout
+    # records the ACTUAL model as fact (probed: "model":"gpt-5.5") — the silent-fallback
+    # failure runtime-and-model-map warns about is detectable. FOLLOW-UP: re-run the L5/L5+
+    # cross-runtime judgment-diversity eval (the O1 eval caveat).
     "L5": LevelConfig(
         level="L5",
+        model="gpt-5.5",
+        runtime="codex",
+        role_variant="L5#exec",
+        tool_manifest=_CODEX_TOOLS,
+    ),
+    # L5+ — the independent per-unit reviewer (QUALITY-GATE M52): DELIBERATELY on the OTHER
+    # runtime from L5 for judgment diversity ("two models sharing fewer correlated failure
+    # modes means the review catches more" — L5 role doc). Opus 4.8 on Claude Code.
+    "L5+": LevelConfig(
+        level="L5+",
         model="opus-4.8",
         runtime="claude-code",
-        role_variant="L5#exec",
+        role_variant="L5+#review",
         tool_manifest=_CLAUDE_CODE_TOOLS,
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# CODEX_MODEL_FLAGS — the CC_MODEL_FLAGS analog for the Codex runtime (E4). The
+# value is the `-m/--model` id handed to the pinned codex CLI. PROBED LIVE
+# (0.128.0, ChatGPT account, 2026-06-11): `-m gpt-5.5` is accepted AND the
+# rollout header records "model":"gpt-5.5" as fact. Explicit mapping — an
+# unmapped model adds NO flag (never guess an id).
+# ---------------------------------------------------------------------------
+
+CODEX_MODEL_FLAGS: dict[str, str] = {
+    "gpt-5.5": "gpt-5.5",  # probed: accepted + recorded as fact in the rollout header
+}
+
+# The pinned Codex CLI (the .cc-pinned precedent): npm @openai/codex pinned in
+# .codex-pinned/, with its OWN isolated CODEX_HOME at .codex-pinned/config
+# (auth.json + minimal config.toml; no global AGENTS.md, no user hooks/MCP).
+PINNED_CODEX_VERSION: str = "0.128.0"
+PINNED_CODEX_BINARY: str = ".codex-pinned/node_modules/.bin/codex"
+PINNED_CODEX_HOME: str = ".codex-pinned/config"
 
 
 # ---------------------------------------------------------------------------

@@ -98,21 +98,23 @@ def test_runtime_known_and_follows_e32_split():
         assert rt in KNOWN_RUNTIMES, f"{lv} runtime {rt!r} is not a known runtime {KNOWN_RUNTIMES}"
     for lv in ["L1", "L2", "L3", "L4"]:
         assert _field(_level_config(lv), "runtime") == "claude-code", f"{lv} must run on claude-code (E32)"
-    assert _field(_level_config("L5"), "runtime") == "claude-code", (
-        "L5 runs the USER-APPROVED opus-4.8/claude-code smoke STAND-IN until the Codex adapter "
-        "(DEFERRED-REGISTER O1) lands — then this pin flips back to 'codex' (E32)"
+    assert _field(_level_config("L5"), "runtime") == "codex", (
+        "L5 runs the E32 split: GPT-5.5 on the Codex runtime (the O1 stand-in was retired by E4, "
+        "2026-06-11 — the CodexAdapter is live and registry-resolved)"
+    )
+    assert _field(_level_config("L5+"), "runtime") == "claude-code", (
+        "L5+ (the M52 reviewer) deliberately runs on the OTHER runtime from L5 (judgment diversity)"
     )
 
 
 def test_model_follows_e32_split():
     models = {lv: _field(_level_config(lv), "model") for lv in LEVELS}
     assert all(isinstance(m, str) and m.strip() for m in models.values()), f"every model seat non-empty, got {models}"
-    # L1-L4 share one model family; L5 joins it for the SMOKE STAND-IN (see the block comment
-    # above — O1 landing restores the distinct GPT/Codex executor seat).
+    # L1-L4 share one model family; L5 is the DISTINCT GPT/Codex executor seat (E32 restored
+    # by E4 — the O1 stand-in is retired).
     assert len({models[lv] for lv in ["L1", "L2", "L3", "L4"]}) == 1, f"L1-L4 share one model, got {models}"
-    assert models["L5"] == models["L1"], (
-        f"L5 model is the opus-4.8 smoke stand-in (DEFERRED-REGISTER O1) until the Codex adapter "
-        f"lands, got {models}"
+    assert models["L5"] == "gpt-5.5", (
+        f"L5 is the E32 executor seat (gpt-5.5 on codex; O1 retired by E4), got {models}"
     )
 
 

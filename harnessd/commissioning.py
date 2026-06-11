@@ -119,15 +119,15 @@ def build_runtime(*, runtime_root=None, build_id: str = None, oauth_token: str =
         level_config=level_config,
     )
 
-    # The REAL Claude-Code adapter (wired to the real tmux transport by its own default).
-    from harnessd.spawn.adapters.claude_code import ClaudeCodeAdapter
-    adapter = ClaudeCodeAdapter()
-
+    # E4: production ships adapter=None — the chokepoint resolves adapters from the PER-RUNTIME
+    # REGISTRY (daemon._apply_global_seams registers claude-code + codex), so a codex-configured
+    # L5 gets the CodexAdapter. Injecting a single adapter here would WIN over the registry (the
+    # injected seam is the explicit test override) and recreate the LT-8/O1 silent divergence.
     return SimpleNamespace(
         runtime_root=runtime_root,
         build_id=build_id,
         config=cfg,
-        adapter=adapter,
+        adapter=None,
         executor=_executor,
         tmux=_tmux,
         tmux_socket=_tmux_socket_name(build_id),

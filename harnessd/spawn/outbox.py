@@ -60,11 +60,13 @@ MAX_BRIEF_BYTES: int = 64 * 1024
 LEAF_LEVEL: str = "L5"
 
 # A child is NEVER an L1 root (L1 is genesis-only / parentless), so L1 is not a spawnable child level.
-SPAWNABLE_LEVELS: tuple = ("L2", "L3", "L4", "L5")
+SPAWNABLE_LEVELS: tuple = ("L2", "L3", "L4", "L5", "L5+")  # E4: L5+ = the M52 reviewer seat
 
-# Level depth order (L1 shallowest … L5 deepest). A child must be STRICTLY deeper than its parent — an
-# L2 spawns L3s, never another L2 or an L1. This blocks both same-level and up-level (escalation) spawns.
-_LEVEL_ORDER: dict = {"L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+# Level depth order (L1 shallowest … L5/L5+ deepest). A child must be STRICTLY deeper than its parent —
+# an L2 spawns L3s, never another L2 or an L1. This blocks both same-level and up-level spawns.
+# L5+ (the per-unit reviewer, QUALITY-GATE M52) sits BELOW L5 in depth so both an L4 (spawning the
+# review seat alongside its executors) and a future L5-finish harness verb descend into it legally.
+_LEVEL_ORDER: dict = {"L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5, "L5+": 6}
 
 # Runaway / DoS backstops. Real fan-out is bounded by the decomposition (a parent has a handful of
 # children); these are safety caps, not design limits. The per-sweep cap keeps one tick from spawning

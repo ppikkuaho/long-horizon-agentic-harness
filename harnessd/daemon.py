@@ -876,6 +876,15 @@ def _apply_global_seams(runtime) -> None:
     from harnessd import detector_signals as _detector_signals
     from harnessd.spawn import tmux as _tmux
 
+    # E4 — the per-runtime adapter REGISTRY (production wiring): a codex-configured L5 resolves
+    # the CodexAdapter; everything else the ClaudeCodeAdapter. The injected single-adapter seam
+    # (runtime.adapter via boot) remains for back-compat/tests; the registry wins per-runtime.
+    from harnessd.spawn import chokepoint as _chokepoint
+    from harnessd.spawn.adapters.claude_code import ClaudeCodeAdapter as _CCAdapter
+    from harnessd.spawn.adapters.codex import CodexAdapter as _CodexAdapter
+    _chokepoint.register_runtime_adapter("claude-code", _CCAdapter())
+    _chokepoint.register_runtime_adapter("codex", _CodexAdapter())
+
     tmux_socket = getattr(runtime, "tmux_socket", None)
     if tmux_socket:
         _tmux.set_socket(tmux_socket)

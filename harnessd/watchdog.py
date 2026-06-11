@@ -139,6 +139,13 @@ def _liveness(node_address: str):
 
 FORK_PROMPT: str = "❯"  # the CC v2.1.152 idle-input-prompt marker (measured, fixture-pinned)
 
+# E4 — the PER-RUNTIME prompt-marker set: the Codex 0.128.0 TUI renders its idle composer
+# with '›' (probed live 2026-06-11), CC with '❯'. The gates accept EITHER marker (any-match):
+# a runtime-keyed lookup would need the binding threaded into every gate call site; the
+# any-match set is deterministic, and the dialog/working refusals above it still close the
+# gate on every unsafe pane state. A new runtime adds its measured marker here.
+PROMPT_MARKERS: tuple = ("❯", "›")
+
 # CC renders the '❯' input box even WHILE GENERATING (steering is allowed mid-run), so the
 # prompt char alone cannot distinguish idle from busy. The working marker below is the busy
 # signal CC shows during generation/tool-calls — its presence CLOSES the gate (§4.3
@@ -528,7 +535,7 @@ def prod_precondition(node) -> bool:
         return False  # mid-generation/tool-call — never type into an in-flight turn (§4.3 P1)
     if any(marker in pane for marker in _DIALOG_MARKERS):
         return False  # a blocking dialog — Enter would CONFIRM the highlighted option
-    return FORK_PROMPT in pane
+    return any(marker in pane for marker in PROMPT_MARKERS)  # E4: CC '❯' or Codex '›'
 
 
 def confirm_prod_worked(node, jsonl_size_before) -> bool:
