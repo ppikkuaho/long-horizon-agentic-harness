@@ -138,3 +138,23 @@ did L1 present playback to the user before promote? Run-specific caveats: a sing
 L5 unit makes the L4 composition review nearly degenerate; the O1 Opus stand-in
 removes the different-runtime judgment diversity the spec wants for L5+
 (reinforces governing preference 2 — wire real Codex).
+
+### LR-9 — review authority model: the gate, not the producer, unlocks upward flow
+(user decision, 2026-06-11 mid-run: "the owner (L4) should not have control over
+it. It doesn't have the authority to send finished work upwards. The reviewer does
+that. L4 can invoke it and send it work, but it needs to be separate, independent,
+with its own authority.")
+Spec agreement: QUALITY-GATE.md — the reviewer is "structurally separate from the
+producing level — not spawned by it, not part of its hierarchy." Refinement:
+separation is against the PRODUCER at each altitude — L4 invoking the L5+ reviewer
+of build's code is legitimate (L4 didn't write it); the gate on L4's OWN composition
+must not be under L4's control (spawned by the boundary above / the harness, at the
+#review seat).
+HARNESS GAP (the live run made it visible): sign-offs flow child→parent, so the
+producing parent is structurally the one deciding what moves up — a reviewer child's
+accept is merely advisory input the parent could ignore. Required mechanic: a
+level's upward sign-off is INVALID unless accompanied by a gate-accept artifact
+written under the REVIEWER's own owner_token (the producer cannot forge or own it —
+the fencing primitive already exists). Today's L5+ -as-child of L4 was acceptable
+only because L4 wasn't the code's producer; the L4→L2 boundary in this run has no
+independent gate at all unless L2/harness spawns one.
