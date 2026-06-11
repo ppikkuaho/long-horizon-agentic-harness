@@ -46,3 +46,20 @@ much as the feature is.
 (to be filled)
 ### Run 2 — static site generator (complex)
 (to be filled)
+
+## Run-2 intake text (prepared; feed verbatim after Run-1 closes)
+INTAKE — feature run. I need a static site generator called sitegen: given a
+folder of Markdown files, produce a complete HTML site in an output folder.
+Outcomes: (1) each .md file becomes a styled HTML page (headings, paragraphs,
+bold/italic, inline code, fenced code blocks, lists, links); (2) the site has an
+index.html listing all pages with titles + a simple navigation header on every
+page; (3) usable as `python3 -m sitegen <input-dir> <output-dir>`; (4) page
+titles come from the first H1, falling back to the filename. Constraints: pure
+Python 3 stdlib only; unit tests for the markdown conversion AND the site
+assembly; a README with usage. This is a multi-module project — I expect a real
+architecture (markdown rendering and site assembly are separate concerns with a
+clean interface between them) and a real decomposition through your full
+hierarchy. Delivery destination: in-place / no external delivery (record in
+intent-spec §8). My availability: asynchronous only — capture this intake as the
+confirmed intent (no reflect-back round-trip possible; mark requirements
+confirmed on the strength of this message).
