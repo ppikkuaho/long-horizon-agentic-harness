@@ -203,6 +203,27 @@ by the live run — the suite had leaf-collapse and coordinator-death tests, but
 coordinator-COMPLETION was an unimagined case (mock-reality seam again,
 governing preference 2).
 
+### LR-13 — altitude discipline broke on the way up: every level re-ran the tests (HIGH, role-doc fix)
+User (watching L1's final gate): "The question for L1 isn't 'does this work' — by the
+time anything gets to L1, it works. It's 'is this the thing the user asked for'…
+like a consulting partner auditing finished work before delivery. Not 'is the code
+good, do the tests pass' — they're not technical. Did the technical build the thing
+the client asked for?"
+Observed: the SAME test suite was executed four times up the chain (build, L5+
+review, L2, L1); L1 additionally ran AST scans and construct checks, burning its
+context to 4%-until-compact on technical re-verification, then SELF-RENDERED the
+intent verdict ("Intent-fidelity ACCEPT, decisions/D-002… Nothing further needs
+your input") — the verdict the spec assigns to the USER via triangulated playback
+(LR-8c deviation, now observed not predicted).
+Spec already forbids this (QUALITY-GATE.md: "a gate never re-does lower-level
+review; re-checking is wasted cost and erodes the producing level's
+accountability") — so this is a ROLE-DOC/PROMPT-STRENGTH finding, not a spec gap:
+the L1 (and L2) role docs need their gate sections rewritten around the
+consulting-partner frame, with an explicit DON'T (do not re-run lower-level
+verification; trust the gated chain; your judgment is fit-to-intent) and an
+explicit closing duty (present playback, await the user's verdict — never
+self-certify delivery).
+
 ### Corrections from the full spec read (2026-06-11, after user pressed "did you?")
 - LR-4 reframed: the one-shot spawn recipe ALREADY EXISTS — agent-lifecycle.md
   "How You Spawn a Child" ("a thin administrative act": prepare node + one-line
