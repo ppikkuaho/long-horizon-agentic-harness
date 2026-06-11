@@ -176,3 +176,23 @@ make pair-completion (and review invocation generally) harness machinery — L4'
 products are the decomposition, spec, and gate rubric; the lifecycle runs itself.
 Connects to LR-4 (one-command spawn): same theme — agent mechanics should be
 deterministic, frictionless, and near-invisible to every level.
+MECHANIC CORRECTION (full spec read, post-grep): under current harness mechanics an
+outbox request spawns the child UNDER THE REQUESTER'S ADDRESS — so L5 dropping a
+spawn request would put the reviewer in L5's hierarchy, which QUALITY-GATE.md §29
+forbids ("not spawned by it, not part of its hierarchy"). L5-invoked review must
+therefore be a DISTINCT harness verb: producer's finish = trigger; harness spawns
+the reviewer at the node's #review seat with custody OUTSIDE the producer's subtree.
+
+### Corrections from the full spec read (2026-06-11, after user pressed "did you?")
+- LR-4 reframed: the one-shot spawn recipe ALREADY EXISTS — agent-lifecycle.md
+  "How You Spawn a Child" ("a thin administrative act": prepare node + one-line
+  JSON in .harness-outbox). The live friction is agents not having/trusting that
+  doc — LR-4 is largely a DELIVERY failure of LR-3, not absent design. (Residual
+  LR-4 work: agents still read harness source for workspace-derivation details the
+  doc leaves implicit — close those gaps in the doc, not in agents' time.)
+- LR-3 upgraded: spec VIOLATION, not preference — agent-lifecycle.md line 13: "By
+  the time you receive your first context everything is already loaded — you never
+  bootstrap yourself." Every agent in this run bootstrapped itself.
+- L4 role doc: briefs should be POINTER-NOT-PAYLOAD (spawn by pointer to prepared
+  node, prose brief is the exception) — audit whether the live L4 hand-wrote prose
+  briefs instead.
