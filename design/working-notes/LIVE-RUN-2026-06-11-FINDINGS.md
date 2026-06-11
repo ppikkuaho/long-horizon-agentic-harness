@@ -373,3 +373,13 @@ defects); pieces_present sweep extended to L5+ so a registry seat without its
 bundle can never again pass silently. NOTE the meta-point: the enforcement spine
 caught ITS OWN AUTHOR'S config gap within hours of landing — exactly the
 loud-stop-over-silent-leak behavior BEHAVIOURAL-VALIDATION demands.
+
+### LR-18 — a watchdog-FAILED node's pane is never reaped; the respawn collides (HIGH)
+Run-2: the ladder FAILED L1 (LR-17 false-idle); the binding went terminal but the
+PANE stayed alive. The recovery restart's genesis tried a fresh L1 spawn ->
+tmux_session_collision (deterministic name) -> GenesisError, boot aborted (XC-1
+class, predicted by the verification panel's runbook). Operator hand-kill recovers.
+REMEDY: on the fresh-spawn legs (genesis four-way FAILED routing; LR-15 re-drive),
+kill_stale_pane(address) before create_detached — the chokepoint already has the
+primitive; OR reconcile necros alive-panes-on-terminal-bindings. Queue with LR-15
+family (the spawn-recovery sweep).
