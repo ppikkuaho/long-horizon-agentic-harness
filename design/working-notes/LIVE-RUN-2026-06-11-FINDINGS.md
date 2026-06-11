@@ -37,6 +37,28 @@ Operative consequences for this phase:
   middle-ground privileges per the earlier user decision (2026-06-11, remediation
   plan note) — and it must not reintroduce the LR-2..4 tax.
 
+## Governing preference 2 (user, 2026-06-11, mid-run): real over dummy
+
+"I'd like to get it as close as possible to a real deployment — whenever we do
+anything that's a dummy environment etc, it tends to mean that when we move to a
+real environment or case, something breaks."
+
+Evidence from this very session: EVERY run-blocking bug lived at a mock→real seam,
+invisible to the 888-green unit suite because mocks encode assumptions, not reality:
+LT-1 (placeholder env reached real spawns), the missing --model (CC silently booted
+Sonnet while the binding recorded Opus), F18 (tmux silently rewrites session names),
+LR-1 (transcript path CC never writes). Each surfaced within MINUTES of touching the
+real substrate.
+
+Operative consequences:
+- Wire the REAL Codex adapter for L5 (DEFERRED-REGISTER O1) sooner rather than
+  later — the Opus stand-in is exactly the kind of dummy this preference targets.
+- Add a thin REAL-substrate smoke tier alongside the unit suite: real tmux server,
+  real pinned CC boot, one tiny intake, assert transcript/kickoff/sign-off — run
+  before declaring any transport/spawn change done. Unit mocks keep their speed
+  role; they no longer count as evidence a seam works.
+- Prefer validating increments against the live daemon over adding more mocks.
+
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
 ### LR-2 — no PATH in the pane env: every shell call pays a tax (HIGH, ergonomics)
