@@ -358,6 +358,28 @@ def test_records_model_used_always(no_real_exec):
     )
 
 
+def test_model_used_derives_from_level_config(no_real_exec):
+    """model_used = '<model> / <runtime>' DERIVED from level_config (LT-8) — never a constant
+    that can contradict the config. The old constant recorded 'opus-4.8 / claude-code' even for
+    a gpt-5.5/codex LevelConfig driven through this adapter, so the recorded INTENT itself was
+    wrong — the deferred F17 configured-vs-actual fact-checker cannot reconcile fake intent."""
+    tmux = _MockTmux()
+    adapter = _make_adapter(tmux)
+    lc = config.LevelConfig(
+        level="L5", model="gpt-5.5", runtime="codex", role_variant="L5#exec",
+        tool_manifest=("read", "write", "edit", "bash"),
+    )
+    result = adapter.pin_and_open(
+        neutral_brief={"role_variant": "L5#exec"},
+        level_config=lc,
+        tmux_target="payments/gateway/stripe#exec",
+        env=_iso_env(),
+    )
+    assert result.model_used == "gpt-5.5 / codex", (
+        f"the recorded intent must come from the CONFIG (model / runtime), got {result.model_used!r}"
+    )
+
+
 def test_records_role_variant_and_system_prompt_file(no_real_exec):
     tmux = _MockTmux()
     adapter = _make_adapter(tmux)

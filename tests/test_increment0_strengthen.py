@@ -11,8 +11,10 @@ These tests add the missing teeth, so the canonical regressions FAIL:
   - LIVENESS_STATES reordered / working==waiting merged       -> FAIL (LOCKED 4-value enum)
 
 Authoritative: DAEMON §3.2 (role_variant is the PER-seat selector), runtime-and-model-map E31/E32
-(L1-L4 = opus/claude-code, L5 = gpt-5.5/codex), agent-lifecycle.md (LIVENESS_STATES LOCKED 4-value;
-working!=waiting is load-bearing for the §5.4 coordinator roll-up).
+(L1-L4 = opus/claude-code; L5 per E32 = gpt-5.5/codex — but see the L5 SMOKE STAND-IN pin below:
+until the Codex adapter (DEFERRED-REGISTER O1) lands, L5 runs opus-4.8/claude-code, the
+user-approved "start on Opus, wire Codex later" decision), agent-lifecycle.md (LIVENESS_STATES
+LOCKED 4-value; working!=waiting is load-bearing for the §5.4 coordinator roll-up).
 """
 
 import harnessd.config as config
@@ -79,7 +81,14 @@ def test_tool_manifest_nonempty_per_level():
 
 
 # --------------------------------------------------------------------------------------
-# runtime — MUST be a known runtime, following the locked E32 split (L1-L4 claude-code, L5 codex).
+# runtime — MUST be a known runtime. The locked E32 split is L1-L4 claude-code, L5 codex —
+# but L5 carries the SMOKE STAND-IN (LT-8; DEFERRED-REGISTER O1, user-approved 2026-06-06
+# "start on Opus, wire Codex later"): the Codex adapter has not landed and the ONE injected
+# adapter is the ClaudeCodeAdapter — a codex-configured L5 driven through it silently spawned
+# the unflagged CC default model while recording a different intent. Until O1 lands, L5 is
+# PINNED to opus-4.8/claude-code so config, record, and actual agree. RETIREMENT: the Codex
+# adapter fill (O1) flips these two pins back to the E32 split (gpt-5.5/codex) and re-runs the
+# L5/L5+ cross-runtime judgment-diversity eval (the O1 eval caveat).
 # (Mutant caught: runtime == "XXX".)
 # --------------------------------------------------------------------------------------
 
@@ -89,15 +98,22 @@ def test_runtime_known_and_follows_e32_split():
         assert rt in KNOWN_RUNTIMES, f"{lv} runtime {rt!r} is not a known runtime {KNOWN_RUNTIMES}"
     for lv in ["L1", "L2", "L3", "L4"]:
         assert _field(_level_config(lv), "runtime") == "claude-code", f"{lv} must run on claude-code (E32)"
-    assert _field(_level_config("L5"), "runtime") == "codex", "L5 must run on codex (E32)"
+    assert _field(_level_config("L5"), "runtime") == "claude-code", (
+        "L5 runs the USER-APPROVED opus-4.8/claude-code smoke STAND-IN until the Codex adapter "
+        "(DEFERRED-REGISTER O1) lands — then this pin flips back to 'codex' (E32)"
+    )
 
 
 def test_model_follows_e32_split():
     models = {lv: _field(_level_config(lv), "model") for lv in LEVELS}
     assert all(isinstance(m, str) and m.strip() for m in models.values()), f"every model seat non-empty, got {models}"
-    # L1-L4 share one model family; L5 (the GPT/Codex seat) is distinct (the E32 generative/executor split).
+    # L1-L4 share one model family; L5 joins it for the SMOKE STAND-IN (see the block comment
+    # above — O1 landing restores the distinct GPT/Codex executor seat).
     assert len({models[lv] for lv in ["L1", "L2", "L3", "L4"]}) == 1, f"L1-L4 share one model, got {models}"
-    assert models["L5"] != models["L1"], f"L5 model must differ from L1-L4 (Opus vs GPT split), got {models}"
+    assert models["L5"] == models["L1"], (
+        f"L5 model is the opus-4.8 smoke stand-in (DEFERRED-REGISTER O1) until the Codex adapter "
+        f"lands, got {models}"
+    )
 
 
 # --------------------------------------------------------------------------------------

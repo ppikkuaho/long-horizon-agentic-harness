@@ -162,9 +162,11 @@ class LevelConfig:
 # The per-level registry (runtime-and-model-map E32 assignment table).
 #
 # L1–L4: Opus 4.8 on the Claude Code runtime (generative / architecture / planning
-# seats). L5: GPT-5.5 on the Codex runtime (spec-anchored execution). The
-# tool_manifest is the only runtime-specific dimension (the adapter injects it);
-# v1 carries a coarse placeholder manifest per runtime, tuned at commissioning.
+# seats). L5 per E32 is GPT-5.5 on the Codex runtime (spec-anchored execution) —
+# but see the L5 SMOKE STAND-IN note below: until the Codex adapter lands, L5 runs
+# opus-4.8/claude-code. The tool_manifest is the only runtime-specific dimension
+# (the adapter injects it); v1 carries a coarse placeholder manifest per runtime,
+# tuned at commissioning.
 # ---------------------------------------------------------------------------
 
 # Coarse v1 placeholder tool surfaces, keyed by runtime. The real per-seat
@@ -202,12 +204,21 @@ LEVEL_CONFIGS: dict[str, LevelConfig] = {
         role_variant="L4",
         tool_manifest=_CLAUDE_CODE_TOOLS,
     ),
+    # L5 SMOKE STAND-IN (LT-8; DEFERRED-REGISTER O1 — user-approved 2026-06-06 "start on Opus,
+    # wire Codex later"): the E32 spec assignment is gpt-5.5/codex, but the Codex adapter (O1)
+    # has not landed and the ONE injected adapter is the ClaudeCodeAdapter — a codex-configured
+    # L5 driven through it spawned CC with NO --model flag (the pinned CC defaults to Sonnet)
+    # while the binding recorded a different intent: a silent three-way divergence
+    # (configured vs recorded vs actual). Until O1 lands, L5 runs the pinned opus-4.8/claude-code
+    # stand-in so config, record, and actual AGREE for the supervised smoke run.
+    # RETIREMENT TRIGGER: the Codex adapter fill (O1) flips this back to gpt-5.5/codex/_CODEX_TOOLS
+    # — and re-runs the L5/L5+ cross-runtime judgment-diversity eval (the O1 eval caveat).
     "L5": LevelConfig(
         level="L5",
-        model="gpt-5.5",
-        runtime="codex",
+        model="opus-4.8",
+        runtime="claude-code",
         role_variant="L5#exec",
-        tool_manifest=_CODEX_TOOLS,
+        tool_manifest=_CLAUDE_CODE_TOOLS,
     ),
 }
 

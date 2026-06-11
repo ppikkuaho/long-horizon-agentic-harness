@@ -24,9 +24,11 @@ The FROZEN H40 boot recipe (the ONE Claude-Code spawn the whole harness uses):
   ``create_detached`` so NO actor opens on a forbidden env (E32 ordering). The Claude-specific
   POSITIVE token check (``check_credential_health``) runs in this path (NOT the shared gate).
 
-Recorded facts (config = INTENT, model_used = FACT): model_used = "opus-4.8 / claude-code",
-role_variant, system_prompt_file (the shared constant) + its content hash, session_uuid, and
-the derived transcript_path (a ``<session-uuid>.jsonl`` file the detector stats).
+Recorded facts (config = INTENT, model_used = FACT): model_used = "<model> / <runtime>" DERIVED
+from the level_config (LT-8 — never a constant that can contradict the config; the deferred F17
+configured-vs-actual fact-checker can only reconcile intent that is real), role_variant,
+system_prompt_file (the shared constant) + its content hash, session_uuid, and the derived
+transcript_path (a ``<session-uuid>.jsonl`` file the detector stats).
 
 BUILDER DECISIONS for the §2.11 details the plan leaves open (stated in the build report):
 
@@ -74,7 +76,25 @@ _ISOLATION_ENV_KEYS = frozenset(
     }
 )
 
+# The legacy recorded-intent FALLBACK — used only when a level_config lacks model/runtime seats
+# (a sparse test fake). The real record derives from the level_config (LT-8, _model_used below).
 _MODEL_USED = "opus-4.8 / claude-code"
+
+
+def _model_used(level_config) -> str:
+    """The recorded INTENT, derived from the CONFIG (LT-8): ``"<model> / <runtime>"``.
+
+    The old constant recorded 'opus-4.8 / claude-code' regardless of level_config — so an L5
+    configured gpt-5.5/codex but driven through THIS adapter recorded an intent that contradicted
+    its own config (and the actual unflagged-CC default), a three-way divergence the deferred F17
+    fact-checker could not even reconstruct. Intent now comes from the config; the
+    configured-vs-ACTUAL check remains F17 territory.
+    """
+    model = getattr(level_config, "model", None)
+    runtime = getattr(level_config, "runtime", None)
+    if model and runtime:
+        return f"{model} / {runtime}"
+    return _MODEL_USED
 
 
 def _harness_root() -> Path:
@@ -396,7 +416,7 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         return SpawnResult(
             ok=True,
             session_uuid=session_uuid,
-            model_used=_MODEL_USED,
+            model_used=_model_used(level_config),
             role_variant=role_variant,
             system_prompt_file=config.SYSTEM_PROMPT_FILE,
             system_prompt_file_hash=_system_prompt_hash(),
