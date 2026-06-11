@@ -59,7 +59,7 @@ from typing import IO, NoReturn, Optional, Tuple
 from harnessd import clock as _clock
 from harnessd import genesis as _genesis_mod
 from harnessd import ipc as _ipc_mod
-from harnessd import ledger, states, store
+from harnessd import addressing, ledger, states, store
 from harnessd import reconcile as _reconcile_mod
 from harnessd import watchdog as _watchdog_mod
 from harnessd.spawn import chokepoint
@@ -256,8 +256,61 @@ def poll_once(executor, tmux, detector) -> None:
     _route_reconcile_escalations(report)
     _watchdog_tick(executor, tmux, detector)
     _service_outboxes_best_effort()
+    _redrive_planned_spawns_best_effort(executor)
     _stamp_last_tick_best_effort()
     return None
+
+
+# LR-15 — a pieces-refused (or otherwise post-claim-failed) child spawn used to WEDGE forever:
+# the binding sat `planned` with the outbox request consumed (.done); _child_already_live counts
+# planned as live (a parent re-request is swallowed), reconcile excludes pre-spawn states from
+# owned-but-dead (INT-4), and the F21 claim-as-is leg is L1-only. This sweep leg re-drives them:
+# any `planned` binding whose node is PREPARED (brief.md present — the E1 derivation source) and
+# that has no live pane gets one claim_and_spawn per cooldown window. The CAS makes racing a
+# concurrent legitimate claim harmless (one wins; the loser opens no actor); a still-broken node
+# fails the same gate again and re-escalates — LOUD and bounded, never a silent wedge.
+_REDRIVE_COOLDOWN_S: float = 60.0
+_REDRIVE_LAST_ATTEMPT: dict = {}  # node_address -> time.monotonic() (daemon-incarnation memory)
+
+
+def _redrive_planned_spawns_best_effort(executor) -> None:
+    import time as _time
+
+    from harnessd import config as _config
+    from harnessd.spawn import chokepoint as _chokepoint
+
+    try:
+        bindings = ledger.all_nodes()
+    except Exception:  # noqa: BLE001 — the sweep must advance
+        return
+    for address, binding in list(bindings.items()):
+        try:
+            if (binding or {}).get("state") != "planned":
+                continue
+            if binding.get("tmux_target"):
+                continue  # mid-spawn or already-spawned shapes are not re-drive candidates
+            now = _time.monotonic()
+            last = _REDRIVE_LAST_ATTEMPT.get(address)
+            if last is not None and (now - last) < _REDRIVE_COOLDOWN_S:
+                continue
+            node_dir = addressing.node_dir(address, ledger.RUNTIME_ROOT)
+            if not (node_dir / "brief.md").is_file():
+                continue  # not a prepared node — nothing to drive (genesis/outbox owns it)
+            level = (binding.get("level") or "").strip()
+            try:
+                level_config = _config.get_level_config(level)
+            except Exception:  # noqa: BLE001 — an unknown level is not re-drivable
+                continue
+            _REDRIVE_LAST_ATTEMPT[address] = now
+            _chokepoint.claim_and_spawn(
+                address,
+                expected_state="planned",
+                expected_generation=binding.get("generation"),
+                expected_owner_token=binding.get("owner_token"),
+                level_config=level_config,
+            )
+        except Exception:  # noqa: BLE001 — one node's re-drive fault never aborts the sweep
+            continue
 
 
 def _route_reconcile_escalations(report) -> None:

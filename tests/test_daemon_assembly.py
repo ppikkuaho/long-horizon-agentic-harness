@@ -608,3 +608,66 @@ def test_poll_once_survives_a_failed_stamp(runtime, monkeypatch):
         "the tick's reconcile/watchdog work must still land when the stamp fails — the stamp is "
         "best-effort, never load-bearing for the sweep"
     )
+
+
+# --------------------------------------------------------------------------- #
+# LR-15 — the planned-spawn RE-DRIVE sweep: a pieces-refused child no longer
+# wedges forever (the binding sat `planned` with the outbox request consumed;
+# nothing re-drove it — observed live on the first L5+ spawn, 2026-06-11).
+# --------------------------------------------------------------------------- #
+
+def test_poll_once_redrives_a_planned_prepared_node(runtime):
+    """A `planned` binding with a PREPARED node (brief.md present) and no pane is re-driven
+    through claim_and_spawn by the sweep -> running. (Mutant: no re-drive leg -> stays planned
+    forever -> caught.)"""
+    _install_adapter()
+    daemon._REDRIVE_LAST_ATTEMPT.clear()
+    addr = "proj/widget/task#exec"
+    token = fencing.mint_owner_token(addr, "sa", "uuid", 3)
+    ws = addressing.node_dir(addr, runtime)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "brief.md").write_text("# brief\n\ndo the task.\n", encoding="utf-8")
+    rec = {"node_address": addr, "parent_address": "proj/widget#exec", "level": "L1",
+           "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 1,
+           "lease_epoch": 3, "owner_token": token, "last_applied_seq": 0,
+           "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
+           "tmux_target": None, "workspace": str(ws),
+           "stale_check_count": 0, "stale_grace_checks": 2}
+    ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
+    tmux = _Tmux({})
+    det = _Detector(default="working")
+
+    daemon.poll_once(executor, tmux, det)
+
+    b = ledger.read_binding(addr)
+    assert b["state"] == "running", (
+        f"the sweep must RE-DRIVE a planned+prepared node (LR-15); got {b['state']!r}"
+    )
+
+
+def test_redrive_respects_cooldown_and_unprepared_nodes(runtime):
+    """An UNPREPARED planned node (no brief.md) is never re-driven; a re-drive attempt inside
+    the cooldown window is skipped (no per-tick escalation spam)."""
+    _install_adapter()
+    daemon._REDRIVE_LAST_ATTEMPT.clear()
+    addr = "proj/widget/task#exec"
+    token = fencing.mint_owner_token(addr, "sa", "uuid", 3)
+    ws = addressing.node_dir(addr, runtime)
+    ws.mkdir(parents=True, exist_ok=True)  # node dir exists but NO brief.md
+    rec = {"node_address": addr, "parent_address": "proj/widget#exec", "level": "L1",
+           "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 1,
+           "lease_epoch": 3, "owner_token": token, "last_applied_seq": 0,
+           "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
+           "tmux_target": None, "workspace": str(ws),
+           "stale_check_count": 0, "stale_grace_checks": 2}
+    ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
+
+    daemon.poll_once(executor, _Tmux({}), _Detector(default="working"))
+    assert ledger.read_binding(addr)["state"] == "planned", "an unprepared node is NOT re-driven"
+
+    # prepared now, but a fresh attempt stamp inside the cooldown -> skipped this tick
+    (ws / "brief.md").write_text("# brief\n", encoding="utf-8")
+    import time as _t
+    daemon._REDRIVE_LAST_ATTEMPT[addr] = _t.monotonic()
+    daemon.poll_once(executor, _Tmux({}), _Detector(default="working"))
+    assert ledger.read_binding(addr)["state"] == "planned", "cooldown must suppress the re-attempt"
