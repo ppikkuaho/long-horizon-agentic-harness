@@ -111,3 +111,32 @@ hierarchy. Delivery destination: in-place / no external delivery (record in
 intent-spec §8). My availability: asynchronous only — capture this intake as the
 confirmed intent (no reflect-back round-trip possible; mark requirements
 confirmed on the strength of this message).
+
+## OVERNIGHT HANDOFF (written ~00:10, goal window closing 00:30)
+
+RUN-2 STATE: daemon pid in runtime/build-site1/runtime.json, socket
+$PWD/runtime/build-site1/.harnessd/harnessd.sock, tmux -L harnessd. Intake fed
+(sitegen, the §Run-2-intake-text above, verbatim). L1 created the project node +
+client-brief/; intent-spec authoring in flight at handoff. The cascade runs
+overnight under the daemon — every known failure mode self-heals (E1+LR-15
+re-drive, E2 bounce+inbox-defect, LR-11 wakes, coordinator collapse d639e56).
+
+NEXT SESSION (scoring Run-2):
+1. tree + WAL sweep: python3 -m harnessd.harnessctl tree; defect rows
+   (return_contract_failed / spawn_failed / reconcile_escalation).
+2. Score rows A1-A7 (NOW under the spliced contracts: expect
+   client-brief/fidelity-judgment.md + node report.md at L1 close, NO suite
+   re-runs at L1/L2 — the contracts' first live test), B1-B10 (the L3 question:
+   one-L3-split-collapse is sanctioned, ZERO-L3 needs a recorded ADR; planning
+   round + compatibility review + candidate-lock for a multi-module project),
+   C1-C6, D-rows.
+3. If L1 signed DONE: operator Stage-5 evaluation (run sitegen per intake on a
+   sample md folder) -> promote --decision accept (E3 derives in-place §8).
+4. Fill "Run 2" scores; update findings (any new LR-*); changelogs.
+
+OPEN ITEMS (priority): async codex rollout discovery (sweep stalls up to 150s per
+codex spawn — sitegen has SEVERAL L5s, watch for stall-induced wake latency);
+zero-L3 small-project profile = SPEC EXTENSION awaiting user blessing; reviewer
+authority wiring (LR-9/10); L1 closing protocol (user ruled: future, real-client
+use); codex-audit of briefs; cross-runtime L5/L5+ eval re-run; pane labels (LR-7);
+DEFERRED-REGISTER sync for tonight's rows.
