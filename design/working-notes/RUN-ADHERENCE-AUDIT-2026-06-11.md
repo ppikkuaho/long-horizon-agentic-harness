@@ -42,8 +42,35 @@ much as the feature is.
 | D8 | Promote: accept -> §8 destination honored (in-place); FREEZE-ON-PENDING respected | E3 |
 
 ## Scores
-### Run 1 — wordcount (validation)
-(to be filled)
+### Run 1 — wordcount (validation; build-val2; scored live 2026-06-11 ~22:30)
+| Row | Score | Evidence |
+|---|---|---|
+| A1 | PASS | L1 read the absolute-path manifest before acting (pane transcript; no doc-hunting turns) |
+| A2 | PASS | intake -> intent-spec -> project node -> L2 route; no architecting observed at L1 |
+| A3 | PASS | client-brief/intent-spec.md: R-table, §8 'in-place' explicit, async reflect-back rationale recorded |
+| A4 | PARTIAL | grilling skipped (async user) — reasoning recorded in the spec's reflect-back section, not a decisions/D-* record |
+| A5 | PASS | client-brief/{intent-spec,vision,priorities}.md all authored at project creation (Stage 2) |
+| A6-A7 | pending | L1 final gate not yet reached |
+| B1-B2 | PASS (light) | L2 produced project architecture + workstream acceptance; single-module scope kept it thin |
+| B3 | PARTIAL | single 'build' workstream (L3 skipped); plan round-tripped to L1 for approval — but no recorded scale-down ADR (the LR-6 gap; profile drafted for Run-2) |
+| B5 | PASS | no silent invention observed; L2 sought L1 approval before executing |
+| C1 | PASS | tester lateral spawned FIRST; frozen acceptance + oracle authored before the build L5 |
+| C2 | PASS | codex L5 passed the E2 return contract FIRST TRY (IDs cited) — the decision-complete brief worked |
+| C3 | pending | L4 composition gate not yet reached |
+| C4 | PASS (structural) | review seat = L5+ on opus/claude-code (the OTHER runtime), spawned after build DONE |
+| C5 | pending | transcript audit after run close |
+| D1 | PASS | TWO child_collapsed lines in the L4 inbox (tester, tool) — LR-11 live |
+| D2 | PASS (the headline) | E2 refused the tester's DONE (DUP-ID T-1 across brief.md/oracle.md); the agent read the inbox defect, renumbered ITS OWN ids (did not touch the parent's brief), re-signaled, collapsed clean |
+| D4 | PASS | first in-cascade codex spawn: rollout discovered, '›' kickoff delivered, task executed, sign-off JSON correct |
+| D5 | PASS | no bootstrap hunts (absolute manifests; LR-3) |
+| D6 | PASS | zero 'command not found' across all val2 transcripts (LR-2; run-1 had constant hits) |
+| D7 | PASS | no fence rejections in WAL |
+| D3, D8 | pending | upward collapse + promote not yet reached |
+
+Run-1 incidents (both self-surfaced, both productive):
+- LR-16: first L5+ spawn pieces-refused (reviewer bundle never authored) -> bundle
+  authored from QUALITY-GATE M52, sweep extended. The spine caught its author.
+- LR-15: the refusal exposed the planned-spawn wedge -> re-drive sweep landed (c849340).
 ### Run 2 — static site generator (complex)
 (to be filled)
 
