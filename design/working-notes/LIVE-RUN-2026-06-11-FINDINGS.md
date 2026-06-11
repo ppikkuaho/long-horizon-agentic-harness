@@ -351,3 +351,25 @@ self-certify delivery).
 - L4 role doc: briefs should be POINTER-NOT-PAYLOAD (spawn by pointer to prepared
   node, prose brief is the exception) — audit whether the live L4 hand-wrote prose
   briefs instead.
+
+### LR-15 — a pieces-refused child spawn WEDGES permanently (HIGH, found in Run-val2)
+The E1 gate refused the first L5+ spawn (correctly — LR-16); but the refusal left
+the binding `planned` with the outbox request consumed (.done), and NOTHING
+re-drives it: _child_already_live counts `planned` as live (a re-request by the
+parent is consumed as already-live without spawning), reconcile excludes pre-spawn
+states from owned-but-dead (INT-4), and the F21 claim-as-is leg is L1-only.
+Recovered by operator: harnessctl spawn with the planned binding's CAS values.
+REMEDY: the daemon should re-drive planned bindings whose nodes are prepared (a
+sweep leg: planned + brief.md present + no pane -> claim_and_spawn), OR a parent
+re-request should be honored when the existing binding is pre-spawn.
+
+### LR-16 — the L5+ reviewer manifest was never authored; the E1 gate caught it (FIXED a150914)
+ROLE-RESOLUTION §84-87 prescribes a distinct reviewer manifest for L5+#review;
+the bundle did not exist, so the FIRST live L5+ spawn was refused
+(pieces_missing: manifest docs do not resolve). Authored
+operational/L5+/{soul,role,config}.md from QUALITY-GATE M52/D27 (own-testing-
+pass-first, fidelity-dominant two-axis verdict, ACCEPT/BOUNCE with named
+defects); pieces_present sweep extended to L5+ so a registry seat without its
+bundle can never again pass silently. NOTE the meta-point: the enforcement spine
+caught ITS OWN AUTHOR'S config gap within hours of landing — exactly the
+loud-stop-over-silent-leak behavior BEHAVIOURAL-VALIDATION demands.
