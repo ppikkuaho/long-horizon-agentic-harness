@@ -143,6 +143,14 @@ can't exist. After F1, the order is correctness-foundations → cascade edges �
 > (containment-request wiring is itself a deferred D-row). If the first live run turns the jail ON (the
 > SECURITY.md v1 floor), F9–F13 become NOW. If the first run is an unjailed smoke-test, they're LATER
 > behind the "enable containment" trigger.
+>
+> **DECIDED 2026-06-11 (user):** first run is an UNJAILED smoke-test with the explicit
+> `HARNESS_UNJAILED_SKIP_PERMISSIONS=1` override (commit 9ee5f2d) — F9–F13 stay LATER.
+> **Jail-posture preference for when the tier is built:** the user wants a MIDDLE-GROUND privilege
+> posture, not least-privilege — "reasonably large, not the lowest possible." When F9–F13 land, tune
+> the §2.5 knobs accordingly: broad read access stays (the v1 write-jail-not-read-jail scope),
+> `tighten_reads` stays off by default, deny-list confined to the named secret floor + write
+> containment rather than aggressive allowlisting.
 
 ### F9 — resume/necro re-applies the write-jail
 - **Finding:** chokepoint-1. **Impact:** a contained node re-opens UNJAILED on every recovery (the

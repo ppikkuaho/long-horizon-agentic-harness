@@ -34,6 +34,14 @@ The cascade builds the product **inside `/runtime/proj/{project}/`**, every agen
 
 ### Stage 5 — Final acceptance (L1)
 
+> **Authority ruling (user, 2026-06-11):** during the test/commissioning phase, Stage-5 acceptance
+> does NOT require a user confirmation round-trip — L1 (or the supervising operator) evaluates
+> intent-fidelity against the frozen intent-spec and triggers promote. For REAL client use the
+> verdict returns to the user via the playback-escalation mechanic (QUALITY-GATE §L1-gate; the
+> L1-closing-protocol increment) — that mechanic is registered, not yet built. This note
+> reconciles the apparent contradiction between this section and QUALITY-GATE's
+> "the user renders the verdict."
+
 L1 judges the assembled result against the **frozen intent-spec** — the anchor it has guarded since Stage 1 (the handbook's Concept Review / Result Shaping posture; `PROJECT-PLANNING.md` Phase 7). This is an **intent-fidelity** judgment, not a re-do of the technical review below. On **accept** → L1 triggers delivery (Stage 6). On **reject** → L1 escalates back down, bounded. The intent-spec is the single thing acceptance is measured against.
 
 ### Stage 6 — Promotion / delivery (control plane)
