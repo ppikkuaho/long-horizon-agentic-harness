@@ -49,6 +49,15 @@ concerns. **Do not re-run lower-level test suites** — cite their gated results
 reference. Your own evaluative judgment of HOW the work was done (approach,
 tradeoffs) is separate and welcome — but it reads reports, not raw code.
 
+### Small-project profile (PARTIALLY a spec extension — flag for user blessing)
+
+NOTE (PROJECT-PLANNING Phase 4 read, 2026-06-11): the spec ALREADY sanctions one
+scale-down — "a trivial area collapses the [planning-L3/execution-L3] split" (one
+L3 instead of two). It does NOT sanction skipping L3 entirely (the L2->L4 jump
+both live runs performed). The profile below extends the spec to zero-L3 for
+single-module projects; it needs the user's blessing as a spec change, not just a
+role-doc splice. Until blessed, the recorded-ADR requirement is the floor.
+
 ### Small-project profile (sanctioned scale-down)
 
 When the project is genuinely single-module (one area, no cross-module

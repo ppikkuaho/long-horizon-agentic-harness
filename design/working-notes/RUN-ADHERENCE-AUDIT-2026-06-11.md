@@ -74,6 +74,16 @@ Run-1 incidents (both self-surfaced, both productive):
 ### Run 2 — static site generator (complex)
 (to be filled)
 
+## Run-2 additional rows (PROJECT-PLANNING Phases 3-7, read post-Run-1-start)
+| # | Criterion | Source |
+|---|---|---|
+| B6 | Phase-3 concept validation: L2 concept -> L1 fidelity check BEFORE the cascade details it | PP Phase 3 |
+| B7 | Planning-L3s in parallel + threshold-gated split (trivial area = ONE L3, never zero without ADR) | PP Phase 4 |
+| B8 | Compatibility review closes the round (cross-area interface match, gaps, conflicts) | PP Phase 4 |
+| B9 | Candidate-lock vs freeze ordering: freeze ONLY post-gate-PASS; no building on reflect-back-pending | PP Phase 4/5 |
+| B10 | Plan-alignment gate warm sign-off (operator-as-user-delegate tonight, per the Stage-5 ruling) | PP Phase 5 |
+| C6 | L3: design.md frozen contract + plan.md living layer; 2-4 L4s sequenced by dependency/risk | PP Phase 6 |
+
 ## Run-2 intake text (prepared; feed verbatim after Run-1 closes)
 INTAKE — feature run. I need a static site generator called sitegen: given a
 folder of Markdown files, produce a complete HTML site in an output folder.
