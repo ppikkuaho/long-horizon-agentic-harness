@@ -154,3 +154,11 @@ DEFERRED-REGISTER sync for tonight's rows.
 - comms-protocol: pointer-not-payload phase-complete nudge to L1 (see/urgency fields).
 - Recovery note: post-LR-17-restart, the fresh L1 + the swept-up L2 spawn resumed
   the run with zero operator re-work beyond the LR-18 hand-kill (recorded).
+- ~00:55 THE L3 LAYER LIVE (first time): TWO parallel planning-L3s
+  (sitegen/markdown + sitegen/assembly) — Phase-4 coordinated round running.
+- Escalation ANSWER mechanism observed: L1 -> L2 inbox 'review-verdict' bus message
+  ("Concept APPROVED", see: decision.md) — the AGENT answer channel (comms-protocol),
+  distinct from the F16 operator verb. Inc-23 escalation round-trip: PASS.
+- Watch-item: the ESCALATED stamp lingers on the binding after an AGENT-channel
+  answer (answered_at is F16-only); clears at the next real sign-off overwrite.
+  Cosmetic in flow; note for ledger semantics (SM-4 family).
