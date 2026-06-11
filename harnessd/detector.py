@@ -195,6 +195,14 @@ def liveness(node_address: str) -> Liveness:
     if _within_w(last_progress_at, _w_window(binding)):
         return Liveness(state="working", last_progress_at=last_progress_at)
 
+    # (5b — LR-17) Flat BEYOND W but the pane CAPTURE shows the mid-turn marker -> working.
+    # A running Task SUBAGENT (the L1 grilling dispatch its role doc prescribes) or a long quiet
+    # model turn leaves the MAIN transcript flat while the pane renders 'esc to interrupt'; the
+    # flat signal alone must not out-vote the pane's own in-flight indicator (Run-2 false-idle:
+    # the ladder killed a healthy, spec-conformant L1 for dispatching its intake session).
+    if detector_signals.pane_activity(node):
+        return Liveness(state="working", last_progress_at=last_progress_at)
+
     # (6) Flat BEYOND W + warm pane + LEGIT reason -> waiting (NOT idle).
     if _has_legit_waiting_reason(node_address, binding):
         return Liveness(state="waiting", last_progress_at=last_progress_at)

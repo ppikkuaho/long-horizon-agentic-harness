@@ -373,3 +373,58 @@ def test_liveness_surfaces_last_progress_at(runtime, tmp_path, monkeypatch):
     assert hasattr(live, "state")
     assert hasattr(live, "last_progress_at")
     assert live.state in ("working", "waiting", "idle", "dead", "unknown")
+
+
+# ===========================================================================
+# LR-17 — the SUBAGENT FALSE-IDLE (Run-2, 2026-06-11): a running Task subagent
+# (the L1 grilling dispatch) leaves the MAIN transcript flat while the pane
+# renders the mid-turn marker; flat-beyond-W must then yield WORKING.
+# ===========================================================================
+
+class _CaptureTmux:
+    def __init__(self, text):
+        self._text = text
+
+    def capture_pane(self, target):
+        return self._text
+
+    def list_targets(self):
+        return {}
+
+
+def test_lr17_flat_beyond_w_with_pane_activity_is_working(runtime, tmp_path, monkeypatch):
+    import harnessd.detector_signals as detector_signals
+
+    tp = _write_transcript(tmp_path, size=200)
+    _seed_binding(runtime, "proj/a#exec", transcript_path=tp,
+                  last_progress_at=_ago(config.SUSPICION_WINDOWS["working"] + 600),
+                  terminal_signal=None, role_variant="L5#exec")
+    _patch_signals_everywhere(monkeypatch, grew=False,
+                              mtime_iso=_ago(config.SUSPICION_WINDOWS["working"] + 600),
+                              pane_alive=True, pane_pid=4242)
+    monkeypatch.setattr(detector_signals, "_tmux", _CaptureTmux(
+        "❯ \n◯ general-purpose  Intake grilling session  2m · ↓ 57k tokens\nesc to interrupt"))
+    live = _detector().liveness("proj/a#exec")
+    assert live.state == "working", (
+        f"flat-beyond-W + pane showing 'esc to interrupt' (a running subagent) must read WORKING, "
+        f"got {live.state!r} — the Run-2 ladder killed a spec-conformant L1 for dispatching its "
+        "grilling session (LR-17)"
+    )
+
+
+def test_lr17_flat_beyond_w_quiet_pane_still_idles(runtime, tmp_path, monkeypatch):
+    import harnessd.detector_signals as detector_signals
+
+    tp = _write_transcript(tmp_path, size=200)
+    _seed_binding(runtime, "proj/a#exec", transcript_path=tp,
+                  last_progress_at=_ago(config.SUSPICION_WINDOWS["working"] + 600),
+                  terminal_signal=None, role_variant="L5#exec")
+    _patch_signals_everywhere(monkeypatch, grew=False,
+                              mtime_iso=_ago(config.SUSPICION_WINDOWS["working"] + 600),
+                              pane_alive=True, pane_pid=4242)
+    monkeypatch.setattr(detector_signals, "_tmux", _CaptureTmux(
+        "❯ \n  ⏵⏵ bypass permissions on (shift+tab to cycle)"))
+    live = _detector().liveness("proj/a#exec")
+    assert live.state == "idle", (
+        f"a truly quiet flat-beyond-W pane must still read idle, got {live.state!r}"
+    )

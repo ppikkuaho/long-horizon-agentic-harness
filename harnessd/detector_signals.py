@@ -141,6 +141,33 @@ def pane_alive(node) -> tuple[bool, int | None]:
     return (not pane_dead), (None if pane_dead else pane_pid)
 
 
+# The CC mid-turn footer marker — present while CC is working a turn (INCLUDING while a Task
+# subagent runs under it, when the MAIN transcript sits flat — LR-17) and absent at true idle.
+# Single source: watchdog._WORKING_MARKER aliases this constant (the de-drift rule).
+PANE_WORKING_MARKER: str = "esc to interrupt"
+
+
+def pane_activity(node) -> bool:
+    """LR-17 — True iff the pane's CAPTURE shows the mid-turn working marker.
+
+    The Run-2 false-idle: L1 dispatched its intake grilling SESSION (a Task subagent — exactly
+    what its role doc prescribes) and the MAIN transcript sat flat while the subagent worked;
+    the flat-beyond-W rule read it idle and the ladder killed a healthy, spec-conformant agent.
+    The pane itself knows better: CC renders 'esc to interrupt' whenever a turn (or subagent)
+    is in flight, and drops it at true idle. Best-effort: an unbound seam / capture error
+    returns False (never masks a genuinely dead pane — pane_alive already won by then)."""
+    if _tmux is None:
+        return False
+    capture = getattr(_tmux, "capture_pane", None)
+    if capture is None:
+        return False
+    try:
+        text = capture(node["tmux_target"]) or ""
+    except Exception:  # noqa: BLE001 — a capture hiccup must not invent a verdict
+        return False
+    return PANE_WORKING_MARKER in text
+
+
 def pane_pid_cpu(node, pane_pid) -> float | None:
     """ps -o %cpu= for the pane pid — WEDGE-PATH ONLY; STUB-return None in v1 (§2.8).
 
