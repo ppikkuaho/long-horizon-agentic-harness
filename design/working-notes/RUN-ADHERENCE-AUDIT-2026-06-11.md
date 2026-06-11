@@ -165,3 +165,10 @@ DEFERRED-REGISTER sync for tonight's rows.
 - ~01:05 E2 refused markdown-L3's DONE (MISSING-REPORT) — third live firing; left
   to self-heal (loop proven at leaf+root). Follow-up: extend the report.md duty
   line to L3's role doc (splice covered L1/L2/L4; L5 already carries it).
+- ~01:20 SECOND L2 escalation: "Planning round done; both area designs accepted;
+  COMPATIBILITY REVIEW PASS; interfaces LOCKED; seam validated unchanged by both
+  planning-L3s; two V1 scope calls SURFACED for intent check" — B8 PASS-in-flight
+  (first compatibility review ever run). B9 CHECK FOR SCORING: 'LOCKED' must be
+  candidate-lock (freeze is post-gate-PASS only) — inspect
+  sitegen/L2/decisions/interfaces-locked.md vocabulary + any premature frozen
+  stamps. B5 again: scope calls surfaced, not silently decided.
