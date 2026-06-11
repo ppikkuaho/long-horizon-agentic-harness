@@ -120,8 +120,8 @@ def test_spawn_env_unbound_falls_back_to_structural_placeholders():
     assert env["CLAUDE_CONFIG_DIR"] == oauth_guard.PLACEHOLDER_CONFIG_DIR
     assert set(env) == {
         "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER",
-    }, "the structural fallback keeps the exact 4-var shape (DAEMON §6.2)"
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER", "PATH",
+    }, "the structural fallback = the 4 isolation vars + PATH (LR-2; DAEMON §6.2 amended)"
 
 
 # ---------------------------------------------------------------------------------------

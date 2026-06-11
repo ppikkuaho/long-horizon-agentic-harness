@@ -823,6 +823,8 @@ def _spawn_env() -> dict:
         "CLAUDE_CODE_OAUTH_TOKEN": PLACEHOLDER_OAUTH_TOKEN,
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1",
+        # LR-2: PATH joined the floor (commissioning mirrors this; PATH is not a credential).
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
     }
 
 
@@ -1198,6 +1200,19 @@ def _register_child(
     return binding
 
 
+def _absolutize_manifest_path(path: str) -> str:
+    """LR-3: render a load-manifest doc path ABSOLUTE in the authored brief (agents read briefs
+    from their node cwd; a repo-relative path dangles there — agent-lifecycle L13's "everything
+    is already loaded" demands paths that resolve where the agent stands). The neutral contract
+    keeps repo-relative paths (pieces_present resolves them under harness_root); only the
+    RENDERED brief absolutizes. A '#fragment' suffix survives; an already-absolute path passes."""
+    base, sep, frag = str(path).partition("#")
+    if os.path.isabs(base):
+        return str(path)
+    repo_root = Path(__file__).resolve().parents[2]
+    return str(repo_root / base) + (sep + frag if sep else "")
+
+
 def _write_child_brief(
     child_address: str,
     child_level_config,
@@ -1231,7 +1246,10 @@ def _write_child_brief(
         "",
         "## Identity — Load These Documents (read in place)",
         "",
-        *[f"- {path}" for path in neutral.load_manifest],
+        # LR-3: ABSOLUTE paths — the pane boots in the NODE workspace, so a repo-relative
+        # manifest path dangles from the agent's cwd and every agent burned its first turns
+        # rediscovering the harness root (observed at EVERY level, 2026-06-11 live run).
+        *[f"- {_absolutize_manifest_path(path)}" for path in neutral.load_manifest],
         "",
         # F19 — the sign-off pointer, visible in the first thing the child reads (belt-and-braces
         # alongside the .sign-off.<seat>.json handshake itself + comms-protocol's Terminal Signal).
@@ -1610,7 +1628,7 @@ def collapse(
     # RETURN the TransitionResult (review chokepoint-2): a FAILED terminal transition (a CAS miss /
     # fencing rejection) must NOT be reported as success. Callers (the watchdog, the kill IPC) route the
     # result; a `return None` here silently swallowed a fenced abort and told every caller it collapsed.
-    return executor.transition(
+    result = executor.transition(
         node_address,
         expected_state=live["state"],
         expected_generation=live["generation"],
@@ -1626,3 +1644,52 @@ def collapse(
             "(carries ④ in_flight RELEASE-DECREMENT, symmetric to STEP1 claim-increment; §6.1/§3.6)"
         ),
     )
+    # LR-11 — COLLAPSE WAKES THE PARENT (agent-lifecycle: completion flows UP; COMMUNICATION:
+    # the report-up nudge). On a SUCCESSFUL collapse, append ONE child_collapsed pointer line to
+    # the parent seat's inbox; the ③-wake delivers the nudge on the next tick. Without this the
+    # parent only rediscovers tree state via the generic idle ladder (observed live 2026-06-11:
+    # L1 sat unaware of L2's completion until an operator hand-delivered the notification).
+    # Best-effort: a notification hiccup never converts a clean collapse into a failure; the
+    # parentless L1 root and an absent/terminal parent are silent no-ops.
+    if result is not None and getattr(result, "ok", False):
+        _notify_parent_of_collapse(node_address, live, terminal_signal)
+    return result
+
+
+def _notify_parent_of_collapse(node_address: str, collapsed_binding: dict, terminal_signal: str) -> None:
+    """Append the LR-11 ``child_collapsed`` pointer line to the parent's inbox (best-effort)."""
+    from harnessd import clock  # local import, matching the kickoff line's style
+
+    try:
+        parent = (collapsed_binding or {}).get("parent_address")
+        if not parent or ledger.RUNTIME_ROOT is None:
+            return
+        parent_binding = ledger.read_binding(parent)
+        if parent_binding is None or states.is_terminal(parent_binding.get("state")):
+            return
+        evidence = ""
+        try:
+            sig_path = addressing.signal_path(node_address, ledger.RUNTIME_ROOT)
+            if sig_path.is_file():
+                sig = json.loads(sig_path.read_text(encoding="utf-8"))
+                evidence = str((sig.get("evidence") or {}).get("notes") or "")[:200]
+        except (OSError, ValueError):
+            pass
+        node_dir = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
+        inbox = addressing.inbox_path(parent, ledger.RUNTIME_ROOT)
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps({
+            "from": "harnessd",
+            "type": "child_collapsed",
+            "message": (
+                f"Your child {node_address} collapsed {terminal_signal}. "
+                + (f"Sign-off notes: {evidence}. " if evidence else "")
+                + f"Its report and artifacts are in {node_dir}/ (read report.md). "
+                "Proceed with your own duties for this completion per your role documents."
+            ),
+            "ts": clock.now_utc(),
+        })
+        with inbox.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:  # noqa: BLE001 — notification is best-effort, never fails a clean collapse
+        pass

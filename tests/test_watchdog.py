@@ -1025,3 +1025,64 @@ def test_e2_failed_signal_is_exempt(runtime):
         mp.undo()
     assert _is(action, "COLLAPSE"), "FAILED must collapse with NO contract gate"
     assert _read()["state"] == "failed"
+
+
+# ===========================================================================
+# LR-11 — COLLAPSE WAKES THE PARENT (completion flows UP, agent-lifecycle).
+# Observed live 2026-06-11: L2 collapsed DONE and L1 sat unaware until an
+# operator hand-delivered the notification; only the generic idle ladder would
+# eventually prod a parent into rediscovering tree state.
+# ===========================================================================
+
+def test_lr11_collapse_appends_child_collapsed_to_parent_inbox(runtime):
+    """A successful DONE collapse appends ONE child_collapsed pointer line to the PARENT's
+    inbox (the ③-wake then delivers the nudge). (Mutant: no notification -> parent inbox
+    stays empty -> caught.)"""
+    wd = _wd()
+    parent = PARENT
+    ptoken = fencing.mint_owner_token(parent, "psa", "puuid", 1)
+    parent_rec = {"node_address": parent, "parent_address": None, "level": "L4",
+                  "subagent_id": "psa", "session_uuid": "puuid", "state": "running",
+                  "generation": 1, "lease_epoch": 1, "owner_token": ptoken,
+                  "last_applied_seq": 0, "liveness_state": "working",
+                  "stale_check_count": 0, "stale_grace_checks": 2}
+    binding, token = _binding(state="running", generation=4, lease_epoch=2)
+    _seed([parent_rec, binding])
+    _prepare_node(runtime)
+    _write_signal(runtime, LEAF, signal="DONE", owner_token=token,
+                  evidence={"report": "report.md", "notes": "suite green 9/9"})
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+    finally:
+        mp.undo()
+
+    assert _is(action, "COLLAPSE")
+    inbox = _addressing.inbox_path(PARENT, runtime)
+    assert inbox.is_file(), "the collapse must notify the PARENT's inbox (LR-11)"
+    lines = [json.loads(l) for l in inbox.read_text(encoding="utf-8").splitlines()]
+    notes = [l for l in lines if l.get("type") == "child_collapsed"]
+    assert len(notes) == 1, f"exactly ONE child_collapsed line; got {len(notes)}"
+    assert LEAF in notes[0]["message"] and "DONE" in notes[0]["message"]
+    assert "suite green 9/9" in notes[0]["message"], "the sign-off notes ride the nudge"
+
+
+def test_lr11_parentless_root_collapse_is_a_silent_noop(runtime):
+    """The L1 root (parent_address None) collapses with NO notification attempt and NO crash."""
+    wd = _wd()
+    binding, token = _binding(state="running", generation=4, lease_epoch=2,
+                              extra={"parent_address": None})
+    _seed([binding])
+    _prepare_node(runtime)
+    _write_signal(runtime, LEAF, signal="DONE", owner_token=token)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        _inject_liveness(mp, _wd(), _const_liveness("working", _now_iso()))
+        action = wd.check_leaf(_node_from(binding), _read(), now=_now_iso())
+    finally:
+        mp.undo()
+    assert _is(action, "COLLAPSE")
+    assert _read()["state"] == "done"

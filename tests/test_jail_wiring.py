@@ -710,8 +710,9 @@ def test_unrequested_containment_production_spawn_stays_unjailed(runtime):
         "CLAUDE_CODE_OAUTH_TOKEN",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_AUTOUPDATER",
+        "PATH",  # LR-2 (2026-06-11): non-credential ergonomics joined the floor
     }, (
-        "the structural (no-containment) pane env must be EXACTLY the 4 isolation vars — the "
+        "the structural (no-containment) pane env = the 4 isolation vars + PATH (LR-2) — the "
         f"cache-redirect merge is a containment-only step (Increment-14 contract). Got: {sorted(pane_env)!r}"
     )
 

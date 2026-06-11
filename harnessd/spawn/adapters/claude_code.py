@@ -351,19 +351,24 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         #     isolation vars. When absent (the dry-run boundary), the pane is the bare `env -i`
         #     isolator and the env MUST be EXACTLY the 4 isolation vars.
 
-        # (6a) ENFORCE the OAuth-only isolation floor. UNJAILED: the env must be EXACTLY the 4
-        #      isolation vars (any extra widens the pane — the precise leak `env -i` prevents).
+        # (6a) ENFORCE the OAuth-only isolation floor. UNJAILED: the env must be the 4 isolation
+        #      vars + (LR-2, user posture decision 2026-06-11: allowlist->denylist for the PoC
+        #      phase) the named NON-CREDENTIAL extras below — PATH (agent subshells failed to
+        #      find python3/head every turn; zero security value in omitting it) and TERM. Any
+        #      OTHER extra still refuses (the credential-leak surface stays closed).
         #      JAILED: the 4 isolation vars are the REQUIRED floor; the extra vars are the named
         #      §2.3 containment set (no raw API key — already rejected by the OAuth gate above).
         #      Runs AFTER the OAuth gate + credential check (so api-key -> ApiKeyForbidden and a
         #      missing token -> AuthExpired keep their SPECIFIC classes) but BEFORE create_detached.
         if containment is None:
-            if set(env) != _ISOLATION_ENV_KEYS:
-                extra = set(env) - _ISOLATION_ENV_KEYS
-                missing = _ISOLATION_ENV_KEYS - set(env)
+            allowed_extras = {"PATH", "TERM"}  # LR-2: non-credential ergonomics, never a secret
+            extra = set(env) - _ISOLATION_ENV_KEYS - allowed_extras
+            missing = _ISOLATION_ENV_KEYS - set(env)
+            if extra or missing:
                 raise oauth_guard.SpawnFailure(
-                    "pane env must be EXACTLY the 4 isolation vars (DAEMON §6.2); refusing to spawn a "
-                    f"widened/incomplete env. extra={sorted(extra)} missing={sorted(missing)}"
+                    "pane env must be the 4 isolation vars (+ optionally PATH/TERM — LR-2) "
+                    f"(DAEMON §6.2 amended); refusing a widened/incomplete env. "
+                    f"extra={sorted(extra)} missing={sorted(missing)}"
                 )
         else:
             missing = _ISOLATION_ENV_KEYS - set(env)

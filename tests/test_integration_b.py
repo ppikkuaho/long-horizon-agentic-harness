@@ -326,10 +326,11 @@ def test_create_detached_env_is_exactly_the_four_isolation_vars_no_api_key(runti
         "CLAUDE_CODE_OAUTH_TOKEN",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_AUTOUPDATER",
+        "PATH",  # LR-2 (2026-06-11 posture decision): non-credential ergonomics joined the floor
     }
     assert set(env) == expected_keys, (
-        "the pane env MUST be EXACTLY the 4 isolation vars (DAEMON §6.2) — an extra var widens the "
-        f"from-empty pane (the leak `env -i` exists to prevent); got {sorted(env)!r}"
+        "the pane env MUST be the 4 isolation vars + PATH (DAEMON §6.2 amended by LR-2) — any OTHER "
+        f"extra widens the from-empty pane; got {sorted(env)!r}"
     )
 
     # NO raw API key anywhere — neither in the env dict nor flattened into the env -i pane vector.

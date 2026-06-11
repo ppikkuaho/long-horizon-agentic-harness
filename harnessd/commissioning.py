@@ -87,12 +87,17 @@ def build_runtime(*, runtime_root=None, build_id: str = None, oauth_token: str =
 
     token = oauth_token or _read_oauth_token()
 
-    # The 4-var OAuth-only isolation env (DAEMON §6.2) — exactly what the pinned launcher exports.
+    # The OAuth-only isolation env (DAEMON §6.2) + PATH (LR-2, user posture decision 2026-06-11:
+    # PoC-phase security flips allowlist->denylist; the 4-var floor's missing PATH made every
+    # agent subshell fail-and-rediscover `python3`/`head` every turn — pure friction, zero
+    # security value: PATH is not a credential). The credential invariant is UNCHANGED: the
+    # OAuth token + pinned config dir, never a raw API key.
     env = {
         "CLAUDE_CODE_OAUTH_TOKEN": token,
         "CLAUDE_CONFIG_DIR": str(_PINNED_CONFIG_DIR),
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1",
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
     }
 
     # SUPERVISED-SMOKE OVERRIDE (user-approved 2026-06-10): when the operator launched this
