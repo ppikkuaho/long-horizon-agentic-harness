@@ -466,18 +466,93 @@ def _spawn_after_claim(
     return spawn_result
 
 
+# The kickoff prompt-gate bound (LT-6): how long STEP6 polls the freshly-opened pane for the
+# idle input prompt before giving up on the IMMEDIATE nudge. CC cold-boots to its prompt in a
+# few seconds; a pane that never shows it within the bound (e.g. an unexpected boot dialog —
+# send-keys into a modal ANSWERS the modal, TRANSPORTS §3.3) gets NO blind keystroke: the
+# durable inbox line + the ③-wake deliver the pointer once the gate opens. Module seats so a
+# test (and commissioning) can tune them without a code change.
+KICKOFF_GATE_DEADLINE_S: float = 30.0
+KICKOFF_GATE_POLL_S: float = 0.5
+
+
+def _kickoff_gate_open(pane_text: str) -> bool:
+    """True iff the captured pane shows the IDLE input prompt and no working/dialog marker.
+
+    The SAME two-part match as ``watchdog.prod_precondition`` (one source for the measured CC
+    marker strings — FORK_PROMPT / _WORKING_MARKER / _DIALOG_MARKERS — so the two gates cannot
+    drift), but fed by the ADAPTER's OWN tmux seam: the chokepoint may be driving a transport the
+    global wrapper knows nothing about. Lazy import — watchdog imports chokepoint at module level.
+    """
+    from harnessd import watchdog as _watchdog
+
+    if not pane_text:
+        return False
+    if _watchdog._WORKING_MARKER in pane_text:
+        return False
+    if any(marker in pane_text for marker in _watchdog._DIALOG_MARKERS):
+        return False
+    return _watchdog.FORK_PROMPT in pane_text
+
+
+def _await_kickoff_gate(capture, target) -> bool:
+    """Bounded poll (LT-6): capture the pane until the idle prompt shows or the deadline lapses."""
+    import time as _time
+
+    deadline = _time.monotonic() + KICKOFF_GATE_DEADLINE_S
+    while True:
+        try:
+            pane = capture(target) or ""
+        except Exception:  # noqa: BLE001 — an unreadable pane is gate-closed evidence
+            pane = ""
+        if _kickoff_gate_open(pane):
+            return True
+        if _time.monotonic() >= deadline:
+            return False
+        _time.sleep(KICKOFF_GATE_POLL_S)
+
+
+def _journal_kickoff_event(node_address: str, event: str, inbox, target, note: str) -> None:
+    """Best-effort kickoff-journal row — a skipped/failed nudge is visible, never silent."""
+    try:
+        ledger.append_wal(ledger.build_wal_record(
+            node_address=node_address, event=event,
+            from_state="running", to_state="running", expected_generation=None,
+            generation=None, lease_epoch=None, owner_token=None,
+            binding_delta={"inbox": str(inbox), "tmux_target": target},
+            summary=f"{event} for {node_address}: {note}",
+            artifacts=[], seq=ledger.next_seq(),
+        ))
+    except Exception:  # noqa: BLE001 — the journal itself is best-effort
+        pass
+
+
 def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
-    """STEP6: append the kickoff pointer to the node's inbox, then best-effort send-keys it.
+    """STEP6: durable kickoff line -> prompt-gated pointer nudge -> ack the delivered line.
 
     (1) DURABLE FIRST — one JSON line in ``addressing.inbox_path`` (the same line discipline the
         F16 answer verb uses: from/type/message/ts). This is the artifact the ③-wake edge-trigger
         reads: as long as it sits past ``last_inbox_acked_offset``, the watchdog keeps re-nudging,
         so the kickoff cannot be lost to a dropped keystroke.
-    (2) BEST-EFFORT NUDGE — ``tmux.send_keys(<canonical tmux_target>, pointer)`` through the
-        adapter's OWN tmux seam (the same transport that opened the pane; mocks without
-        ``send_keys`` simply skip — the dry-run never types). The pointer names WHO the agent is,
-        WHERE its brief lands (the workspace it booted in, F18 cwd), and WHICH inbox messages
-        arrive in — never the brief/task content itself.
+    (2) THE PROMPT GATE (LT-6) — the kickoff fires milliseconds after create_detached into a
+        mid-boot pane, the ONE delivery that previously bypassed the prompt-string gate. When the
+        adapter's transport can ``capture_pane``, STEP6 now polls (bounded —
+        ``KICKOFF_GATE_DEADLINE_S``) until the pane shows the idle input prompt with no
+        working/dialog marker; a gate that never opens SKIPS the immediate nudge (journaled
+        ``kickoff_gate_timeout``) — send-keys into a boot dialog would CONFIRM the highlighted
+        option (TRANSPORTS §3.3), while the durable line + ③-wake heal the skip for free. A
+        transport without ``capture_pane`` (legacy dry-run mocks) keeps the ungated best-effort
+        send.
+    (3) THE NUDGE — ``tmux.send_keys(<canonical tmux_target>, pointer)`` through the adapter's
+        OWN tmux seam (the same transport that opened the pane; mocks without ``send_keys``
+        simply skip — the dry-run never types). The pointer names WHO the agent is, WHERE its
+        brief lands (the workspace it booted in, F18 cwd), and WHICH inbox messages arrive in —
+        never the brief/task content itself.
+    (4) ACK ON DELIVERY (LT-9) — a kickoff whose send REPORTED delivery acks the watermark to
+        the kickoff line's own end-offset, terminating the heal loop: without this every spawn
+        owed one guaranteed spurious ③-wake re-nudge of the already-actioned kickoff (landing at
+        the agent's first idle moment — or, for a straight-through leaf, in its collapse tick).
+        A failed/skipped send leaves the watermark unmoved — the wake delivers instead.
     """
     from harnessd import clock
 
@@ -493,33 +568,57 @@ def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
     )
 
     # (1) the durable kickoff line (multi-writer append log — NOT the single-writer ledger).
+    # ``fh.tell()`` right after the write is THIS line's end-offset — the LT-9 ack target.
     line = {"from": "harnessd", "type": "kickoff", "message": pointer, "ts": clock.now_utc()}
     try:
         inbox.parent.mkdir(parents=True, exist_ok=True)
         with inbox.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(line) + "\n")
+            kickoff_end_offset = fh.tell()
     except OSError:
-        # Journal best-effort; the spawn itself is already running and must not be rolled back.
-        try:
-            ledger.append_wal(ledger.build_wal_record(
-                node_address=node_address, event="kickoff_append_failed",
-                from_state="running", to_state="running", expected_generation=None,
-                generation=None, lease_epoch=None, owner_token=None,
-                binding_delta={"inbox": str(inbox)},
-                summary=f"kickoff inbox append failed for {node_address} (inbox {inbox})",
-                artifacts=[], seq=ledger.next_seq(),
-            ))
-        except Exception:  # noqa: BLE001
-            pass
+        _journal_kickoff_event(
+            node_address, "kickoff_append_failed", inbox, getattr(spawn_result, "tmux_target", None),
+            f"kickoff inbox append failed (inbox {inbox})",
+        )
         return  # no durable line -> do not type a nudge the wake could never heal/repeat
 
-    # (2) the best-effort pane nudge. A lost keystroke is healed by the ③-wake on the unacked line.
     send = getattr(getattr(adapter, "tmux", None), "send_keys", None)
-    if send is not None and getattr(spawn_result, "tmux_target", None):
-        try:
-            send(spawn_result.tmux_target, pointer)
-        except Exception:  # noqa: BLE001 — fire-and-forget; the unacked inbox line re-nudges
-            pass
+    target = getattr(spawn_result, "tmux_target", None)
+    if send is None or not target:
+        return  # no keystroke transport (dry-run mock) -> the ③-wake delivers the durable line
+
+    # (2) the prompt gate (LT-6) — only when the transport can capture the pane.
+    capture = getattr(getattr(adapter, "tmux", None), "capture_pane", None)
+    if capture is not None and not _await_kickoff_gate(capture, target):
+        _journal_kickoff_event(
+            node_address, "kickoff_gate_timeout", inbox, target,
+            "pane never reached the idle prompt within the bound — immediate nudge SKIPPED "
+            "(a keystroke into a boot dialog answers the dialog); the durable inbox line + the "
+            "③-wake deliver the pointer once the gate opens",
+        )
+        return
+
+    # (3) the nudge. A lost keystroke is healed by the ③-wake on the unacked line.
+    try:
+        delivered = send(target, pointer)
+    except Exception:  # noqa: BLE001 — fire-and-forget; the unacked inbox line re-nudges
+        return
+    if delivered is False:
+        # The transport surfaced a delivery failure (LT-2's send_keys contract) — watermark
+        # unmoved, the wake retries; journaled so the lost nudge is visible.
+        _journal_kickoff_event(
+            node_address, "kickoff_send_failed", inbox, target,
+            "send-keys exited non-zero — the ③-wake re-nudges from the durable line",
+        )
+        return
+
+    # (4) LT-9: terminate the heal loop for the DELIVERED kickoff — ack the watermark to the
+    # kickoff line's own end-offset through the single writer (best-effort: a failed ack only
+    # costs one redundant wake, the pre-fix steady state).
+    try:
+        executor.ack_inbox(node_address, acked_offset=kickoff_end_offset)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _rollback_spawning(node_address: str, expected_owner_token: str) -> None:

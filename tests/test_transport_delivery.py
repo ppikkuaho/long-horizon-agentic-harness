@@ -425,12 +425,15 @@ class _KickoffTmux:
 
     def send_keys(self, target, text):
         self.sent.append((target, text))
+        return True
 
     def server_env(self):
         return {}
 
     def capture_pane(self, target):
-        return ""
+        # The freshly-booted pane AT the idle input prompt (the measured CC v2.1.152 markers) —
+        # the kickoff prompt-gate (LT-6) polls this through the adapter's OWN seam before typing.
+        return f"{watchdog.FORK_PROMPT} \n? for shortcuts"
 
     def list_targets(self):
         return {}

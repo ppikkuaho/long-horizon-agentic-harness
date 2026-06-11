@@ -264,6 +264,35 @@ def _register_l1_root(l1_address: str, level: str, role_variant: str, runtime_ro
     return binding
 
 
+def _ensure_l1_brief(l1_address: str, level_config, registered: dict, runtime_root: Path) -> None:
+    """Author the L1 root's ``brief.md`` at genesis spawn time (INT-5).
+
+    Every spawn's STEP6 kickoff tells the agent to 'Read brief.md in your workspace' — but only the
+    parent-spawns-child path (``chokepoint._write_child_brief``) ever authored one. The parentless
+    L1 root booted INSTRUCTION-LESS: its only delivered pointer named a missing file, and the F19
+    Sign-off manifest block never existed at the cascade root. genesis now reuses the SAME brief
+    writer (manifest header — who you are, the load-manifest read-in-place identity — plus the
+    Sign-off block naming the .sign-off.<seat>.json handshake) with a v1-HONEST task: the L1 root
+    has no parent to brief it, so the task is an INTAKE POINTER — await/read the inbox, never
+    invent work. A pre-authored ``brief.md`` (a prior boot's, or an operator's) is left intact —
+    the same derivation default the child path honors.
+    """
+    brief_path = addressing.node_dir(l1_address, runtime_root) / "brief.md"
+    if brief_path.exists():
+        return  # pre-authored (prior boot / operator) — never clobbered
+    seat = addressing.split_address(l1_address)[1]
+    task = (
+        "You are the L1 root (the parentless System Orchestrator). The daemon's genesis spawned "
+        "you directly — no parent authored a task into this brief; in v1 the HUMAN INTAKE is "
+        "your task source.\n\n"
+        f"AWAIT YOUR INTAKE: read .inbox.{seat}.jsonl in this workspace now. If it carries no "
+        "intake/task message yet, WAIT for the next inbox nudge rather than inventing work. "
+        "Read your identity documents (listed above) in place before acting, and sign off per "
+        "the Sign-off section only when assigned work is actually complete."
+    )
+    chokepoint._write_child_brief(l1_address, level_config, registered, task)
+
+
 # ---------------------------------------------------------------------------
 # run_genesis — the §2.12 frozen entry. The DAEMON §7 LOCKED sequence, in order.
 # ---------------------------------------------------------------------------
@@ -413,6 +442,9 @@ def run_genesis(executor, tmux, config) -> None:
             # boot crash-loop. Tear the fenced dead incarnation's recorded pane down first.
             chokepoint.kill_stale_pane(survivor.get("tmux_target"))
         registered = _register_l1_root(l1_address, l1_level, role_variant, runtime_root)
+    # INT-5 — the kickoff pointer names brief.md; author the L1 root's brief BEFORE the spawn so
+    # the first live agent's first read is a real file (manifest + Sign-off + the intake pointer).
+    _ensure_l1_brief(l1_address, level_config, registered, runtime_root)
     result = chokepoint.claim_and_spawn(
         l1_address,
         expected_state="planned",
