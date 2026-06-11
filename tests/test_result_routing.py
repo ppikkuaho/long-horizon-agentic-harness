@@ -85,6 +85,8 @@ def _binding(node_address=LEAF, *, state="running", lease_epoch=1, generation=0,
         "lease_epoch": lease_epoch,
         "owner_token": token,
         "last_applied_seq": 0,
+        "spec_pointer": "design/intent-spec.md",  # E1 fixture completion
+        "frozen_acceptance_ref": "acceptance.md",  # E1 fixture completion
         "liveness_state": "working",
         "terminal_signal": None,
         "terminal_signal_at": None,

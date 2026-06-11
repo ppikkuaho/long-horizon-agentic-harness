@@ -80,7 +80,7 @@ def _seed_planned():
     token = fencing.mint_owner_token(NODE, "sa", "uuid", 1)
     rec = {"node_address": NODE, "parent_address": "proj#exec", "level": "L3", "subagent_id": "sa",
            "session_uuid": "uuid", "state": "planned", "generation": 0, "lease_epoch": 1,
-           "owner_token": token, "last_applied_seq": 0, "liveness_state": "claimed",
+           "owner_token": token, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md", "liveness_state": "claimed",
            "gate_crossed_at": None, "paused_at": None, "transcript_path": None}
     ledger.write_binding({NODE: copy.deepcopy(rec)}, _lock_held=True)
     return rec, token

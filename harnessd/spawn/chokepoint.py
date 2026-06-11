@@ -910,6 +910,16 @@ def claim_and_spawn(
     work_node = _work_node_for(node_address, claim_result.binding)
     neutral = brief.assemble_neutral(node_address, level_config, work_node)
 
+    # STEP2.5 — THE PIECES-PRESENT GATE (E1, enforcement spine): an under-equipped actor NEVER
+    # opens. Deterministic, no model (Inc-18 semantics run at the runtime spawn path, not just in
+    # the offline eval): manifest non-empty + every doc resolves + decision-complete brief
+    # (spec_pointer; frozen acceptance for executor seats) + the correct per-seat bundle. On fail:
+    # the SAME §6.3 rollback as a STEP3 failure — release the claim + a spawn-failure escalation
+    # NAMING the missing piece. agent-lifecycle L13 ("you never bootstrap yourself") made mechanical.
+    gate_failure = _pieces_gate(node_address, level_config, work_node, claim_result.binding)
+    if gate_failure is not None:
+        return gate_failure
+
     # STEP2a — JAIL WIRING (§2.3/§2.5a/§7): on a spawn that REQUESTS containment AND with the runtime
     # root bound, PRODUCE the §2.5a block (resolve_containment), ATTACH it to the brief, and MERGE the
     # §2.3 cache-redirect env. A structural spawn (no request) leaves the brief/env UNJAILED — the
@@ -926,19 +936,67 @@ def claim_and_spawn(
     )
 
 
+def _pieces_gate(node_address: str, level_config, work_node: dict, claimed_binding: dict):
+    """STEP2.5 — run the pieces-present check post-claim/pre-actor; roll back + escalate on fail.
+
+    Returns None on pass, or the not-ok SpawnResult the caller returns verbatim. The rollback is
+    EXACTLY the §6.3 post-claim contract (release_claim + spawn-failure escalation), with
+    failure_class ``pieces_missing`` and the check's fail_message (which NAMES the missing piece)
+    riding the escalation detail. The check itself is best-effort-contained: an unexpected checker
+    error refuses the spawn too (fail-loud, not fail-open — an unverifiable brief must not boot).
+    """
+    from harnessd import pieces_present
+
+    try:
+        verdict = pieces_present.check_boundary(node_address, level_config, work_node)
+        ok = bool(verdict)
+        message = getattr(verdict, "fail_message", "") or ""
+    except Exception as exc:  # noqa: BLE001 — fail-loud: an unverifiable brief never boots
+        ok = False
+        message = f"pieces-present check errored: {type(exc).__name__}: {exc}"
+    if ok:
+        return None
+    post_claim_token = claimed_binding.get("owner_token")
+    released = release_claim(node_address, expected_owner_token=post_claim_token)
+    _emit_spawn_failure_escalation(
+        node_address, f"pieces_missing: {message}"[:500], "",
+        released=bool(getattr(released, "ok", False)),
+    )
+    return _result_failed("pieces_missing", tmux_target=node_address)
+
+
 def _work_node_for(node_address: str, binding: dict) -> dict:
     """Assemble the durable work-node pointer the brief is built against (read off the binding).
 
-    v1 derives the pointers from the binding's recorded fields where present; absent fields are left
-    None (the brief tolerates a sparse work node). The durable work-node authoring is a node-local
-    artifact (status/log/report live under the node's workspace) — the chokepoint points at it.
+    v1 derives the pointers from the binding's recorded fields where present. ABSENT pointers are
+    DERIVED from the PREPARED NODE on disk (E1, agent-lifecycle §How-You-Spawn-a-Child: "the daemon
+    derives its spec/acceptance pointers from the node you prepared"): ``brief.md`` in the node dir
+    yields ``spec_pointer``; ``acceptance.md`` yields ``frozen_acceptance_ref``. This is what makes
+    the E1 pieces-present gate satisfiable by the REAL preparation flow (parent authors the node,
+    drops the outbox request) without any new binding fields — and what makes an UNPREPARED node
+    (no brief anywhere) fail the gate loudly instead of booting an under-equipped agent.
     """
     binding = binding or {}
+    spec_pointer = binding.get("spec_pointer")
+    acceptance_ref = binding.get("frozen_acceptance_ref")
+    if (not spec_pointer or not acceptance_ref) and ledger.RUNTIME_ROOT is not None:
+        try:
+            node_dir = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
+            if not spec_pointer:
+                brief_md = node_dir / "brief.md"
+                if brief_md.is_file():
+                    spec_pointer = str(brief_md)
+            if not acceptance_ref:
+                acceptance_md = node_dir / "acceptance.md"
+                if acceptance_md.is_file():
+                    acceptance_ref = str(acceptance_md)
+        except (OSError, ValueError):
+            pass  # derivation is best-effort; the gate decides on what is actually present
     return {
         "node_address": node_address,
         "workspace": binding.get("workspace"),
-        "spec_pointer": binding.get("spec_pointer"),
-        "frozen_acceptance_ref": binding.get("frozen_acceptance_ref"),
+        "spec_pointer": spec_pointer,
+        "frozen_acceptance_ref": acceptance_ref,
         "status_md": binding.get("status_md"),
         "log_md": binding.get("log_md"),
         "report_md": binding.get("report_md"),

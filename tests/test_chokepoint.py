@@ -223,6 +223,7 @@ def _binding(
     gate_crossed_at=None,
     paused_at=None,
     transcript_path=None,
+    spec_pointer="design/intent-spec.md",  # E1: decision-complete by default; None = sparse/unprepared
     extra=None,
 ):
     token = fencing.mint_owner_token(node_address, subagent_id, session_uuid, lease_epoch)
@@ -237,6 +238,7 @@ def _binding(
         "lease_epoch": lease_epoch,
         "owner_token": token,
         "last_applied_seq": 0,
+        "spec_pointer": spec_pointer,
         "liveness_state": "claimed",
         "gate_crossed_at": gate_crossed_at,
         "paused_at": paused_at,
@@ -961,3 +963,88 @@ def test_escalate_refuses_a_non_running_node(runtime):
     )
     assert _read() == before, "a refused escalate must leave the binding unchanged"
     assert len(ledger.load_wal()) == wal_before, "a refused escalate must append no WAL row"
+
+
+# ===========================================================================
+# E1 — the pieces-present SPAWN GATE (enforcement spine, 2026-06-11).
+#
+# The 2026-06-11 live run booted every agent under-equipped (dangling manifest
+# refs, no spec pointer) and each one bootstrapped itself — agent-lifecycle L13
+# ("by the time you receive your first context everything is already loaded —
+# you never bootstrap yourself") was exhortation with no enforcement. E1 makes
+# it mechanical: pieces_present.check_boundary runs at STEP2.5 (after the
+# committed claim + brief assembly, BEFORE the actor opens). On fail: release
+# the claim + spawn_failed escalation, failure_class names pieces_missing, the
+# adapter is NEVER reached. The derivation half (agent-lifecycle: "the daemon
+# derives its spec/acceptance pointers from the node you prepared"): a prepared
+# node's brief.md / acceptance.md yield spec_pointer / frozen_acceptance_ref
+# when the binding is sparse.
+# ===========================================================================
+
+def test_e1_unprepared_node_refused_pieces_missing(runtime):
+    """No spec_pointer on the binding AND no brief.md in the node dir -> the gate refuses AFTER
+    the claim (release + escalation), the actor NEVER opens, failure names pieces_missing.
+    (Mutant: skip the gate -> the adapter opens an under-equipped actor -> caught.)"""
+    chokepoint = _chokepoint()
+    fake = FakeAdapter()
+    _install_adapter(chokepoint, fake)
+    binding, token = _binding(spec_pointer=None)  # sparse: no spec_pointer; node dir unprepared
+    _seed([binding])
+
+    result = chokepoint.claim_and_spawn(
+        NODE,
+        expected_state="planned",
+        expected_generation=0,
+        expected_owner_token=token,
+        level_config=_level_config(),
+    )
+
+    assert _ok(result) is False, "an unprepared node must be REFUSED"
+    assert "pieces_missing" in (getattr(result, "failure_class", "") or ""), (
+        f"the refusal must NAME pieces_missing; got {getattr(result, 'failure_class', None)!r}"
+    )
+    assert len(fake.calls) == 0, "the adapter must NEVER open an under-equipped actor"
+    final = _read()
+    assert final["state"] == "planned", "the claim must be RELEASED (claimed -> planned)"
+    assert any(
+        (r.get("event") or "").startswith("spawn_failed") or "pieces_missing" in str(r)
+        for r in ledger.load_wal()
+    ), "the refusal must land a visible spawn-failure escalation row (never a silent skip)"
+
+
+def test_e1_prepared_node_derives_spec_pointer_and_spawns(runtime):
+    """The derivation half: a node dir carrying brief.md yields the spec_pointer with NO binding
+    field; the gate passes and the actor opens with the derived pointer on its brief.
+    (Mutant: gate without derivation -> every real spawn refused -> caught here.)"""
+    import harnessd.addressing as addressing
+
+    chokepoint = _chokepoint()
+    fake = FakeAdapter()
+    _install_adapter(chokepoint, fake)
+    binding, token = _binding(spec_pointer=None)  # NO binding field — the node dir is the source
+    _seed([binding])
+    node_dir = addressing.node_dir(NODE, runtime)
+    node_dir.mkdir(parents=True, exist_ok=True)
+    (node_dir / "brief.md").write_text("# brief — prepared by the parent\n", encoding="utf-8")
+
+    result = chokepoint.claim_and_spawn(
+        NODE,
+        expected_state="planned",
+        expected_generation=0,
+        expected_owner_token=token,
+        level_config=_level_config(),
+    )
+
+    assert _ok(result) is True, (
+        f"a PREPARED node must spawn; got failure_class={getattr(result, 'failure_class', None)!r}"
+    )
+    assert len(fake.calls) == 1, "the actor must open exactly once"
+    sent_brief = fake.calls[0][0]
+    spec = (
+        sent_brief.get("spec_pointer")
+        if isinstance(sent_brief, dict)
+        else getattr(sent_brief, "spec_pointer", None)
+    )
+    assert spec and str(spec).endswith("brief.md"), (
+        f"the brief handed to the adapter must carry the DERIVED spec_pointer; got {spec!r}"
+    )

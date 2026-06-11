@@ -233,7 +233,7 @@ def test_chokepoint_step4_records_canonical_tmux_target_on_binding(runtime):
         "subagent_id": "subagent-f18", "session_uuid": "sess-seed",
         "tmux_target": addressing.session_name_for(node),  # pre-spawn placeholder
         "state": "planned", "generation": 0, "lease_epoch": 1, "owner_token": token,
-        "last_applied_seq": 0, "liveness_state": "claimed", "terminal_signal": None,
+        "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md", "liveness_state": "claimed", "terminal_signal": None,
         "gate_crossed_at": None, "paused_at": None, "transcript_path": None,
     }
     ledger.write_binding({node: copy.deepcopy(binding)}, _lock_held=True)
@@ -268,7 +268,7 @@ def test_registration_placeholders_use_the_canonical_session_name(runtime):
         "node_address": parent, "parent_address": None, "level": "L2",
         "subagent_id": "subagent-p", "session_uuid": "sess-p",
         "tmux_target": addressing.session_name_for(parent), "state": "running",
-        "generation": 1, "lease_epoch": 1, "owner_token": token, "last_applied_seq": 0,
+        "generation": 1, "lease_epoch": 1, "owner_token": token, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md",
         "liveness_state": "working", "terminal_signal": None,
         "gate_crossed_at": None, "paused_at": None, "transcript_path": "/tmp/p.jsonl",
     }

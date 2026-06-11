@@ -100,7 +100,7 @@ def _seed_planned_leaf(runtime):
     rec = {
         "node_address": LEAF, "parent_address": "proj/widget#exec", "level": "L5",
         "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 0,
-        "lease_epoch": 1, "owner_token": token, "last_applied_seq": 0,
+        "lease_epoch": 1, "owner_token": token, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md",
         "liveness_state": "claimed", "terminal_signal": None, "gate_crossed_at": None,
         "paused_at": None, "transcript_path": None,
         "tmux_target": addressing.session_name_for(LEAF), "workspace": str(ws),

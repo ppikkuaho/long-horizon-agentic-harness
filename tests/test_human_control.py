@@ -158,6 +158,8 @@ def _binding(
         "lease_epoch": lease_epoch,
         "owner_token": token,
         "last_applied_seq": 0,
+        "spec_pointer": "design/intent-spec.md",  # E1 fixture completion
+        "frozen_acceptance_ref": "acceptance.md",  # E1 fixture completion
         "liveness_state": "idle",
         "last_progress_at": None,
         "last_inbox_acked_offset": 0,

@@ -54,7 +54,7 @@ def _seed_planned(runtime, addr=ADDR):
     token = fencing.mint_owner_token(addr, "sa", "uuid", 1)
     rec = {"node_address": addr, "parent_address": "proj/widget#exec", "level": "L5", "subagent_id": "sa",
            "session_uuid": "uuid", "state": "planned", "generation": 0, "lease_epoch": 1,
-           "owner_token": token, "last_applied_seq": 0, "liveness_state": "claimed",
+           "owner_token": token, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md", "liveness_state": "claimed",
            "tmux_target": "harness:" + addr}
     ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
     return token

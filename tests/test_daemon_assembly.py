@@ -86,7 +86,7 @@ def _seed_running_leaf(runtime, address="proj/widget/task#exec", level="L5"):
     ws.mkdir(parents=True, exist_ok=True)
     rec = {"node_address": address, "parent_address": "proj/widget#exec", "level": level,
            "subagent_id": "sa", "session_uuid": "uuid", "state": "running", "generation": 5,
-           "lease_epoch": 2, "owner_token": token, "last_applied_seq": 0, "liveness_state": "working",
+           "lease_epoch": 2, "owner_token": token, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md", "liveness_state": "working",
            "tmux_target": "harness:" + address, "workspace": str(ws),
            "stale_check_count": 0, "stale_grace_checks": 2}
     ledger.write_binding({address: copy.deepcopy(rec)}, _lock_held=True)
@@ -333,7 +333,7 @@ def test_agent_visible_signoff_collapses_through_real_tick(runtime):
     ws.mkdir(parents=True, exist_ok=True)
     rec = {"node_address": addr, "parent_address": "proj/widget#exec", "level": "L5",
            "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 0,
-           "lease_epoch": 1, "owner_token": registered_token, "last_applied_seq": 0,
+           "lease_epoch": 1, "owner_token": registered_token, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md",
            "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
            "tmux_target": "harness:" + addr, "workspace": str(ws),
            "stale_check_count": 0, "stale_grace_checks": 2}
@@ -389,7 +389,7 @@ def test_poll_once_does_not_collapse_a_coordinator_with_a_live_child_even_on_DON
     pws = addressing.node_dir(parent, runtime); pws.mkdir(parents=True, exist_ok=True)
     prec = {"node_address": parent, "parent_address": "root#exec", "level": "L4", "subagent_id": "psa",
             "session_uuid": "puuid", "state": "running", "generation": 3, "lease_epoch": 2,
-            "owner_token": ptoken, "last_applied_seq": 0, "liveness_state": "working",
+            "owner_token": ptoken, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md", "liveness_state": "working",
             "tmux_target": "harness:" + parent, "workspace": str(pws)}
     child, ctoken = _seed_running_leaf(runtime, "proj/widget/task#exec", level="L5")
     # write BOTH (the helper replaces the map; merge to keep both live)
@@ -423,7 +423,7 @@ def test_poll_once_collapses_a_coordinator_whose_children_are_all_terminal(runti
     pws = addressing.node_dir(parent, runtime); pws.mkdir(parents=True, exist_ok=True)
     prec = {"node_address": parent, "parent_address": "root#exec", "level": "L4", "subagent_id": "psa",
             "session_uuid": "puuid", "state": "running", "generation": 3, "lease_epoch": 2,
-            "owner_token": ptoken, "last_applied_seq": 0, "liveness_state": "working",
+            "owner_token": ptoken, "last_applied_seq": 0, "spec_pointer": "design/intent-spec.md", "frozen_acceptance_ref": "acceptance.md", "liveness_state": "working",
             "tmux_target": "harness:" + parent, "workspace": str(pws)}
     child, ctoken = _seed_running_leaf(runtime, "proj/widget/task#exec", level="L5")
     m = dict(ledger.all_nodes()); m[parent] = prec

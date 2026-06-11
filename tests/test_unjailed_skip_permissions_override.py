@@ -304,6 +304,8 @@ def _seed_planned_node():
         "lease_epoch": 1,
         "owner_token": token,
         "last_applied_seq": 0,
+        "spec_pointer": "design/intent-spec.md",  # E1 fixture completion
+        "frozen_acceptance_ref": "acceptance.md",  # E1 fixture completion
         "liveness_state": "claimed",
         "gate_crossed_at": None,
         "paused_at": None,
