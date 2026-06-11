@@ -119,3 +119,22 @@ the terminal title bar). Update the label when the node reaches a terminal state
 Reasonable for a single-module project (intake said keep the tree minimal), but
 confirm the level guard / role docs intend skips to be legal, and that L3-skip
 doesn't break promote/sign-off path assumptions anywhere.
+
+### LR-8 — upward-gate audit checklist (user clarification on the review spine)
+Per QUALITY-GATE.md, the review function has two instantiations and they must not
+be conflated (user corrected this mid-run):
+  (a) L5+ per-unit review (M52) — independent reviewer of L5's code AT THE LINE
+      against the frozen rubric; accept→collapse / bounce→bounded loop. In this run:
+      the `review` child in the L4's plan.
+  (b) per-level whole-set review — a `#review` SEAT co-located at the node
+      (e.g. L1/md2html/tool#review), reviewing the COMPOSITION at that altitude
+      (L4: units integrate; L2: product/architecture fit) — never re-reviewing
+      lower lines. Separate from the parent's own evaluative judgment, which the
+      gate does not replace.
+  (c) L1 gate = intent fidelity, verdict rendered by the USER via triangulated
+      playback — L1 must not self-certify and promote without the user.
+Post-run audit: did (a) actually test, did any #review seats get spawned at L4/L2,
+did L1 present playback to the user before promote? Run-specific caveats: a single
+L5 unit makes the L4 composition review nearly degenerate; the O1 Opus stand-in
+removes the different-runtime judgment diversity the spec wants for L5+
+(reinforces governing preference 2 — wire real Codex).
