@@ -183,6 +183,26 @@ forbids ("not spawned by it, not part of its hierarchy"). L5-invoked review must
 therefore be a DISTINCT harness verb: producer's finish = trigger; harness spawns
 the reviewer at the node's #review seat with custody OUTSIDE the producer's subtree.
 
+### LR-11 — collapse does not wake the parent (HIGH, found live; fix post-run)
+A child's terminal collapse appends nothing to the PARENT's inbox — L2 collapsed
+DONE and L1 sat unaware in its (correct) holding pattern; only the generic idle
+ladder would eventually prod it into rediscovering tree state. Required mechanic:
+chokepoint.collapse (or the watchdog enactment) appends a `child_collapsed` line
+{child address, terminal signal, evidence} to the parent seat's inbox — the ③-wake
+then delivers it on the next tick. (Worked around live with an operator-appended
+inbox line to finish the run.) Same family as LR-12 below.
+
+### LR-12 — coordinator terminal-signal processing dropped by the §5.4 split (CRITICAL, FIXED live: d639e56)
+The leaf/coordinator split exempted coordinators from the idle ladder but silently
+dropped terminal-signal processing with it: L4's and L2's DONE signals sat
+unprocessed for 15 minutes while the daemon ticked normally; the upward path froze
+with the whole subtree green. Fixed: watchdog.check_terminal_signal extracted from
+check_leaf, coordinators run it first, gated on no-live-descendants (bottom-up
+shutdown preserved; the frozen live-child no-collapse pin still green). Found ONLY
+by the live run — the suite had leaf-collapse and coordinator-death tests, but
+coordinator-COMPLETION was an unimagined case (mock-reality seam again,
+governing preference 2).
+
 ### Corrections from the full spec read (2026-06-11, after user pressed "did you?")
 - LR-4 reframed: the one-shot spawn recipe ALREADY EXISTS — agent-lifecycle.md
   "How You Spawn a Child" ("a thin administrative act": prepare node + one-line
