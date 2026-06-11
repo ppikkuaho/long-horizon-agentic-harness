@@ -1048,3 +1048,37 @@ def test_e1_prepared_node_derives_spec_pointer_and_spawns(runtime):
     assert spec and str(spec).endswith("brief.md"), (
         f"the brief handed to the adapter must carry the DERIVED spec_pointer; got {spec!r}"
     )
+
+
+def test_lr18_fresh_spawn_tears_down_a_stale_prior_pane(runtime):
+    """LR-18: a fresh spawn at an address whose PRIOR incarnation's pane still exists tears the
+    stale session down (best-effort) BEFORE opening the actor — collapse never reaps panes, so
+    the deterministic session name otherwise collides (observed twice live: the watchdog-FAILED
+    L1; the collapsed planning-L3 vs its execution-L3 respawn). (Mutant: no teardown -> kill
+    never called -> caught.)"""
+    chokepoint = _chokepoint()
+    kills = []
+
+    class _KillTmux:
+        def kill(self, target):
+            kills.append(target)
+
+    fake = FakeAdapter()
+    fake.tmux = _KillTmux()
+    _install_adapter(chokepoint, fake)
+    binding, token = _binding()
+    _seed([binding])
+
+    result = chokepoint.claim_and_spawn(
+        NODE,
+        expected_state="planned",
+        expected_generation=0,
+        expected_owner_token=token,
+        level_config=_level_config(),
+    )
+
+    assert _ok(result) is True
+    assert kills == [NODE], (
+        f"the fresh spawn must tear down the prior incarnation's pane (kill_stale_pane) before "
+        f"create_detached; kill calls: {kills!r}"
+    )

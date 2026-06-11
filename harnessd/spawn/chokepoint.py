@@ -216,7 +216,7 @@ _subtree_paused = subtree_paused  # back-compat alias (the pre-F16 private name)
 # resume / re-register paths run before reopening a deterministic session name.
 # ---------------------------------------------------------------------------
 
-def kill_stale_pane(tmux_target: Optional[str]) -> None:
+def kill_stale_pane(tmux_target: Optional[str], adapter=None) -> None:
     """Best-effort, IDEMPOTENT teardown of a PRIOR incarnation's recorded pane (LT-4/INT-1).
 
     ``addressing.session_name_for`` is deterministic per address, so a respawn at an address whose
@@ -231,7 +231,8 @@ def kill_stale_pane(tmux_target: Optional[str]) -> None:
     """
     if not tmux_target:
         return
-    kill = getattr(getattr(ADAPTER, "tmux", None), "kill", None)
+    seam = adapter if adapter is not None else ADAPTER
+    kill = getattr(getattr(seam, "tmux", None), "kill", None)
     if kill is None:
         return
     try:
@@ -468,6 +469,12 @@ def _spawn_after_claim(
     integration-B contract).
     """
     adapter = _require_adapter(level_config)
+    # LR-18 — a PRIOR incarnation's pane at this address's deterministic session name collides
+    # with the fresh create_detached (collapse never reaps panes; observed twice live in Run-2:
+    # the watchdog-FAILED L1's pane, then the collapsed planning-L3's pane vs its execution-L3
+    # respawn). The claim is COMMITTED (epoch bumped — any prior owner is fenced out), so the
+    # stale session is teardown-safe; best-effort, the collision SpawnFailure stays the loud net.
+    kill_stale_pane(node_address, adapter=adapter)
     post_claim_token = claimed_binding["owner_token"]
     post_claim_generation = claimed_binding["generation"]
     pane_env = _spawn_env() if spawn_env is None else spawn_env
