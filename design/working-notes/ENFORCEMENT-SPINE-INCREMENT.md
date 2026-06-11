@@ -110,9 +110,14 @@ BUILD PIECES:
     the reviewer deliberately runs on the OTHER runtime); outbox _LEVEL_ORDER
     gains L5+ (deeper than L5); CODEX_MODEL_FLAGS analog.
  3. adapters/codex.py CodexAdapter: verify_binary (pinned version), trust
-    seeding, SYSTEM-PROMPT delivery AS AGENTS.md in the node cwd (Codex's
-    idiomatic mechanism; --system-prompt-file does not exist; codex-audit of
-    Claude-isms is a follow-up), argv [codex -m <model>] + posture flag, env
+    seeding, NO system-prompt injection (user decision 2026-06-11: "it's
+    sufficient to not change the existing system message that it uses — it
+    basically just needs precise technical instructions... what it's not told
+    to do, it probably doesn't do"). Codex's native base instructions stay; the
+    BRIEF + KICKOFF carry maximally-explicit, decision-complete instructions
+    (exact files, exact .signal JSON shape, exact report.md duties — the
+    codex-audit discipline, runtime-and-model-map §135). argv [codex -m
+    <model>] + posture flag, env
     floor {CODEX_HOME, HOME, PATH, TERM} (denylist posture: no OPENAI_API_KEY /
     ANTHROPIC_API_KEY — auth rides auth.json), create_detached + post-boot
     rollout discovery -> session_uuid (from filename) + transcript_path.
