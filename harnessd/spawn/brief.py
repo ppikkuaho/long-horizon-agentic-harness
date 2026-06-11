@@ -115,8 +115,9 @@ def _assemble_load_manifest(level_config) -> list[str]:
     # agent-definition-principles.md: definition-authoring levels (L1–L4) only; L5 omits it.
     if level in ("L1", "L2", "L3", "L4"):
         manifest.append(_DEFINITION_AUTHORING_DOC)
-    # git-protocol.md: code-producing levels (L3 sometimes, L4, L5).
-    if level in ("L3", "L4", "L5"):
+    # git-protocol.md: code-producing levels (L3 sometimes, L4, L5) + the L5+ reviewer
+    # (it runs the suites itself — the independent testing pass).
+    if level in ("L3", "L4", "L5", "L5+"):
         manifest.append(_GIT_PROTOCOL_DOC)
 
     return manifest

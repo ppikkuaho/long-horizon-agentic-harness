@@ -280,7 +280,9 @@ def _check_per_seat_bundle(boundary, seat_level, role_variant, contract) -> Piec
 # pieces-present sweep deterministically.
 # ---------------------------------------------------------------------------
 
-_REAL_LEVELS: tuple[str, ...] = ("L1", "L2", "L3", "L4", "L5")
+_REAL_LEVELS: tuple[str, ...] = ("L1", "L2", "L3", "L4", "L5", "L5+")  # L5+ added 2026-06-11 —
+# the live E1 gate caught the FIRST L5+ spawn with an unresolvable manifest precisely because
+# this sweep did not cover it; every registry seat belongs in the deterministic sweep.
 
 
 def _complete_work_node(node_address: str, *, executor: bool) -> dict:
