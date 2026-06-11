@@ -151,6 +151,24 @@ Still unread (honesty ledger): L2/L3/L5 role.md in full, intake-session-template
 intent-spec-contract, COMMUNICATION.md, PLAN-ALIGNMENT-GATE.md in full,
 DESIGN-PRINCIPLES.md — queued before any role-doc rewrites land.
 
+### LR-14 — THE ENFORCEMENT SPINE IS UNBUILT (capstone, found by the corpus read)
+The operational docs' primary mechanical forcing functions DO NOT EXIST in the
+harness. Grep evidence (2026-06-11): zero hits in harnessd/ for preflight /
+trace-block / return-contract / MISSING-TRACE. Yet the docs lean on them as THE
+enforcement at every boundary: "the return-contract hook walks your artifact and
+REJECTS it — you cannot report complete" (L2 role, L1 role, intent-spec-contract);
+"reflect-back status pending BLOCKS FREEZE" (intent-spec-contract §2 — the user-
+authority forcing function); typed defects (MISSING-TRACE-*, DUP-ID-*, etc.).
+Also: pieces_present.py EXISTS (Inc 18) but is referenced nowhere in the runtime —
+it is not wired into the spawn chokepoint, which is why dangling relative manifest
+paths shipped in live briefs (LR-3).
+CONSEQUENCE: at runtime the behavioral layer currently runs on exhortation alone —
+and today's run proved exhortation loses to completion bias every time, while
+structure (signals, fencing, collapse — the substrate's enforced half) held every
+time. HIGHEST-LEVERAGE SINGLE BUILD of the behavioral wave: the return-contract /
+preflight hook family + wiring pieces_present into the chokepoint, so the docs'
+"the hook rejects it" sentences become true.
+
 ## B. Post-run remediation candidates (user-observed, in priority order)
 
 ### LR-2 — no PATH in the pane env: every shell call pays a tax (HIGH, ergonomics)
