@@ -53,6 +53,25 @@ increment installs the deterministic half on those three paths.
 - CARRIES: the L1 closing-protocol hook-point (playback-escalation before DONE) —
   BLOCKED on the user's Stage-5 authority ruling (translation list item B).
 
+## E1 implementation design (settled 2026-06-11, pre-build)
+DISCOVERY: spec_pointer/frozen_acceptance_ref flow brief <- work_node <- BINDING,
+and no production path ever stamps them onto a binding — the gate verbatim would
+refuse every spawn. So E1 = derivation + gate:
+ 1. DERIVATION at registration (agent-lifecycle: "the daemon derives its
+    spec/acceptance pointers from the node you prepared"): when the outbox
+    services a spawn request — and when genesis registers the L1 root — stamp on
+    the planned binding: spec_pointer := <node>/brief.md if present (genesis's
+    _ensure_l1_brief already authors it for L1); frozen_acceptance_ref :=
+    <node>/acceptance.md if present. The live run's L4 ALREADY prepared exactly
+    these files in its children's nodes — the real cascade passes.
+ 2. GATE at STEP2.5 (claim_and_spawn, after assemble_neutral; same on the resume
+    leg): pieces_present.check_boundary(node_address, level_config, work_node);
+    on fail -> release_claim + _emit_spawn_failure_escalation(failure_class=
+    'pieces_missing:<...>') + _result_failed. No actor opens under-equipped.
+ 3. Expected fixture fallout: chokepoint/daemon tests with sparse bindings gain
+    spec_pointer (and acceptance for executor seats) — completing fixtures to the
+    enforced world is the point, not a regression.
+
 ## Order + discipline
 E1 -> E2 -> E3, each test-first with revert-mutant verification, full suite
 between, real-substrate smoke (preference 2) before declaring the increment done:
