@@ -140,3 +140,17 @@ zero-L3 small-project profile = SPEC EXTENSION awaiting user blessing; reviewer
 authority wiring (LR-9/10); L1 closing protocol (user ruled: future, real-client
 use); codex-audit of briefs; cross-runtime L5/L5+ eval re-run; pane labels (LR-7);
 DEFERRED-REGISTER sync for tonight's rows.
+
+### Run-2 in-flight evidence (00:45, run continues overnight)
+- B6 (Phase-3 concept validation): L2 ESCALATED with a decision request — "approve
+  the two-area carve + the candidate markdown<->assembly seam -> I spawn the two
+  planning-L3s and run Phase 2. Holding context for the answer." First live use of
+  the §3.6 ESCALATED slot-hold for its designed purpose. PASS-in-flight.
+- B7 setup: TWO planning-L3s announced (the L3 layer arrives, plural).
+- Phase-4 vocabulary used unprompted: "candidate" seam (candidate-lock discipline).
+- E2 internalized: L2 SELF-CHECKED its trace-blocks against the walker's exact
+  rules (31 stanzas, zero dup IDs, closed field set) BEFORE signing — enforcement
+  has become anticipatory compliance within one run of landing.
+- comms-protocol: pointer-not-payload phase-complete nudge to L1 (see/urgency fields).
+- Recovery note: post-LR-17-restart, the fresh L1 + the swept-up L2 spawn resumed
+  the run with zero operator re-work beyond the LR-18 hand-kill (recorded).
