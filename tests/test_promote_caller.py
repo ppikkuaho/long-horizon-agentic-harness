@@ -172,22 +172,65 @@ def test_ipc_promote_accept_delivers_real_bytes(runtime, tmp_path):
 
 
 def test_ipc_promote_excludes_control_plane_dotfiles(runtime, tmp_path):
-    """The F19↔F8 interaction: .sign-off/.signal/.inbox live in the same node dir the copy-out
-    sources — the promoted deliverable must carry NONE of them (harness machinery, not product)."""
-    _build_tree(runtime)
+    """The F19↔F8 interaction + INT-3/TM-4: ALL harness machinery in the node workspace —
+    .sign-off/.signal/.inbox (F19), .harness-outbox (the spawn-request channel + its consumed
+    markers), .sandbox-profiles (the rendered-.sb fallback), .*.tmp (atomic_replace residue) —
+    must not ship in the deliverable, INCLUDING from NESTED child node dirs (node dirs nest by
+    path, so a coordinator's deliverable contains every descendant's machinery surface)."""
+    d = _build_tree(runtime)
+    # INT-3: the spawn-request outbox (real OUTBOX_DIRNAME) + consumed markers in the node dir.
+    from harnessd.spawn.outbox import OUTBOX_DIRNAME
+
+    outbox = d / OUTBOX_DIRNAME
+    outbox.mkdir()
+    (outbox / "req-001.json").write_text('{"child": "sub"}\n', encoding="utf-8")
+    (outbox / "req-001.json.done").write_text("consumed\n", encoding="utf-8")
+    # INT-3: the sandbox-profile fallback dir + an atomic_replace tmp residue.
+    profiles = d / ".sandbox-profiles"
+    profiles.mkdir()
+    (profiles / "harness-jail.sb").write_text("(version 1)\n", encoding="utf-8")
+    (d / ".brief.md.tmp").write_text("torn atomic-replace residue\n", encoding="utf-8")
+    # TM-4: a NESTED CHILD node dir inside the coordinator's deliverable subtree, carrying its
+    # OWN full machinery set (node dirs nest by path — the child's dir sits UNDER the parent's).
+    child_dir = addressing.node_dir(NODE.split("#", 1)[0] + "/sub#exec", runtime)
+    child_dir.mkdir(parents=True, exist_ok=True)
+    (child_dir / "result.md").write_text("# child deliverable\n", encoding="utf-8")
+    (child_dir / ".sign-off.exec.json").write_text('{"owner_token": "tok-child"}\n', encoding="utf-8")
+    (child_dir / ".signal.exec.json").write_text('{"signal": "DONE"}\n', encoding="utf-8")
+    (child_dir / ".inbox.exec.jsonl").write_text('{"type": "wake"}\n', encoding="utf-8")
+    child_outbox = child_dir / OUTBOX_DIRNAME
+    child_outbox.mkdir()
+    (child_outbox / "req-002.json.rejected").write_text("spawn error\n", encoding="utf-8")
+
     dest = tmp_path / "delivery-out" / "demo-widget"
     _seed(delivery_destination=dest)
 
     resp = ipc.handle_request({"command": "promote", "addr": NODE, "decision": "accept"})
     assert resp["ok"] is True and (dest / "README.md").is_file()
+    assert (dest / "sub" / "result.md").is_file(), (
+        "the nested child's REAL deliverable bytes must still ship (the exclusion is machinery-"
+        "scoped, not a child-dir blackout)"
+    )
 
-    shipped = [str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file()]
+    shipped = [str(p.relative_to(dest)) for p in dest.rglob("*")]
     for pattern in (".sign-off.", ".signal.", ".inbox."):
         offenders = [f for f in shipped if Path(f).name.startswith(pattern)]
         assert not offenders, (
             f"control-plane dotfiles shipped in the deliverable: {offenders} — the F19 "
-            "sign-off/signal/inbox machinery must be excluded from the promoted tree"
+            "sign-off/signal/inbox machinery must be excluded from the promoted tree "
+            "(NESTED child dirs included, TM-4)"
         )
+    for basename in (OUTBOX_DIRNAME, ".sandbox-profiles"):
+        offenders = [f for f in shipped if basename in Path(f).parts]
+        assert not offenders, (
+            f"harness machinery {basename!r} shipped in the deliverable: {offenders} (INT-3 — "
+            "spawn-request JSONs / consumed markers / sandbox profiles are control plane, not product)"
+        )
+    tmp_offenders = [f for f in shipped
+                     if Path(f).name.startswith(".") and Path(f).name.endswith(".tmp")]
+    assert not tmp_offenders, (
+        f"atomic-replace .*.tmp residue shipped in the deliverable: {tmp_offenders} (INT-3)"
+    )
 
 
 def test_ipc_promote_without_decision_holds_the_gate(runtime, tmp_path):

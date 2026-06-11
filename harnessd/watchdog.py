@@ -260,21 +260,32 @@ def check_leaf(node, binding, *, now) -> WatchdogAction:
             # ESCALATED holds its slot — NEVER collapses (§3.6 asymmetric). But the slot-hold is
             # JOURNALED (SML-02): chokepoint.escalate stamps terminal_signal=ESCALATED + appends the
             # signal_ESCALATED running->running row through the single-writer executor, exactly once
-            # (idempotent across ticks via the binding stamp). ROUTE THE RESULT: a fenced/CAS-aborted
-            # journal write must NOT read as a clean slot-hold — the next tick retries against the
-            # still-present .signal artifact (mirrors the collapse_failed routing below).
-            result = chokepoint.escalate(node_address, expected_owner_token=binding.get("owner_token"))
+            # PER ARTIFACT (SM-4: idempotency keys on the artifact ts vs terminal_signal_at — a
+            # post-answer SECOND question re-journals; a re-poll of the same artifact is a no-op).
+            # ROUTE THE RESULT: a fenced/CAS-aborted journal write must NOT read as a clean
+            # slot-hold — the next tick retries against the still-present .signal artifact
+            # (mirrors the collapse_failed routing below).
+            result = chokepoint.escalate(
+                node_address, expected_owner_token=binding.get("owner_token"),
+                signal_ts=sig.get("ts"),
+            )
             if result is not None and getattr(result, "ok", True) is False:
                 return WatchdogAction(
                     kind=NOOP, node=node_address,
                     detail={"reason": "escalate_journal_failed", "terminal_signal": signal,
                             "errors": list(getattr(result, "errors", []) or [])},
                 )
-            return WatchdogAction(
-                kind=NOOP, node=node_address,
-                detail={"reason": "escalated_holds_slot", "terminal_signal": signal,
-                        "journaled": result is not None},
-            )
+            if result is not None or not detector_signals.escalation_answered(binding, sig.get("ts")):
+                return WatchdogAction(
+                    kind=NOOP, node=node_address,
+                    detail={"reason": "escalated_holds_slot", "terminal_signal": signal,
+                            "journaled": result is not None},
+                )
+            # SM-4: the round-trip for THIS artifact is ANSWERED (answered_at is fresher than
+            # both the stamp and the artifact) — the slot-hold no longer shields the node. FALL
+            # THROUGH to STEP 0/STEP B so the idle->prod->FAILED ladder revives post-answer (a
+            # wedged post-answer agent must be prodded/failed-loud, WATCHDOG §3.5); a NEW
+            # question (a fresh artifact) re-journals above and re-arms the hold.
         if signal in ("DONE", "FAILED"):
             # Route the terminal collapse through the REAL chokepoint/executor (running -> done/failed).
             # ROUTE THE RESULT (review watchdog-2): a FAILED terminal transition (a CAS miss / fencing

@@ -1397,17 +1397,26 @@ _COLLAPSE_EVENTS: dict[str, str] = {
 }
 
 
-def escalate(node_address: str, *, expected_owner_token: Optional[str]):
+def escalate(node_address: str, *, expected_owner_token: Optional[str], signal_ts=None):
     """The §3.6 ESCALATED slot-hold journal (SML-02): stamp ``terminal_signal=ESCALATED`` +
     ``terminal_signal_at`` and journal the ``signal_ESCALATED`` run-ledger row as a FENCED,
-    exactly-once, generation-bumping (replayable, §4.4) running→running transition through the
-    single-writer executor. The lifecycle state STAYS ``running`` and the slot is HELD — the delta
-    deliberately carries NO ``in_flight_release`` (the asymmetric row: the node keeps its context
-    and waits for the answer round-trip).
+    exactly-once-PER-ARTIFACT, generation-bumping (replayable, §4.4) running→running transition
+    through the single-writer executor. The lifecycle state STAYS ``running`` and the slot is
+    HELD — the delta deliberately carries NO ``in_flight_release`` (the asymmetric row: the node
+    keeps its context and waits for the answer round-trip).
+
+    ``signal_ts`` is the on-disk artifact's own ``ts`` (the watchdog threads it from the fenced
+    read). SM-4: idempotency keys on ARTIFACT FRESHNESS, not the bare binding stamp — the old
+    stamp-only early-return made the journal at-most-once per INCARNATION: after the human
+    answer, a SECOND escalation (a NEW question written to .signal) silently never journaled
+    (no fresh signal_ESCALATED row, terminal_signal_at left stale), breaking the SML-02
+    exactly-once-per-artifact contract. A stamped node re-journals IFF the artifact is strictly
+    newer than the recorded ``terminal_signal_at`` (the re-stamp also re-arms the detector's
+    waiting reason past any prior ``answered_at``).
 
     Returns:
-      * ``None``                      — nothing to do: the node is absent, or already stamped
-                                        ESCALATED (exactly-once per artifact; a re-poll is a no-op);
+      * ``None``                      — nothing to do: the node is absent, or THIS artifact is
+                                        already journaled (a re-poll of the same/older ts is a no-op);
       * ``TransitionResult(ok=False)``— a refused/aborted write: a non-running node (the slot-hold
                                         applies only to ``running``, §3.6), a CAS miss, or the
                                         fencing abort (the executor journals ``stale_return_ignored``
@@ -1417,17 +1426,19 @@ def escalate(node_address: str, *, expected_owner_token: Optional[str]):
     Callers ROUTE the result (the no-result-swallowing convention): the watchdog reports a failed
     journal write as ``escalate_journal_failed`` and retries next tick (the .signal artifact persists).
     """
+    from harnessd import detector_signals as _detector_signals  # local import: no module cycle
+
     live = ledger.read_binding(node_address)
     if live is None:
         return None
     if live.get("terminal_signal") == "ESCALATED":
-        # Already journaled — exactly-once per artifact. The idempotency keys on the binding
-        # stamp, and F16's answer verb deliberately does NOT clear it: the answer RIDES
-        # terminal_signal=ESCALATED + terminal_note (TRANSPORTS §5.3 — the parent reads both),
-        # and clearing the stamp while the .signal artifact persists would let the next watchdog
-        # tick re-journal the SAME escalation as a fresh signal_ESCALATED row. Clearing belongs
-        # to the round-trip COMPLETION (the parent's decision-down flow), not the answer post.
-        return None
+        # Already journaled for SOME artifact. F16's answer verb deliberately does NOT clear the
+        # stamp (the answer RIDES terminal_signal=ESCALATED + terminal_note, TRANSPORTS §5.3 —
+        # the parent reads both; clearing belongs to the round-trip COMPLETION), so the stamp
+        # alone cannot key idempotency. SM-4: only a strictly NEWER artifact (a second question)
+        # re-journals; the same/older ts is the steady re-poll no-op.
+        if not _detector_signals._ts_is_newer(signal_ts, live.get("terminal_signal_at")):
+            return None
     if live.get("state") != "running":
         return executor.TransitionResult(
             ok=False,

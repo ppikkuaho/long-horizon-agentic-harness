@@ -733,14 +733,21 @@ def post_answer(
     the held ESCALATED signal (which is deliberately NOT cleared here: the parent reads both;
     clearing belongs to the round-trip completion). The ESCALATED guard + the human->parent wake
     hop live in the IPC handler; this is only the durable single-writer stamp.
+
+    ``answered_at`` is stamped too (SM-4): it is the EXPIRY instant for the slot-hold's
+    legit-waiting reason — an escalation whose answer is fresher than its question
+    (``detector_signals.escalation_answered``) no longer shields the node from the idle ladder,
+    and a LATER question (a newer artifact ts / a re-journaled terminal_signal_at) re-arms it.
+    Without this, a node that ever escalated could never read 'idle' again and a second
+    escalation could never journal.
     """
     return _own_slice_write(
         node_address,
         expected_owner_token=expected_owner_token,
-        delta={"terminal_note": answer},
+        delta={"terminal_note": answer, "answered_at": clock.now_utc()},
         event="human_answer_posted",
         summary=(
-            "human answer posted into the ESCALATED slot (terminal_note; "
+            "human answer posted into the ESCALATED slot (terminal_note + answered_at; "
             "TRANSPORTS §5.3 primitive 3)"
         ),
     )

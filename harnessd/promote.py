@@ -175,11 +175,25 @@ def _git_env(source_tree: Path) -> dict:
     }
 
 
-# The F19 control-plane dotfiles the daemon/agent exchange INSIDE the node workspace — the sign-off
-# handshake, the per-seat terminal signal, the wake inbox. Harness machinery, NOT product: the
-# copy-out excludes them (basename-matched at every level, so a child node's dotfiles nested under
-# a coordinator's deliverable are excluded too).
-_CONTROL_PLANE_DOTFILE_PATTERNS = (".sign-off.*", ".signal.*", ".inbox.*")
+# The control-plane machinery the daemon/agent exchange INSIDE the node workspace. Harness
+# machinery, NOT product: the copy-out excludes it all (shutil.ignore_patterns fnmatches
+# BASENAMES at every level — dirs included — so a child node's machinery nested under a
+# coordinator's deliverable is excluded too):
+#   * the F19 dotfiles — the sign-off handshake, the per-seat terminal signal (+ the RR-2
+#     ``.signal.<seat>.json.invalid`` quarantine, covered by the same ``.signal.*`` glob), and
+#     the wake inbox;
+#   * ``.harness-outbox`` (INT-3) — the FORK-SPAWN-CHANNEL spawn-request dir (outbox.
+#     OUTBOX_DIRNAME) lives in the SAME workroot the copy sources, including every nested child
+#     node's; its request JSONs + consumed .done/.rejected markers were shipping in the
+#     deliverable — the exact class the F8 exclusion exists to keep out;
+#   * ``.sandbox-profiles`` (INT-3) — claude_code._write_profile's rendered-.sb fallback dir can
+#     land inside the workroot;
+#   * ``.*.tmp`` (INT-3) — store.atomic_replace residue (``.<name>.tmp``): only present after a
+#     crash mid-replace, but never deliverable bytes.
+_CONTROL_PLANE_DOTFILE_PATTERNS = (
+    ".sign-off.*", ".signal.*", ".inbox.*",
+    ".harness-outbox", ".sandbox-profiles", ".*.tmp",
+)
 
 
 def _copy_out_filesystem(source_tree: Path, destination: str) -> None:

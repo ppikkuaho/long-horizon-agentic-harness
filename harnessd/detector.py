@@ -132,11 +132,22 @@ def _has_legit_waiting_reason(node_address: str, binding) -> bool:
         sig = detector_signals.read_terminal_signal(node, binding)
     except RuntimeError:
         sig = None  # runtime root unbound -> fall back to the binding field below
-    if sig is not None and sig.get("signal") == _ESCALATED:
-        return True
+    escalated = (sig is not None and sig.get("signal") == _ESCALATED)
+    if not escalated:
+        # Fall back to the binding's own terminal_signal field (the seeded contract carrier).
+        escalated = binding.get("terminal_signal") == _ESCALATED
+    if not escalated:
+        return False
 
-    # Fall back to the binding's own terminal_signal field (the seeded contract carrier).
-    return binding.get("terminal_signal") == _ESCALATED
+    # SM-4: an ANSWERED escalation is no longer a legit waiting reason. The stamp is never
+    # cleared in v1 (the answer rides it), so without this expiry a node that ever escalated
+    # could never again read `idle` — the idle->prod->FAILED ladder was permanently disabled
+    # post-answer. A NEWER question (a fresh artifact ts or a re-journaled terminal_signal_at)
+    # re-arms the waiting reason.
+    sig_ts = sig.get("ts") if sig is not None else None
+    if detector_signals.escalation_answered(binding, sig_ts):
+        return False
+    return True
 
 
 def liveness(node_address: str) -> Liveness:

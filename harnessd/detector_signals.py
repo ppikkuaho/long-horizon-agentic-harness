@@ -178,6 +178,45 @@ def _signal_path(node):
     return addressing.signal_path(_node_address(node), root)
 
 
+def _ts_is_newer(candidate, baseline) -> bool:
+    """True iff ``candidate`` is a STRICTLY later instant than ``baseline`` (SM-4 freshness).
+
+    Routes through the canonical clock parser (offset-invariant); tolerant of agent-written
+    timestamps — anything unparseable/missing compares NOT-newer (the idempotent default: an
+    unprovable freshness claim never re-journals or re-arms anything).
+    """
+    if not candidate or not baseline:
+        return False
+    from . import clock  # local import: keep this module import-light
+
+    try:
+        return clock.parse_iso(candidate) > clock.parse_iso(baseline)
+    except (ValueError, TypeError):
+        return False
+
+
+def escalation_answered(binding, signal_ts=None) -> bool:
+    """True iff the node's held ESCALATED slot carries a human answer FRESHER than the question (SM-4).
+
+    The ESCALATED stamp is deliberately never cleared in v1 (the answer RIDES
+    terminal_signal=ESCALATED + terminal_note; clearing belongs to the round-trip completion) —
+    but a stamp nothing expires made the slot-hold PERMANENT: the detector read legit-waiting
+    forever, the idle->prod->FAILED ladder was dead for any node that ever escalated, and a
+    second escalation could never journal. This predicate is the EXPIRY: the answer
+    (``answered_at``, stamped by executor.post_answer) outranks the question iff it is fresher
+    than BOTH the binding stamp (``terminal_signal_at``) and the on-disk artifact's own ``ts``
+    (a re-escalation on either side re-arms the waiting reason).
+    """
+    answered_at = binding.get("answered_at")
+    if not answered_at:
+        return False  # no answer posted -> the slot-hold stands
+    if _ts_is_newer(binding.get("terminal_signal_at"), answered_at):
+        return False  # re-escalated (journaled) AFTER the answer -> waiting again
+    if _ts_is_newer(signal_ts, answered_at):
+        return False  # a fresh artifact not yet journaled -> a NEW question is pending
+    return True
+
+
 def _quarantine_invalid_signal(path, node, reason: str) -> None:
     """Contain a MALFORMED agent-written .signal artifact (RR-2): journal + quarantine, never crash.
 
