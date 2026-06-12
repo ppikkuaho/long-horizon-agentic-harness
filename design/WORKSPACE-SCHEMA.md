@@ -385,9 +385,13 @@ over):** the Log Mechanics section below specifies a SINGLE project-level `log.m
 level appends to, and `status.md` as one shared project board — but the write-jail (SECURITY §1.3:
 writes confined to the node's own subtree) makes a child structurally unable to append to its
 ancestor's files. Run-2 resolved this organically with **per-node** `log.md`/`status.md`, which is
-what this schema codifies. Until the ruling, the per-node form is the operative convention; the
-shared-file form remains the spec's aspiration (a harness append-relay or a jail exception would
-reconcile them).
+what this schema codifies. **RULED 2026-06-12 (user): the harness APPEND-RELAY reconciles them**
+— children keep writing their per-node `log.md`/`status.md` (their own jail, zero micro-behavior
+change); the daemon deterministically maintains the project-level aggregates as a relay (a poll
+leg with per-source watermarks). "If we can do something deterministically, we should" — no jail
+exception, no agent gets an aggregation chore. Registered as a harness increment; until it lands,
+the per-node files are the only operative form and the project-level files are absent (a reader
+aggregates by reading the children).
 
 See `design/DOC-SYSTEM.md` for the block/template mechanism that delivers these duties into the
 role docs, and the critical constraint on what mechanical checks can and cannot certify.
