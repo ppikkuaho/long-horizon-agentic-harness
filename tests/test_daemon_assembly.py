@@ -617,9 +617,15 @@ def test_poll_once_survives_a_failed_stamp(runtime, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 def test_poll_once_redrives_a_planned_prepared_node(runtime):
-    """A `planned` binding with a PREPARED node (brief.md present) and no pane is re-driven
-    through claim_and_spawn by the sweep -> running. (Mutant: no re-drive leg -> stays planned
-    forever -> caught.)"""
+    """A `planned` binding with a PREPARED node (brief.md present) whose stamped tmux session
+    does NOT exist is re-driven through claim_and_spawn by the sweep -> running.
+
+    LR-19 fixture-reality: register_child stamps EVERY child's tmux_target with the canonical
+    session-name placeholder at birth (F18) — a planned node ALWAYS carries a stamp. The original
+    fixture seeded tmux_target=None, so the sweep's stamp-means-skip leg passed the test while
+    skipping every real registered child forever (observed live: Run-2 markdown L3, 8h wedge).
+    The stamp alone proves nothing; only a session tmux REPORTS alive disqualifies.
+    (Mutant: no re-drive leg, or skip-on-stamp -> stays planned forever -> caught.)"""
     _install_adapter()
     daemon._REDRIVE_LAST_ATTEMPT.clear()
     addr = "proj/widget/task#exec"
@@ -631,17 +637,48 @@ def test_poll_once_redrives_a_planned_prepared_node(runtime):
            "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 1,
            "lease_epoch": 3, "owner_token": token, "last_applied_seq": 0,
            "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
-           "tmux_target": None, "workspace": str(ws),
+           "tmux_target": addressing.session_name_for(addr), "workspace": str(ws),
            "stale_check_count": 0, "stale_grace_checks": 2}
     ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
-    tmux = _Tmux({})
+    tmux = _Tmux({})  # tmux reports NO live sessions — the stamp is a placeholder/corpse
     det = _Detector(default="working")
 
     daemon.poll_once(executor, tmux, det)
 
     b = ledger.read_binding(addr)
     assert b["state"] == "running", (
-        f"the sweep must RE-DRIVE a planned+prepared node (LR-15); got {b['state']!r}"
+        f"the sweep must RE-DRIVE a planned+prepared node whose stamped session is dead "
+        f"(LR-15/LR-19); got {b['state']!r}"
+    )
+
+
+def test_redrive_skips_a_planned_node_whose_stamped_session_is_alive(runtime):
+    """A `planned` binding whose stamped tmux session EXISTS is NOT re-driven (LR-19 skip leg):
+    a live session at the canonical name means a pane is (or is being) opened for this node —
+    re-driving would race the opener. (Mutant: existence check dropped -> re-drive fires into
+    the live session -> caught.)"""
+    _install_adapter()
+    daemon._REDRIVE_LAST_ATTEMPT.clear()
+    addr = "proj/widget/task#exec"
+    token = fencing.mint_owner_token(addr, "sa", "uuid", 3)
+    ws = addressing.node_dir(addr, runtime)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "brief.md").write_text("# brief\n\ndo the task.\n", encoding="utf-8")
+    session = addressing.session_name_for(addr)
+    rec = {"node_address": addr, "parent_address": "proj/widget#exec", "level": "L1",
+           "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 1,
+           "lease_epoch": 3, "owner_token": token, "last_applied_seq": 0,
+           "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
+           "tmux_target": session, "workspace": str(ws),
+           "stale_check_count": 0, "stale_grace_checks": 2}
+    ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
+    tmux = _Tmux({f"{session}:0.0": {"pane_pid": 1234}})  # the session IS alive
+
+    daemon.poll_once(executor, tmux, _Detector(default="working"))
+
+    b = ledger.read_binding(addr)
+    assert b["state"] == "planned", (
+        "a planned node whose stamped session is ALIVE must not be re-driven (LR-19)"
     )
 
 
@@ -658,7 +695,7 @@ def test_redrive_respects_cooldown_and_unprepared_nodes(runtime):
            "subagent_id": "sa", "session_uuid": "uuid", "state": "planned", "generation": 1,
            "lease_epoch": 3, "owner_token": token, "last_applied_seq": 0,
            "liveness_state": "claimed", "gate_crossed_at": None, "paused_at": None,
-           "tmux_target": None, "workspace": str(ws),
+           "tmux_target": addressing.session_name_for(addr), "workspace": str(ws),
            "stale_check_count": 0, "stale_grace_checks": 2}
     ledger.write_binding({addr: copy.deepcopy(rec)}, _lock_held=True)
 

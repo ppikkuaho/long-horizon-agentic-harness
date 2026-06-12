@@ -256,7 +256,7 @@ def poll_once(executor, tmux, detector) -> None:
     _route_reconcile_escalations(report)
     _watchdog_tick(executor, tmux, detector)
     _service_outboxes_best_effort()
-    _redrive_planned_spawns_best_effort(executor)
+    _redrive_planned_spawns_best_effort(executor, tmux)
     _stamp_last_tick_best_effort()
     return None
 
@@ -273,7 +273,7 @@ _REDRIVE_COOLDOWN_S: float = 60.0
 _REDRIVE_LAST_ATTEMPT: dict = {}  # node_address -> time.monotonic() (daemon-incarnation memory)
 
 
-def _redrive_planned_spawns_best_effort(executor) -> None:
+def _redrive_planned_spawns_best_effort(executor, tmux=None) -> None:
     import time as _time
 
     from harnessd import config as _config
@@ -283,12 +283,29 @@ def _redrive_planned_spawns_best_effort(executor) -> None:
         bindings = ledger.all_nodes()
     except Exception:  # noqa: BLE001 — the sweep must advance
         return
+    # LR-19: the tmux_target STAMP proves nothing — register_child stamps the canonical
+    # session-name placeholder on EVERY child at birth (F18), and a failed spawn's rollback
+    # (release_claim) leaves the stamp behind. Skipping on the stamp alone made the sweep skip
+    # every registered child forever (observed live: Run-2 markdown L3, tmux_session_collision
+    # rollback -> planned + stamped -> 8h wedge). Tmux is the truth: only a session tmux REPORTS
+    # alive disqualifies a node (mid-spawn shapes are already excluded by state != planned, and
+    # the claim CAS makes racing a concurrent legitimate opener harmless). One list per sweep;
+    # an unreachable tmux falls back to stamp-means-skip (conservative — no blind spawn storms).
+    live_sessions = None
+    if tmux is not None:
+        try:
+            live_sessions = {str(t).split(":", 1)[0] for t in (tmux.list_targets() or {})}
+        except Exception:  # noqa: BLE001 — an unreachable tmux must not kill the sweep
+            live_sessions = None
     for address, binding in list(bindings.items()):
         try:
             if (binding or {}).get("state") != "planned":
                 continue
-            if binding.get("tmux_target"):
-                continue  # mid-spawn or already-spawned shapes are not re-drive candidates
+            target = (binding.get("tmux_target") or "").strip()
+            if target:
+                session = target.split(":", 1)[0]
+                if live_sessions is None or session in live_sessions:
+                    continue  # a LIVE pane (or unverifiable tmux) — not a re-drive candidate
             now = _time.monotonic()
             last = _REDRIVE_LAST_ATTEMPT.get(address)
             if last is not None and (now - last) < _REDRIVE_COOLDOWN_S:

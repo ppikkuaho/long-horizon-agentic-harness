@@ -383,3 +383,28 @@ REMEDY: on the fresh-spawn legs (genesis four-way FAILED routing; LR-15 re-drive
 kill_stale_pane(address) before create_detached — the chokepoint already has the
 primitive; OR reconcile necros alive-panes-on-terminal-bindings. Queue with LR-15
 family (the spawn-recovery sweep).
+
+### LR-19 — the re-drive sweep skipped EVERY registered child: the tmux_target stamp is a birthmark, not a pane (CRITICAL, FIXED)
+Run-2 overnight: the markdown execution-L3's spawn died tmux_session_collision
+at 23:11 (pre-LR-18 binary); release_claim rolled the slot back to `planned` but
+left tmux_target stamped. The LR-15 sweep skips any stamped binding ("mid-spawn
+or already-spawned"), so the node wedged 8h — under a HEALTHY, ticking daemon.
+The root is deeper than the rollback: register_child stamps EVERY child's
+tmux_target with the canonical session-name PLACEHOLDER at birth (F18), so the
+sweep's stamp-means-skip leg could never fire for any registered child at all —
+its unit test passed on a hand-seeded binding with tmux_target=None, a shape
+production never produces (fixture-reality gap; the same lesson as LR-1).
+FIX: tmux is the truth, stamps are hints (the LR-18 philosophy) — the sweep does
+ONE tmux.list_targets() per tick and skips a stamped node only if its session is
+REPORTED ALIVE; an unreachable tmux falls back to stamp-means-skip (no blind
+spawn storms). Mid-spawn shapes were never the stamp's to guard: state!=planned
+already excludes them, and the claim CAS makes racing a concurrent opener
+harmless. Fixtures completed to the register_child shape (placeholder stamped).
+
+### LR-20 — the spawn env (OAuth token included) rides the tmux command line: visible in the process table (SECURITY, follow-up)
+Observed while diagnosing LR-19: `ps aux` shows the full `env -i
+CLAUDE_CODE_OAUTH_TOKEN=... claude.exe ...` argv of every agent pane — any local
+process can read the live token from the process table. PoC-acceptable under the
+denylist posture (single-user machine), but the spawn should deliver env via
+tmux's own environment mechanism or a sourced file before any multi-user or
+jailed deployment. Registered for the jail/security wave (F9-F13 family).
