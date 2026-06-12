@@ -436,3 +436,25 @@ the root — the fixture-reality lesson a third time (LR-1, LR-19). FIX: discove
 extends to */client-brief/intent-spec.md; exactly one carries the derivation;
 MULTIPLE candidates refuse loudly naming the projects (a root-addressed promote
 never guesses among a multi-project portfolio). Root shapes still win.
+
+### LR-23 — the gate verdict is a snapshot, not a seal: post-collapse artifact mutation observed (HIGH, design ruling needed)
+Run-2 forensics (ws-3 build, the DUP-ID heal): the accepted DONE collapsed at
+05:14:19Z; report.md's last write is 05:14:30Z — ELEVEN SECONDS AFTER the gate.
+The fenced-out agent's pane stays alive at collapse (LT-4: no production path
+reaps it) and the fence protects only the LEDGER — the agent kept editing its
+report, and the final on-disk version (trace stanzas moved to test_render.py,
+prose ID citations dropped) FAILS today's walker. The report the parent reads
+is not the report the gate approved. Benign here (a polish pass), but the
+integrity gap is structural: contract-checked artifacts are mutable after the
+verdict. REMEDY OPTIONS (user ruling needed — spec touch):
+  (a) evidence-only: stamp sha256+size of report.md into the collapse WAL row;
+      reconcile/audit flags post-gate drift (cheap, deterministic, no behavior
+      change);
+  (b) seal: collapse snapshots report.md (e.g. .report.gated.md) and parents
+      read the sealed copy (role-doc + schema touch);
+  (c) reap: collapse kills the pane (conflicts with the observability
+      preference for warm panes; LT-4 reversal).
+Related nuance (same run, ws-b builder-review): the walker holds the SIGNER
+accountable for stanzas in parent-authored brief.md — the child healed by
+editing its brief copy in its own node dir. Defensible (the node owns its dir)
+but attribution-vs-authorship is worth a line in the contract docs.
