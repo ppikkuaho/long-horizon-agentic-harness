@@ -565,7 +565,7 @@ def test_system_prompt_file_argv_is_absolute():
     argv, _tmux = _adapter_argv()
     spf = argv[argv.index("--system-prompt-file") + 1]
     assert os.path.isabs(spf), f"--system-prompt-file must be ABSOLUTE; got {spf!r}"
-    assert spf.endswith(os.path.join("operational", "shared", "system-prompt.md")), (
+    assert spf.endswith(".identity-prompt.md"), (
         f"the absolute path must still be the ONE shared prompt; got {spf!r}"
     )
 
@@ -619,3 +619,22 @@ def test_unjailed_spawn_seeds_trust_for_the_pane_cwd(tmp_path):
         f"seed_trust must cover the ACTUAL pane cwd {ws} on an UNJAILED spawn; .claude.json: {cj!r}"
     )
     assert cj.get("bypassPermissionsModeAccepted") is True
+
+
+def test_kickoff_pointer_carries_plan_first(runtime):
+    """The kickoff is DIRECTION, not just a pointer: read brief.md AND the plan-first
+    discipline — write plan.md (goal + task checklist; final three items: report.md ->
+    verify citations -> sign off) mirrored in the runtime task tool. (Run-2: 15 E2 bounces,
+    11 of them reporting-discipline — the kickoff is the guaranteed moment to set it.)"""
+    result, tmux, ws = _drive_real_spawn(runtime)
+    assert result.ok
+    assert tmux.sent, "the kickoff nudge must be typed"
+    _target, text = tmux.sent[0]
+    assert "plan.md" in text and "report.md" in text, (
+        f"the kickoff must carry the plan-first discipline; got {text!r}"
+    )
+    inbox = addressing.inbox_path(LEAF, runtime)
+    kick = [json.loads(l) for l in inbox.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert any("plan.md" in (l.get("message") or "") for l in kick), (
+        "the DURABLE kickoff line carries the same plan-first direction"
+    )

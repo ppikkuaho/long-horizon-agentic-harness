@@ -13,9 +13,13 @@ THE HEADLINE (role-as-documents, H40 / Decision B): ``assemble_neutral`` writes 
 load-manifest ("Identity — Load These Documents") INTO the node — selected by ``role_variant`` —
 listing the role docs the agent READS IN PLACE as PATHS relative to the harness root
 (``operational/L{n}/{soul,role,config}.md`` + the always-loaded ``operational/shared/*.md`` contract
-docs + level extras). The role is NEVER flattened into the system prompt / argv text; the manifest
-names file PATHS, never inlined prose. The system prompt stays the ONE shared constant
-(``config.SYSTEM_PROMPT_FILE``), byte-identical L1–L5.
+docs + level extras). AMENDED 2026-06-12 (user ruling, LR-4 cure): the per-level
+IDENTITY TRIO (soul/role/config — ``identity_docs``) is now AUTO-LOADED by the adapters
+(CC: flattened into a per-spawn composed system prompt; codex: listed first in the boot
+prompt) — identity acquisition no longer rides on agent diligence. The manifest still names
+ALL docs as PATHS (the agent re-reads in place mid-run; shared protocol docs remain
+read-in-place only), and the SHARED prompt (``config.SYSTEM_PROMPT_FILE``) leads the
+composed bundle.
 
 The runtime-NEUTRAL contract (§6.3) carries identity/address, the spec pointer, the frozen-acceptance
 reference, interface/constraints/workspace/reporting — IDENTICAL across runtimes; the adapter injects
@@ -90,6 +94,22 @@ def _level_token(level_config) -> str:
     return token.split("#", 1)[0]
 
 
+def identity_docs(level: str) -> list:
+    """The per-level IDENTITY trio (soul, role, config) as harness-root-relative paths.
+
+    The ONE source of truth for "what makes this seat itself" — used by the load-manifest
+    below AND by the adapters' identity AUTO-LOAD (LR-4 cure, user ruling 2026-06-12: the
+    trio is flattened into the CC per-spawn system prompt / listed in the codex boot prompt,
+    so identity acquisition never rides on agent diligence). Shared protocol docs stay
+    read-in-place via the manifest (reference library, not identity).
+    """
+    return [
+        f"operational/{level}/soul.md",
+        f"operational/{level}/role.md",
+        f"operational/{level}/config.md",
+    ]
+
+
 def _assemble_load_manifest(level_config) -> list[str]:
     """Assemble the per-seat load-manifest (ROLE-RESOLUTION §2) as a list of harness-root PATHS.
 
@@ -104,9 +124,7 @@ def _assemble_load_manifest(level_config) -> list[str]:
     manifest: list[str] = []
 
     # --- Per-level role docs (the seat's own identity/boundaries/self-monitoring) ---
-    manifest.append(f"operational/{level}/soul.md")
-    manifest.append(f"operational/{level}/role.md")
-    manifest.append(f"operational/{level}/config.md")
+    manifest.extend(identity_docs(level))
     # Per-level extras (handbook / planning-template / swe-handbook, …).
     manifest.extend(_LEVEL_EXTRAS.get(level, ()))
 

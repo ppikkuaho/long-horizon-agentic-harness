@@ -68,6 +68,29 @@ BOOT_PROMPT: str = (
     "directory; when a message tells you to check it, read any lines you have not yet read."
 )
 
+
+def _boot_prompt(level_config) -> str:
+    """The per-spawn boot prompt: identity AUTO-LOAD + plan-first + the BOOT_PROMPT base.
+
+    LR-4 cure (user ruling 2026-06-12): codex gets NO system-prompt injection (its native
+    instructions stay — user decision), so its identity auto-load rides the boot prompt as an
+    EXPLICIT ordered reading list (codex follows literal instructions; what it is told to read,
+    it reads). Then the plan-first discipline (Run-2: 11 of 15 return-contract bounces were
+    reporting-discipline — the boot prompt is the guaranteed moment to set it), then the
+    BOOT_PROMPT base (brief + inbox)."""
+    from harnessd.spawn import brief as _brief
+
+    level = (getattr(level_config, "level", None) or "").strip() or "L5"
+    root = _harness_root()
+    docs = ", ".join(str(root / rel) for rel in _brief.identity_docs(level))
+    return (
+        f"First, read these identity documents in order — they define who you are in this "
+        f"system: {docs}. Then: {BOOT_PROMPT} Before starting any work, write plan.md in this "
+        f"directory — a one-line goal plus a task checklist whose final three items are: fill "
+        f"report.md, verify your requirement-ID citations, sign off — and mirror that checklist "
+        f"with your plan tool, keeping both current as you work."
+    )
+
 # Rollout discovery bounds. MEASURED (smoke, 0.128.0): the TUI opens its rollout when the
 # boot-prompt turn actually starts streaming — ~100s after create_detached on a cold boot
 # (NOT the few seconds `codex exec` takes). The deadline covers that with margin; the cost is
@@ -226,7 +249,7 @@ class CodexAdapter(RuntimeAdapter):
             permission_posture = "unjailed-prompting"
         # The boot prompt is the LAST argv element (the TUI's optional [PROMPT]) — it starts the
         # first turn at boot, which is what creates the rollout the discovery below finds.
-        argv.append(BOOT_PROMPT)
+        argv.append(_boot_prompt(level_config))
 
         # (3) The pane env floor — CODEX-OWN, never CC's. The chokepoint hands every adapter the
         # commissioned CC env (CLAUDE_CODE_OAUTH_TOKEN + config dir + kill-switches): STRIP all

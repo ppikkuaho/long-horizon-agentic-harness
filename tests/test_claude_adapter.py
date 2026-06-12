@@ -214,9 +214,9 @@ def test_argv_uses_shared_system_prompt_file_flag(no_real_exec):
     idx = argv.index("--system-prompt-file")
     spf = argv[idx + 1]
     assert _os.path.isabs(spf), f"--system-prompt-file must be ABSOLUTE (survives any pane cwd); got {spf!r}"
-    assert spf.endswith(config.SYSTEM_PROMPT_FILE), (
-        "the flag value MUST resolve the CONSTANT shared operational/shared/system-prompt.md, "
-        f"not {spf!r} — the per-level role is NEVER in argv (DAEMON §6.2, H40)"
+    assert spf.endswith(".identity-prompt.md"), (
+        "the flag value MUST be the per-spawn COMPOSED identity bundle (identity auto-load, "
+        f"user ruling 2026-06-12 / LR-4); got {spf!r}"
     )
 
 
@@ -231,9 +231,9 @@ def test_system_prompt_is_not_a_per_level_role_path(no_real_exec):
         "the system-prompt-file must NOT be a per-level role path (e.g. operational/L3/role.md) — "
         f"it is the shared constant; got {spf!r}"
     )
-    # ABSOLUTE since the transport increment (the pane boots in the node workspace); still the
-    # ONE shared constant path underneath.
-    assert spf.endswith("operational/shared/system-prompt.md")
+    # The composed bundle CONTAINS the role text, but the argv VALUE is never a bare
+    # per-level doc path — the composition is the adapter's own artifact.
+    assert spf.endswith(".identity-prompt.md")
 
 
 def _strip_session_id(argv):
@@ -256,10 +256,17 @@ def test_argv_identical_across_role_variants(no_real_exec):
         adapter = _make_adapter(tmux)
         result = _spawn(adapter, role_variant=rv)
         stripped, sid = _strip_session_id(_result_argv(result, tmux))
+        # identity AUTO-LOAD (2026-06-12): the composed per-spawn system-prompt PATH is the
+        # second sanctioned per-spawn difference — strip the pair, pin its shape.
+        stripped = list(stripped)
+        i = stripped.index("--system-prompt-file")
+        assert stripped[i + 1].endswith(".identity-prompt.md")
+        stripped = tuple(stripped[:i] + stripped[i + 2:])
         argvs.append(stripped)
         sids.append(sid)
     assert len(set(argvs)) == 1, (
-        f"argv MUST be identical across role_variants (the shared prompt, not per-level); got {argvs!r}"
+        f"argv (minus session-id + composed-prompt path) MUST be identical across role_variants "
+        f"— the role rides the COMPOSED FILE, never argv flags; got {argvs!r}"
     )
     assert len(set(sids)) == len(sids), f"--session-id must be unique per spawn; got {sids!r}"
 
@@ -400,7 +407,10 @@ def test_records_role_variant_and_system_prompt_file(no_real_exec):
     adapter = _make_adapter(tmux)
     result = _spawn(adapter, role_variant="L4")
     assert result.role_variant == "L4"
-    assert result.system_prompt_file == config.SYSTEM_PROMPT_FILE
+    assert result.system_prompt_file.endswith(".identity-prompt.md"), (
+        "the recorded fact is the COMPOSED bundle path (what CC actually loaded) — "
+        "identity auto-load, 2026-06-12"
+    )
     assert isinstance(result.system_prompt_file_hash, str) and result.system_prompt_file_hash
 
 
@@ -648,3 +658,64 @@ def _result_env(result, tmux):
         return dict(_passed_env)
     env_recovered, _child = _recover_from_pane_argv(pane_argv)
     return env_recovered
+
+
+# ===========================================================================
+# Identity AUTO-LOAD (LR-4 cure; user ruling 2026-06-12 amending H40 Decision B):
+# the per-level identity trio is FLATTENED into a per-spawn system-prompt file —
+# identity arrives in context before the first token, never riding agent diligence.
+# ===========================================================================
+
+def test_argv_system_prompt_is_the_composed_identity_bundle(no_real_exec, tmp_path):
+    """The adapter composes shared system-prompt + the level's soul/role/config into
+    <workspace>/.identity-prompt.md and argv points at IT; the recorded facts carry the
+    composed path + the hash of the COMPOSED content. (Mutant: shared-constant argv
+    restored -> identity back on agent diligence -> caught.)"""
+    import hashlib
+    import pathlib
+
+    tmux = _MockTmux()
+    adapter = _make_adapter(tmux)
+    ws = tmp_path / "node-ws"
+    result = adapter.pin_and_open(
+        neutral_brief={"load_manifest": ["operational/L3/role.md"], "role_variant": "L3",
+                       "workspace": str(ws)},
+        level_config=_level("L3"),
+        tmux_target="payments/gateway/stripe#exec",
+        env=_iso_env(),
+    )
+    argv = _result_argv(result, tmux)
+    spf = argv[argv.index("--system-prompt-file") + 1]
+    assert spf.endswith(".identity-prompt.md"), (
+        f"argv must point at the per-spawn COMPOSED identity prompt; got {spf!r}"
+    )
+    composed = pathlib.Path(spf)
+    assert composed.is_file(), "the composed identity prompt must exist on disk at spawn time"
+    content = composed.read_text(encoding="utf-8")
+
+    cc_mod = _claude()
+    root = cc_mod._harness_root()
+    shared = (root / config.SYSTEM_PROMPT_FILE).read_text(encoding="utf-8")
+    assert shared.strip()[:80] in content, "the shared system prompt leads the composed bundle"
+    for rel in ("operational/L3/soul.md", "operational/L3/role.md", "operational/L3/config.md"):
+        body = (root / rel).read_text(encoding="utf-8")
+        assert body.strip()[:60] in content, f"{rel} must be FLATTENED into the identity prompt"
+        assert rel in content, f"the bundle must carry the provenance header for {rel}"
+
+    assert result.system_prompt_file == spf, "the recorded fact is the COMPOSED path (what CC loaded)"
+    assert result.system_prompt_file_hash == hashlib.sha256(content.encode("utf-8")).hexdigest(), (
+        "the hash fact covers the COMPOSED content"
+    )
+
+
+def test_codex_boot_prompt_lists_identity_docs_and_plan_first(tmp_path, monkeypatch, no_real_exec):
+    """Codex gets NO system-prompt injection (user decision: native instructions stay) — its
+    identity auto-load rides the BOOT PROMPT: the trio listed as explicit paths to read first,
+    plus the plan-first discipline (plan.md + plan-tool mirror), then brief.md. (Mutant: bare
+    'read brief.md' boot prompt -> identity unloaded -> caught.)"""
+    result, _home = _codex_spawn(tmp_path, monkeypatch)
+    prompt = list(result.argv)[-1]
+    for rel in ("operational/L5/soul.md", "operational/L5/role.md", "operational/L5/config.md"):
+        assert rel in prompt, f"the codex boot prompt must list {rel} to read FIRST; got {prompt!r}"
+    assert "brief.md" in prompt
+    assert "plan.md" in prompt, "the boot prompt carries the plan-first discipline"

@@ -290,9 +290,9 @@ def test_create_detached_carries_the_fully_assembled_real_pane(runtime):
     import os as _os
     assert "--system-prompt-file" in pane_argv, "the boot MUST pass --system-prompt-file (H40 recipe)"
     spf = pane_argv[pane_argv.index("--system-prompt-file") + 1]
-    assert _os.path.isabs(spf) and spf.endswith(config.SYSTEM_PROMPT_FILE), (
-        "argv must carry the ABSOLUTE resolution of the SHARED constant "
-        f"operational/shared/system-prompt.md (identical L1..L5), NOT a per-level role path; got {spf!r}"
+    assert _os.path.isabs(spf) and spf.endswith(".identity-prompt.md"), (
+        "argv must carry the per-spawn COMPOSED identity bundle (identity auto-load, user "
+        f"ruling 2026-06-12 / LR-4), NOT a bare per-level doc path; got {spf!r}"
     )
 
     # ---- NO H40 foot-guns in argv (--bare forces API-key auth; the others break role-as-documents) ----
@@ -306,13 +306,15 @@ def test_create_detached_carries_the_fully_assembled_real_pane(runtime):
         "role-as-documents: the per-seat role rides the brief load-manifest, never the argv "
         f"(no role.md in argv); got {pane_argv!r}"
     )
-    # The shared prompt path is the ONLY operational/* path in argv (a per-level role path would
-    # leak here). The value is ABSOLUTE since the transport increment, so match on the suffix.
+    # Identity auto-load (2026-06-12): the system-prompt value is the per-spawn COMPOSED
+    # bundle (it CONTAINS the role text); NO bare operational/* doc path may ride argv.
     op_paths = [tok for tok in pane_argv if "operational/" in tok]
-    assert op_paths and all(tok.endswith(config.SYSTEM_PROMPT_FILE) for tok in op_paths), (
-        "the ONLY operational/* path in argv must be the shared system-prompt; a per-level role path "
-        f"in argv is a role-in-argv leak; got {op_paths!r}"
+    assert not op_paths, (
+        "no bare operational/* doc path may appear in argv — the role rides the COMPOSED "
+        f"identity bundle, never a doc pointer in argv; got {op_paths!r}"
     )
+    spf_tok = pane_argv[pane_argv.index("--system-prompt-file") + 1]
+    assert spf_tok.endswith(".identity-prompt.md")
 
 
 def test_create_detached_env_is_exactly_the_four_isolation_vars_no_api_key(runtime):
@@ -407,6 +409,11 @@ def test_role_delivered_via_brief_manifest_not_argv(runtime):
     def _strip_session_id(argv):
         argv = list(argv)
         i = argv.index("--session-id")
+        argv = argv[:i] + argv[i + 2:]
+        # identity auto-load (2026-06-12): the composed per-spawn prompt path is the second
+        # sanctioned difference — pin its shape, strip the pair.
+        i = argv.index("--system-prompt-file")
+        assert argv[i + 1].endswith(".identity-prompt.md")
         return argv[:i] + argv[i + 2:]
 
     child_a = _strip_session_id(child_a)
@@ -419,13 +426,8 @@ def test_role_delivered_via_brief_manifest_not_argv(runtime):
         "the child argv must be identical across role_variants L3/L4 (the role is NEVER in argv — "
         f"role-as-documents); got L3={child_a!r} vs L4={child_b!r}"
     )
-    # And the shared system-prompt flag/value is the only operational/* path in BOTH (ABSOLUTE
-    # since the transport increment — the pane boots in the node workspace, -c).
-    import os as _os2
-    assert child_a[1] == "--system-prompt-file" and _os2.path.isabs(child_a[2]) \
-        and child_a[2].endswith(config.SYSTEM_PROMPT_FILE), (
-        f"the child argv must carry the shared --system-prompt-file constant (absolute); got {child_a!r}"
-    )
+    # The composed-bundle shape itself is pinned inside _strip_session_id above (the pair is
+    # stripped for the identity check — identity auto-load, 2026-06-12).
 
 
 # ===========================================================================

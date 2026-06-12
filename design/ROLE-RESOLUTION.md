@@ -96,6 +96,17 @@ the templates are the per-seat instances.
 
 ## 3. Reference resolution — read-in-place against the harness root
 
+> **AMENDED 2026-06-12 (user ruling, LR-4 cure — identity auto-load):** the per-level IDENTITY
+> TRIO (`soul.md`/`role.md`/`config.md`, `brief.identity_docs`) no longer rides on agent
+> diligence. The Claude-Code adapter FLATTENS it (shared prompt first, provenance headers per
+> doc) into a per-spawn composed system prompt (`<workspace>/.identity-prompt.md`) that argv
+> points at; the Codex adapter lists the trio as explicit first-reads in its boot prompt (its
+> native system message stays — user decision). Evidence: run-1's L1 booted without its
+> identity (LR-4); doc-presence alone proved insufficient against completion bias in run-2.
+> Everything below — the manifest, read-in-place, no-flatten — REMAINS TRUE for the shared
+> protocol docs and all cross-refs: they are a reference library the agent reads and re-reads
+> in place; only the identity trio is delivered in-context at boot.
+
 Every manifest doc and every cross-ref inside it (`design/…`, `operational/…`) is a path **relative
 to the harness root**, which the node reads in place. The mechanics:
 

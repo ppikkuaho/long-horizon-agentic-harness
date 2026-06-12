@@ -3,11 +3,13 @@
 The FROZEN H40 boot recipe (the ONE Claude-Code spawn the whole harness uses):
 
   argv = [CC, "--system-prompt-file", system_prompt_file]
-      where ``system_prompt_file`` is the CONSTANT shared ``operational/shared/system-prompt.md``
-      (``config.SYSTEM_PROMPT_FILE``) — the ONE shared minimal prompt, BYTE-IDENTICAL L1–L5. The
-      per-seat role is NEVER in argv: it arrives as the brief's load-manifest (role-as-documents),
-      which the agent READS in place. argv NEVER carries ``--bare`` (forces API-key auth, breaks
-      the OAuth token), ``--append-system-prompt`` (keeps the full base framing), or
+      where ``system_prompt_file`` is the per-spawn COMPOSED IDENTITY BUNDLE
+      (``_compose_identity_prompt``: the shared ``config.SYSTEM_PROMPT_FILE`` first, then the
+      level's soul/role/config under provenance headers — AMENDED 2026-06-12, user ruling /
+      LR-4 cure: identity acquisition never rides on agent diligence). The shared protocol
+      docs still arrive as the brief's load-manifest (role-as-documents), which the agent
+      READS in place. argv NEVER carries ``--bare`` (forces API-key auth, breaks the OAuth
+      token), ``--append-system-prompt`` (keeps the full base framing), or
       ``--agents``/``--agent`` (does not inject the persona) — the H40 foot-guns.
 
   env  = exactly the 4 isolation vars {CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN,
@@ -126,6 +128,72 @@ def _system_prompt_hash() -> str:
     except OSError:
         data = spf.encode("utf-8")
     return hashlib.sha256(data).hexdigest()
+
+
+def _compose_identity_prompt(level_config, workspace) -> tuple:
+    """Compose the per-spawn IDENTITY system prompt: shared prompt + the level's soul/role/config.
+
+    LR-4 cure (user ruling 2026-06-12, amending H40 Decision B): identity acquisition must not
+    ride on agent diligence — the trio is FLATTENED into the system prompt CC loads before its
+    first token. The shared prompt (``config.SYSTEM_PROMPT_FILE``) leads; each doc follows under
+    a provenance header; a trailer points at the brief's load-manifest for the read-in-place
+    protocol docs (those stay a reference library, not identity). Written to
+    ``<workspace>/.identity-prompt.md`` (the agent may re-read it; the file is jail-readable in
+    its own node) — or a temp file when no workspace rides the brief (bare adapter dry-runs).
+    Returns ``(path, sha256_of_content)``. A missing identity doc raises SpawnFailure
+    (failure_class='identity_missing') — E1's pieces gate makes that unreachable in production;
+    this is the fail-loud net, never a silent fallback to the bare shared prompt.
+    """
+    import tempfile
+
+    level = (getattr(level_config, "level", None) or "").strip() or "L5"
+    root = _harness_root()
+    parts = []
+    try:
+        parts.append((root / config.SYSTEM_PROMPT_FILE).read_text(encoding="utf-8"))
+    except OSError as exc:
+        failure = oauth_guard.SpawnFailure(f"identity compose: shared system prompt unreadable ({exc})")
+        failure.failure_class = "identity_missing"
+        raise failure
+    for rel in _brief_module().identity_docs(level):
+        try:
+            body = (root / rel).read_text(encoding="utf-8")
+        except OSError as exc:
+            failure = oauth_guard.SpawnFailure(
+                f"identity compose: {rel} unreadable ({exc}) — an under-equipped actor never opens"
+            )
+            failure.failure_class = "identity_missing"
+            raise failure
+        parts.append(f"\n\n---\n\n<!-- identity: {rel} (auto-loaded at spawn — LR-4) -->\n\n{body}")
+    parts.append(
+        "\n\n---\n\nThe remaining protocol documents are listed in your brief's load-manifest "
+        "(\"Identity \u2014 Load These Documents\") \u2014 read them in place before starting work.\n"
+    )
+    content = "".join(parts)
+
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    if workspace:
+        target_dir = Path(str(workspace))
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            path = target_dir / ".identity-prompt.md"
+            path.write_text(content, encoding="utf-8")
+            return path, digest
+        except OSError:
+            pass  # an unwritable workspace must not cost the agent its identity — temp fallback
+    fd, tmp = tempfile.mkstemp(suffix=".identity-prompt.md", prefix="cc-")
+    import os as _os
+    _os.close(fd)
+    path = Path(tmp)
+    path.write_text(content, encoding="utf-8")
+    return path, digest
+
+
+def _brief_module():
+    """Lazy import (brief.py is dependency-free; lazy keeps adapter import order unchanged)."""
+    from harnessd.spawn import brief as _brief
+
+    return _brief
 
 
 def _transcript_path(env: dict, cwd: str | None, session_uuid: str) -> str:
@@ -299,7 +367,12 @@ class ClaudeCodeAdapter(RuntimeAdapter):
         #     An unmapped model adds NO flag (explicit mapping, never a guessed id); model_used
         #     below remains the recorded INTENT (the E32 fact-checker is deferred F17 territory).
         cc = str(_harness_root() / _PINNED_CC)
-        argv = [cc, "--system-prompt-file", str(_harness_root() / config.SYSTEM_PROMPT_FILE)]
+        # Identity AUTO-LOAD (LR-4 cure): the per-spawn COMPOSED bundle (shared prompt + the
+        # level trio), never the bare shared constant — see _compose_identity_prompt.
+        identity_path, identity_hash = _compose_identity_prompt(
+            level_config, _brief_get(neutral_brief, "workspace")
+        )
+        argv = [cc, "--system-prompt-file", str(identity_path)]
         cc_model = config.CC_MODEL_FLAGS.get(getattr(level_config, "model", None))
         if cc_model:
             argv += ["--model", cc_model]
@@ -438,8 +511,8 @@ class ClaudeCodeAdapter(RuntimeAdapter):
             session_uuid=session_uuid,
             model_used=_model_used(level_config),
             role_variant=role_variant,
-            system_prompt_file=config.SYSTEM_PROMPT_FILE,
-            system_prompt_file_hash=_system_prompt_hash(),
+            system_prompt_file=str(identity_path),
+            system_prompt_file_hash=identity_hash,
             tmux_target=canonical_target,
             transcript_path=transcript_path,
             failure_class=None,

@@ -733,8 +733,10 @@ def _deliver_kickoff(node_address: str, spawn_result, adapter) -> None:
     node_dir = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
     inbox = addressing.inbox_path(node_address, ledger.RUNTIME_ROOT)
     pointer = (
-        f"You are {node_address}. Read brief.md in your workspace at {node_dir} and begin. "
-        f"Messages arrive in .inbox.{seat}.jsonl."
+        f"You are {node_address}. Read brief.md in your workspace at {node_dir} and follow it. "
+        f"First act, before any work: write plan.md — a one-line goal plus a task checklist "
+        f"whose final three items are: fill report.md, verify your requirement-ID citations, "
+        f"sign off — and mirror it in your task tool. Messages arrive in .inbox.{seat}.jsonl."
     )
 
     # (1) the durable kickoff line (multi-writer append log — NOT the single-writer ledger).
