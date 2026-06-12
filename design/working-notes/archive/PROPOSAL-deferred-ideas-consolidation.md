@@ -98,15 +98,15 @@ These items fill in once the architecture skeleton is set. Highly iterative.
 ### C. Architecture -- Product / UX
 
 #### C1. User Interface / Navigation / GUI
-- **Source:** ARCHITECTURE.md, line 346 (item 16), line 288; NOTES.md, lines 407-418; SESSION-2026-03-10.md (voice notes: "Visual front-end needed"); gmail-notes-scan item #13
+- **Source:** ARCHITECTURE.md, line 346 (item 16), line 288; NOTES.md, lines 407-418; SESSION-2026-03-10.md (voice notes: "Visual front-end needed"); ideas-inbox item #13
 - **Description:** The terminal is great for input but poor for state representation. The GUI is for the user, not for the agents. Claude Code remains the backbone. The GUI is a lens over the same filesystem and agent infrastructure. Design for the end state, build iteratively. The workspace schema (project folders, status board, inbox, living docs) is already the data layer.
 - **Open question (NOTES.md line 415):** Could the GUI also improve agent orientation? L1/L2 face similar state-representation challenges.
-- **Related resources:** gmail-notes-scan item #13 ("Chat Box is a Terrible Interface for AI Agents" -- workspace/dashboard over chat)
+- **Related resources:** ideas-inbox item #13 ("Chat Box is a Terrible Interface for AI Agents" -- workspace/dashboard over chat)
 - **Status:** Early design. Multiple sources confirm this as a future workstream.
 
 #### C2. Multiple L1 Design
 - **Source:** ARCHITECTURE.md, lines 280-287, 347 (item 17); DESIGN-PRINCIPLES.md, line 208
-- **Description:** Separate L1s anticipated for: personal/life domains (therapy, health, life admin -- different function, different structure), Internal Affairs (system observation, process improvement, meta-analysis -- its "projects" are the system itself). These may not need the same L1-L4 structure.
+- **Description:** Separate L1s anticipated for: personal/life domains (health, life admin -- different function, different structure), Internal Affairs (system observation, process improvement, meta-analysis -- its "projects" are the system itself). These may not need the same L1-L4 structure.
 - **Status:** Listed as separate design tasks. Not started.
 
 #### C3. Benchmarking
@@ -146,12 +146,12 @@ These items fill in once the architecture skeleton is set. Highly iterative.
 - **Status:** Partially resolved (L1 stays aware, bypassed levels get backfilled). Open questions remain on mechanics.
 
 #### D5. ReAct vs. Plan-and-Execute Architecture Patterns
-- **Source:** gmail-notes-scan item #11
+- **Source:** ideas-inbox item #11
 - **Description:** Two key agent architecture patterns (ReAct for uncertain tasks, Plan-and-Execute for predictable workflows). Advanced systems combine both. Key insight: choosing the right level of structure for the uncertainty level. Could inform how L2/L3 choose execution strategies.
 - **Status:** Reference material captured. Not integrated into architecture.
 
 #### D6. Treat All AI Context Like a Unix File
-- **Source:** gmail-notes-scan item #8
+- **Source:** ideas-inbox item #8
 - **Description:** Paper proposing Unix file abstractions for managing AI agent context. Could inform the workspace/filesystem design.
 - **Status:** Reference link captured. Paper not yet read or evaluated.
 
@@ -160,30 +160,30 @@ These items fill in once the architecture skeleton is set. Highly iterative.
 ### E. Architecture -- Infrastructure and Tooling Ideas
 
 #### E1. Single CLI Tool vs. Function Calling (Manus Pattern)
-- **Source:** gmail-notes-scan item #5
+- **Source:** ideas-inbox item #5
 - **Description:** Former Manus backend lead argues that a single `run(command="...")` tool with Unix-style commands outperforms a catalog of typed function calls. Key insights: Unix text streams and LLM tokens share the same interface model; CLI is densest tool-use pattern in training data; pipe composition replaces multiple tool calls; progressive `--help` discovery beats stuffing docs into system prompts; two-layer architecture separating Unix execution from LLM presentation.
 - **Status:** Reference material captured. Could inform L3/L4 tool interface design.
 - **Links:** https://www.reddit.com/r/LocalLLaMA/comments/1rrisqn/, https://github.com/epiral/pinix
 
 #### E2. Multi-Account Subscription Orchestration
-- **Source:** gmail-notes-scan item #4
+- **Source:** ideas-inbox item #4
 - **Description:** Managing multiple Claude subscriptions: balance usage limits and auto-switch between subscriptions (LLM-driven and deterministic), handle MCP login/integrations and Chrome extension tied to logged-in account.
 - **Status:** Noted. Infrastructure problem for scaling the system.
 
 #### E3. Backend Layer for Claude Code Agents (6 Primitives)
-- **Source:** gmail-notes-scan item #14
+- **Source:** ideas-inbox item #14
 - **Description:** Someone built a backend layer providing 6 primitives for Claude Code agents to manage backend operations end-to-end.
 - **Status:** Reference link captured. Not evaluated.
 - **Links:** https://www.reddit.com/r/ClaudeAI/comments/1rtddzb/
 
 #### E4. Long-Running Agent Harness Patterns (Anthropic Engineering)
-- **Source:** gmail-notes-scan item #6
+- **Source:** ideas-inbox item #6
 - **Description:** Anthropic's engineering blog on harnesses for agents across multiple context windows. Patterns: initializer agent + coding agent, feature list in JSON with status tracking, git commits + progress files for session recovery, startup protocol (check working dir, read progress, select next task), browser automation for end-to-end testing.
 - **Status:** Reference link captured. Directly relevant to agent lifecycle / session recovery design.
 - **Links:** https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 #### E5. Get Physics Done (GDP) -- Agentic Research Loops
-- **Source:** gmail-notes-scan item #7
+- **Source:** ideas-inbox item #7
 - **Description:** Open-source MCP-based agentic research system with phased execution (formulation, planning, execution, verification), task dependency management, wave-based parallelization, research memory, artifact generation, rigorous validation.
 - **Status:** Reference material. Exemplar of domain-specific agentic system with phased workflows. Could inform L2/L3 execution strategy design.
 - **Links:** https://github.com/psi-oss/get-physics-done
@@ -193,43 +193,43 @@ These items fill in once the architecture skeleton is set. Highly iterative.
 ### F. Architecture -- Agent Skills and Capabilities
 
 #### F1. Escalation, Leadership, and Problem-Solving Skills for Agent Managers
-- **Source:** gmail-notes-scan item #1
+- **Source:** ideas-inbox item #1
 - **Description:** When a lower-level agent hits a block, the manager should not just say "try harder" but: (a) interrogate the associate's process, (b) consider parallel approaches, (c) consult lateral experts (Codex, Gemini), (d) offer different tools, (e) correct the associate's approach. Each level needs leadership skills, prompt writing/design skills, knowledge of typical AI failure modes, and structured problem-solving methodologies packaged as validated skills.
 - **Status:** Noted in gmail self-notes. Directly relevant to B1 (level configurations) and B2 (metacognition schemas).
 
 #### F2. L1 Pre-Work Research Team
-- **Source:** gmail-notes-scan item #2
+- **Source:** ideas-inbox item #2
 - **Description:** L1 needs its own pre-work/pre-spec research team that operates before engagement. Research phase before delegation.
 - **Status:** Noted. Connects to L1's design as the managing partner.
 
 #### F3. Discussive L1 Branch (Branching Discussion Pattern)
-- **Source:** gmail-notes-scan item #3
+- **Source:** ideas-inbox item #3
 - **Description:** A separate L1 branch that is discussive (for problem work), using a branching discussion with an L1 copy subagent. Keeps main context window clean and avoids earlier context influencing later questions.
 - **Status:** Noted. Relates to User-Initiated Conversational Mode (D4) and context management.
 
 #### F4. "What Does a Good Answer Look Like" System
-- **Source:** gmail-notes-scan item #3
+- **Source:** ideas-inbox item #3
 - **Description:** A separate system that evaluates answer quality -- given a question, what areas/topics does a good answer need to cover conceptually? Quality evaluation of outputs against a pre-defined coverage model.
 - **Status:** Noted. Could inform L2/L3 verification and quality gating.
 
 #### F5. Separate Verifier Agent Pattern
-- **Source:** gmail-notes-scan item #9
+- **Source:** ideas-inbox item #9
 - **Description:** Formal verification agent/bot: use a separate verifier (not the executor) that compares ground truth with output, describes differences, and may not even pass judgment -- just reports differences. For visual/uneven tasks, use multiple verification passes.
 - **Status:** Noted. Directly relevant to L3's verification role and L4's self-verification.
 - **Related:** Trust by Default, Verify by Exception (Principle 4)
 
 #### F6. Atomic Skills + Skill/Prompt Builder
-- **Source:** gmail-notes-scan item #10
+- **Source:** ideas-inbox item #10
 - **Description:** Codify specific atomic functions (verification, etc.) as skills. Have workflows invoke individual skills. Build a skill/prompt builder and explain the thinking to Claude. Composable skill architecture for agents.
 - **Status:** Noted. Connects to loadset design in the Invocation protocol (A1) and principle 16 (Designed for Evolution).
 
 #### F7. Small Specialized Models for Atomic Tasks
-- **Source:** gmail-notes-scan item #12
+- **Source:** ideas-inbox item #12
 - **Description:** Capability density compressing fast (36-parameter transformer with 99%+ accuracy on 10-digit addition). Small specialized models could handle atomic agent tasks extremely efficiently. Not everything needs a frontier model.
 - **Status:** Reference observation. Longer-term research direction.
 
 #### F8. User-Level Audit Process / Behavioral Trace
-- **Source:** gmail-notes-scan item #2
+- **Source:** ideas-inbox item #2
 - **Description:** A readable trace showing "L1 kicks off to L2, L2 breaks the problem, delegates to L3s, L3s delegate to L4s, L4s get stuck, ask L3..." Essentially a behavioral trace of the multi-agent system for early system runs.
 - **Status:** Noted. Relates to Observability (Principle 11) and GUI (C1).
 
@@ -303,25 +303,25 @@ These items fill in once the architecture skeleton is set. Highly iterative.
 These are links and references captured in the gmail scan that haven't been read, evaluated, or integrated but are marked as relevant.
 
 #### I1. Anthropic Claude Certified Architect Study Guide
-- **Source:** gmail-notes-scan item #15
+- **Source:** ideas-inbox item #15
 - **Description:** PDF of Claude Certified Architect Foundations exam guide. May inform agent design patterns.
 
 #### I2. Claude Code Best Practices (15K stars)
-- **Source:** gmail-notes-scan item #16
+- **Source:** ideas-inbox item #16
 - **Links:** https://www.reddit.com/r/ClaudeAI/comments/1rsyfdz/
 
 #### I3. Karpathy Auto-ML Research Repo
-- **Source:** gmail-notes-scan item #18
+- **Source:** ideas-inbox item #18
 - **Description:** Automated ML research. Could inform autonomous research agent design.
 - **Links:** https://www.reddit.com/r/AgentsOfAI/comments/1ro490o/
 
 #### I4. ARC-AGI Solve Harness + Iterative Self-Improvement
-- **Source:** gmail-notes-scan item #19
+- **Source:** ideas-inbox item #19
 - **Description:** Iterative self-improvement patterns for AI agents.
 - **Links:** https://x.com/noemon_ai/status/2029970173248049243
 
 #### I5. B2B SaaS Growth Playbooks as Claude Skill
-- **Source:** gmail-notes-scan item #20
+- **Source:** ideas-inbox item #20
 - **Description:** Demonstrates skill packaging pattern for domain expertise.
 - **Links:** https://www.reddit.com/r/ClaudeAI/comments/1rsgn90/
 
@@ -336,7 +336,7 @@ Deferred ideas are currently scattered across:
 - ARCHITECTURE.md (Open Design Work section, PLACEHOLDERs inline)
 - DESIGN-PRINCIPLES.md (Open Questions section)
 - cognitive-config-ideas.md (standalone file)
-- gmail-notes-scan-2026-03-16.md (raw scan output)
+- ideas-inbox-2026-03.md (raw scan output)
 - SESSION-2026-03-10.md (implicit ideas in conversation)
 
 This fragmentation means there is no single view of "what remains to be done" and no way to prioritize across categories.
@@ -375,7 +375,7 @@ ai-architecture/
   NOTES.md                     # Running design notes
   SESSION-2026-03-10.md        # Raw session transcript
   cognitive-config-ideas.md    # Standalone ideas file
-  gmail-notes-scan-2026-03-16.md  # Gmail scan output
+  ideas-inbox-2026-03.md  # Gmail scan output
   reference/                   # External reference material
     anthropic-soul-doc.md
     anthropic-soul-doc-summary.md
@@ -398,7 +398,7 @@ ai-architecture/
 
 **What could be improved:**
 
-1. **Session transcripts and raw scans at root level.** `SESSION-2026-03-10.md` and `gmail-notes-scan-2026-03-16.md` are source material, not design documents. They add noise to the root directory alongside the core design docs. They would be better in a `sessions/` or `source/` directory.
+1. **Session transcripts and raw scans at root level.** `SESSION-2026-03-10.md` and `ideas-inbox-2026-03.md` are source material, not design documents. They add noise to the root directory alongside the core design docs. They would be better in a `sessions/` or `source/` directory.
 
 2. **`cognitive-config-ideas.md` is an orphan.** It's a standalone ideas file with no clear relationship to the document hierarchy. Its content (meta-cognitive configuration dimensions) is part of the design work (B2, G1) and should either be absorbed into NOTES.md or moved to a dedicated `ideas/` or `explorations/` directory.
 
@@ -428,7 +428,7 @@ ai-architecture/
   # Source material (moved from root)
   sources/
     SESSION-2026-03-10.md
-    gmail-notes-scan-2026-03-16.md
+    ideas-inbox-2026-03.md
     cognitive-config-ideas.md
 
   # External reference material (unchanged)
@@ -466,7 +466,7 @@ ai-architecture/
 | From | To | Reason |
 |------|-----|--------|
 | `SESSION-2026-03-10.md` | `sources/SESSION-2026-03-10.md` | Source material, not design doc |
-| `gmail-notes-scan-2026-03-16.md` | `sources/gmail-notes-scan-2026-03-16.md` | Source material, not design doc |
+| `ideas-inbox-2026-03.md` | `sources/ideas-inbox-2026-03.md` | Source material, not design doc |
 | `cognitive-config-ideas.md` | `sources/cognitive-config-ideas.md` | Exploratory ideas, not design doc |
 | `preference-extraction/aggregated/` | Remove from project dir (lives in `dev/preference-extraction/`) | Intermediate pipeline data, not deliverables |
 | `preference-extraction/extraction-manifest.md` | Remove from project dir | Intermediate pipeline data |

@@ -186,7 +186,7 @@ The **sign-off-or-fail watchdog** is the safety net, and it keys on *evidence of
 
 ## 15. Variable Depth
 
-The five-level hierarchy is the maximum, not the minimum. Not every task requires every level. "Fix this typo" doesn't need a project director to frame the approach. A therapy session routes directly to the specialist. L1 should dispatch to whatever level the task actually requires — directly to L4 for straightforward operational work, to L2 for something that needs problem framing, or hand the user off to an L2 for a deep design session that doesn't need L4/L5 at all.
+The five-level hierarchy is the maximum, not the minimum. Not every task requires every level. "Fix this typo" doesn't need a project director to frame the approach. A personal-domain session routes directly to the specialist. L1 should dispatch to whatever level the task actually requires — directly to L4 for straightforward operational work, to L2 for something that needs problem framing, or hand the user off to an L2 for a deep design session that doesn't need L4/L5 at all.
 
 The test is cognitive: does this task require a different *kind of thinking* at each level it passes through? If L2 would just pass it straight to L3 without adding judgment, skip L2. The levels exist to add value through their distinct cognitive modes (principle 3), not as mandatory gates.
 

@@ -15,4 +15,4 @@
 - `code-review-dimensions-research.md` — reusable research underpinning **per-level** review (NOT a standalone review function); to relocate to a `reference/` area.
 
 ## ARCHIVED — historical, not current truth (in `archive/`)
-Stored for traceability only: `SESSION-2026-03-10`, `gmail-notes-scan-2026-03-16`, `PROPOSAL-deferred-ideas-consolidation`, `workflow-diagram-learnings`, `compute-time-bounded-tasks`, `consolidation-plan-2026-06-02` (the 06-02 master consolidation record — superseded-where-overlapping by the 06-04 notes).
+Stored for traceability only: `ideas-inbox-2026-03`, `PROPOSAL-deferred-ideas-consolidation`, `workflow-diagram-learnings`, `compute-time-bounded-tasks`, `consolidation-plan-2026-06-02` (the 06-02 master consolidation record — superseded-where-overlapping by the 06-04 notes).

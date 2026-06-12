@@ -50,4 +50,4 @@ The recovered prior art the build adapts FROM (NOT the `design/` specs): `resear
 
 ## Records & archives
 - Pinned CC: `PINNED-CC.md`. H40 in-role boot: `H40-RESEARCH-TASK.md` (**RESOLVED**).
-- `design/working-notes/archive/` — stale notes (see `working-notes/INDEX.md`). Prune/integrity: `MOVE-MANIFEST.md`, `manifest.json`. Suspect-art map: `PRIOR-ART-SUSPECT.md`.
+- `design/working-notes/archive/` — stale notes (see `working-notes/INDEX.md`). Provenance: `PROVENANCE.md`. Suspect-art map: `PRIOR-ART-SUSPECT.md`.

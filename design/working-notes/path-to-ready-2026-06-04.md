@@ -29,7 +29,7 @@ Semantic layer is largely canon-aligned. But the just-locked **interactive-tmux 
 ## Clutter / navigation (the "things get lost" risk)
 - **working-notes/ has NO index** — the 2 LIVE notes are buried among 9 stale Mar-2026 notes. **Add working-notes/INDEX.md** naming the 2 live notes as canon-superseding; list the rest as archived/historical.
 - Mark **consolidation-plan-2026-06-02.md** superseded-where-overlapping (its runtime/liveness rows are superseded by the 06-04 notes).
-- **Archive** (→ working-notes/archive/): SESSION-2026-03-10.md (72KB dump), gmail-notes-scan-2026-03-16.md, PROPOSAL-deferred-ideas-consolidation.md, workflow-diagram-learnings.md + workflow-diagram.html, compute-time-bounded-tasks.md.
+- **Archive** (→ working-notes/archive/): ideas-inbox-2026-03.md, PROPOSAL-deferred-ideas-consolidation.md, workflow-diagram-learnings.md + workflow-diagram.html, compute-time-bounded-tasks.md.
 - **L1/L2-config-design-notes.md** — their target files L1-CONFIG.md/L2-CONFIG.md don't exist; the real files are operational/L*/config.md. Check if propagated; archive or label pending.
 - Relocate **code-review-dimensions-research.md** to a reference/ area (keep — underpins per-level review).
 - **Canon-precedence rule** (put in a refreshed DOCUMENT-HIERARCHY.md or new design/INDEX.md): the two 2026-06-04 notes OVERRIDE the Jun-02 docs where they conflict; Jun-02 docs canonical for semantics they cover. Builder reading order: runtime-decisions → arch-gap-review → ARCHITECTURE (post-reconcile) → cluster docs; NOTES.md last, only with banners.

@@ -37,9 +37,9 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 | # | Item | Detail location |
 |---|------|-----------------|
 | 5 | Time awareness — can L2 schedule and pace work across days? | ARCHITECTURE.md §Open Design Work (#13), DESIGN-PRINCIPLES.md |
-| 12 | Multi-account subscription orchestration | working-notes/gmail-notes-scan-2026-03-16.md (item #4) |
-| 14 | L1 pre-work research team | working-notes/gmail-notes-scan-2026-03-16.md (item #2) |
-| 15 | Discussive L1 branch — branching discussion pattern | working-notes/gmail-notes-scan-2026-03-16.md (item #3) |
+| 12 | Multi-account subscription orchestration | working-notes/archive/ideas-inbox-2026-03.md (item #4) |
+| 14 | L1 pre-work research team | working-notes/archive/ideas-inbox-2026-03.md (item #2) |
+| 15 | Discussive L1 branch — branching discussion pattern | working-notes/archive/ideas-inbox-2026-03.md (item #3) |
 | 16 | Seeds not instructions — formalize as design principle | NOTES.md (Design Note: Seeds, Not Instructions) |
 | 17 | Design principles as loadable skill — navigator pattern with detail files | NOTES.md (Design Note: Dynamic Cognitive Configuration, design principles section) |
 | 18 | CULTURE.md — organizational environment/values document | NOTES.md (Idea: CULTURE.md) |
@@ -56,7 +56,7 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 | 2 | Sibling communication — lateral agent communication across projects | NOTES.md (Future Exploration: Sibling Communication) |
 | 3 | Lateral depth / within-level decomposition — cognitive director pattern | NOTES.md (Design Note: Lateral Depth) |
 | 4 | LLM self-managed context — active context window management | NOTES.md (Research Direction: LLM Self-Managed Context) |
-| 5 | Separate verifier agent pattern | working-notes/gmail-notes-scan-2026-03-16.md (item #9) |
+| 5 | Separate verifier agent pattern | working-notes/archive/ideas-inbox-2026-03.md (item #9) |
 | 6 | Cognitive config meta-dimensions (iterative portion) | agentic-design/cognitive-config-ideas.md |
 | 7 | L2 decomposition depth placement — where the guideline lives | NOTES.md (Design Note: L2 Decomposition Depth) |
 | 8 | Proof-of-access compliance gates for alignment/review enforcement | NOTES.md (Future Exploration: Proof-of-Access Gates as Compliance Enforcement for L1-L5) |
@@ -119,25 +119,25 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 | # | Item | Detail location |
 |---|------|-----------------|
 | 1 | Org design literature survey | NOTES.md (Research Direction: Organizational Design Literature) |
-| 2 | ReAct vs Plan-and-Execute architecture patterns | working-notes/gmail-notes-scan-2026-03-16.md (item #11) |
-| 3 | Treat AI context like Unix files (paper) | working-notes/gmail-notes-scan-2026-03-16.md (item #8) |
+| 2 | ReAct vs Plan-and-Execute architecture patterns | working-notes/archive/ideas-inbox-2026-03.md (item #11) |
+| 3 | Treat AI context like Unix files (paper) | working-notes/archive/ideas-inbox-2026-03.md (item #8) |
 
 ### Infrastructure and tooling ideas
 
 | # | Item | Detail location |
 |---|------|-----------------|
-| 4 | Manus CLI pattern — single tool vs function calling | working-notes/gmail-notes-scan-2026-03-16.md (item #5) |
-| 5 | Backend primitives for Claude Code agents (6 primitives) | working-notes/gmail-notes-scan-2026-03-16.md (item #14) |
-| 6 | Long-running agent harness patterns (Anthropic engineering) | working-notes/gmail-notes-scan-2026-03-16.md (item #6) |
-| 7 | GDP agentic research loops | working-notes/gmail-notes-scan-2026-03-16.md (item #7) |
+| 4 | Manus CLI pattern — single tool vs function calling | working-notes/archive/ideas-inbox-2026-03.md (item #5) |
+| 5 | Backend primitives for Claude Code agents (6 primitives) | working-notes/archive/ideas-inbox-2026-03.md (item #14) |
+| 6 | Long-running agent harness patterns (Anthropic engineering) | working-notes/archive/ideas-inbox-2026-03.md (item #6) |
+| 7 | GDP agentic research loops | working-notes/archive/ideas-inbox-2026-03.md (item #7) |
 
 ### Agent skill ideas
 
 | # | Item | Detail location |
 |---|------|-----------------|
-| 8 | Answer quality evaluation system | working-notes/gmail-notes-scan-2026-03-16.md (item #3) |
-| 9 | Atomic skills + skill/prompt builder | working-notes/gmail-notes-scan-2026-03-16.md (item #10) |
-| 10 | Small specialized models for atomic tasks | working-notes/gmail-notes-scan-2026-03-16.md (item #12) |
+| 8 | Answer quality evaluation system | working-notes/archive/ideas-inbox-2026-03.md (item #3) |
+| 9 | Atomic skills + skill/prompt builder | working-notes/archive/ideas-inbox-2026-03.md (item #10) |
+| 10 | Small specialized models for atomic tasks | working-notes/archive/ideas-inbox-2026-03.md (item #12) |
 
 ### Methodology learnings (reusable)
 
@@ -149,11 +149,11 @@ Horizon-organized map of all outstanding design work. This is navigation, not a 
 
 | # | Item | Detail location |
 |---|------|-----------------|
-| 12 | Anthropic Claude Certified Architect study guide | working-notes/gmail-notes-scan-2026-03-16.md (item #15) |
-| 13 | Claude Code best practices (15K stars thread) | working-notes/gmail-notes-scan-2026-03-16.md (item #16) |
-| 14 | Karpathy Auto-ML research repo | working-notes/gmail-notes-scan-2026-03-16.md (item #18) |
-| 15 | ARC-AGI solve harness + iterative self-improvement | working-notes/gmail-notes-scan-2026-03-16.md (item #19) |
-| 16 | B2B SaaS growth playbooks as Claude skill | working-notes/gmail-notes-scan-2026-03-16.md (item #20) |
+| 12 | Anthropic Claude Certified Architect study guide | working-notes/archive/ideas-inbox-2026-03.md (item #15) |
+| 13 | Claude Code best practices (15K stars thread) | working-notes/archive/ideas-inbox-2026-03.md (item #16) |
+| 14 | Karpathy Auto-ML research repo | working-notes/archive/ideas-inbox-2026-03.md (item #18) |
+| 15 | ARC-AGI solve harness + iterative self-improvement | working-notes/archive/ideas-inbox-2026-03.md (item #19) |
+| 16 | B2B SaaS growth playbooks as Claude skill | working-notes/archive/ideas-inbox-2026-03.md (item #20) |
 
 ---
 

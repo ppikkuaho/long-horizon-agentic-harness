@@ -37,7 +37,7 @@ Much of the system's sophistication — self-verification loops, documentation p
 
 - **Not an AI performance improvement project.** Execution is already good enough. The problem is leadership and coordination, not implementation quality.
 - **Not an org chart roleplay.** The levels exist because they represent genuinely different cognitive tasks, not because hierarchy is inherently valuable.
-- **Not a replacement for Life-OS.** Life-OS handles personal life-admin, memory, and domains like therapy and health. This system handles getting project work done. They coexist and may be wired together over time.
+- **Not a replacement for Life-OS.** Life-OS handles personal life-admin, memory, and personal/health domains. This system handles getting project work done. They coexist and may be wired together over time.
 - **Not a finished design.** This is a living system that will be highly iterative. The architecture is designed to evolve (principle 16).
 
 ---

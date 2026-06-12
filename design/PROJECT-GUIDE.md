@@ -87,8 +87,7 @@ The above hierarchy is the *document* stack. The runtime *application* arc — h
 
 | File | Purpose |
 |------|---------|
-| `SESSION-2026-03-10.md` | Raw conversation history from the founding architecture session. Voice note transcriptions + design discussion that produced DESIGN-PRINCIPLES.md. |
-| `gmail-notes-scan-2026-03-16.md` | 14 relevant ideas extracted from Gmail self-notes (2026-03-02 to 2026-03-16). Escalation patterns, audit traces, research pointers, tooling ideas. |
+| `ideas-inbox-2026-03.md` | Architecture-relevant ideas captured from personal notes (March 2026). Escalation patterns, audit traces, research pointers, tooling ideas. |
 | `code-review-dimensions-research.md` | Research on code review dimensions (17 identified, 9 independent, 4-tier preset structure). Feeds into QUALITY-GATE.md. |
 | `cognitive-config-ideas.md` | Meta-configuration dimensions: effort/depth toggle, audience/register, confidence threshold, scope/horizon. Early-stage exploration. |
 | `PROPOSAL-deferred-ideas-consolidation.md` | Consolidated inventory of all deferred/future/post-V1 ideas across the project. Research and collation — preceded ROADMAP.md. |
@@ -99,19 +98,6 @@ The above hierarchy is the *document* stack. The runtime *application* arc — h
 |------|---------|
 | `anthropic-soul-doc.md` | Full text of Anthropic's Claude 4.5 Opus internal alignment document (~70K chars). Reference material for soul document design. |
 | `anthropic-soul-doc-summary.md` | Structural analysis of the Anthropic soul document: section-by-section breakdown, abstraction levels, design patterns identified. |
-
-### `preference-extraction/` — User Behavioral Preference Extraction
-
-This directory contains the output of a systematic preference extraction pipeline that processed the full Life-OS conversation archive (138 conversations, ~65M tokens, ~829 subagent runs). The goal: extract user behavioral preferences to inform level configurations.
-
-| File/Dir | Purpose |
-|----------|---------|
-| `STRATEGY.md` | Pipeline architecture: 4-phase extraction design, scale metrics, chunk handling strategy. |
-| `METHODOLOGY.md` | Post-hoc methodology documentation and learnings (H1-H5) from running the pipeline. |
-| `extraction-manifest.md` | Per-chunk tracking manifest for Phase 1 extraction runs. |
-| `aggregated/` | ~140 per-chunk extraction outputs (Phase 1 raw results). Timestamped files. |
-| `thematic/` | 11 thematic cluster analyses (Phase 3): agent-autonomy, code-development, communication-style, decision-planning, values-philosophy, etc. Plus `CLUSTERS.md` index. |
-| `synthesis/` | Final synthesis outputs (Phase 4): `full-preference-spec.md` (comprehensive spec), `preference-spec.md` (concise spec), `behavioral-profile.md` (personality dimensions), `preference-gap.md` (gap analysis vs current system behavior). |
 
 ---
 
@@ -136,9 +122,6 @@ This directory contains the output of a systematic preference extraction pipelin
 
 **External reference material (papers, third-party docs, analysis of external systems):**
 → Place in `reference/`.
-
-**User preference/behavioral data:**
-→ Place in `preference-extraction/` (or appropriate subdirectory).
 
 **Outstanding work items:**
 → Add to `ROADMAP.md` under the appropriate horizon (V1, Post-V1, Exploration) with a one-liner and pointer to where the detail lives.
@@ -182,23 +165,14 @@ ai-architecture/
 ├── PROJECT-GUIDE.md           # This file — orientation and conventions
 │
 ├── sources/                   # Raw source material
-│   ├── SESSION-2026-03-10.md          # Founding architecture session transcript
-│   ├── gmail-notes-scan-2026-03-16.md # Ideas from Gmail self-notes
+│   ├── ideas-inbox-2026-03.md         # Architecture-relevant idea capture
 │   ├── code-review-dimensions-research.md  # Review dimension research
 │   ├── cognitive-config-ideas.md      # Meta-configuration exploration
 │   └── PROPOSAL-deferred-ideas-consolidation.md  # Deferred ideas inventory
 │
-├── reference/                 # External reference material
-│   ├── anthropic-soul-doc.md          # Anthropic's Claude alignment document
-│   └── anthropic-soul-doc-summary.md  # Structural analysis of the above
-│
-└── preference-extraction/      # User behavioral preference extraction
-    ├── STRATEGY.md                    # Pipeline architecture
-    ├── METHODOLOGY.md                 # Process documentation and learnings
-    ├── extraction-manifest.md         # Per-chunk tracking
-    ├── aggregated/                    # ~140 Phase 1 per-chunk extractions
-    ├── thematic/                      # 11 Phase 3 thematic cluster analyses
-    └── synthesis/                     # Phase 4 final outputs (preference specs, profiles)
+└── reference/                 # External reference material
+    ├── anthropic-soul-doc.md          # Anthropic's Claude alignment document
+    └── anthropic-soul-doc-summary.md  # Structural analysis of the above
 ```
 
 **Root-level files** are the design documents — organized by hierarchy level, plus project management files and soul documents.
@@ -206,8 +180,6 @@ ai-architecture/
 **`sources/`** holds anything that fed into the design: session transcripts, note scans, research. Raw material, not design output. Things here are referenced by design documents but are not themselves part of the design.
 
 **`reference/`** holds external material consulted during design. Not project-authored.
-
-**`preference-extraction/`** holds the output of a large-scale preference extraction pipeline. Its purpose is to inform future level configurations with empirically derived user behavioral preferences. Self-contained with its own strategy, methodology, and phased output structure.
 
 ---
 
@@ -217,8 +189,7 @@ ai-architecture/
 
 - **Design documents** (Levels 1-4): `UPPERCASE-HYPHENATED.md` at the project root. Examples: `ARCHITECTURE.md`, `QUALITY-GATE.md`, `GUI-DESIGN.md`.
 - **Soul documents**: `L{N}-SOUL.md` where N is the level number (1-4).
-- **Sources**: Descriptive, lowercase-hyphenated. Date-prefixed if chronological: `SESSION-2026-03-10.md`, `gmail-notes-scan-2026-03-16.md`.
-- **Preference-extraction outputs**: Follow the pipeline's own conventions (timestamp-prefixed chunks in `aggregated/`, descriptive names in `thematic/` and `synthesis/`).
+- **Sources**: Descriptive, lowercase-hyphenated. Date-prefixed if chronological: `ideas-inbox-2026-03.md`.
 
 ### Promoting Notes to Design Documents
 
