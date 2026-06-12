@@ -1,0 +1,62 @@
+{
+  "_comment": "The doc registry (design/DOC-SYSTEM.md). Per block: landed version, source file under operational/shared/blocks/, and the carrier docs — verbatim (variant: null) or a NAMED per-level adaptation (variant: <file>). anchor = the heading tools/render_blocks.py splices the block before when it is not yet landed. Registry order = document order for blocks sharing an anchor. GREEN CHECKS = MECHANICAL CONFORMANCE ONLY — doc health belongs to the judgment layer.",
+  "schema": 1,
+  "blocks_root": "operational/shared/blocks",
+  "templates": [
+    "operational/shared/templates/plan-template.md",
+    "operational/shared/templates/report-template.md"
+  ],
+  "blocks": {
+    "gate-output-contract": {
+      "version": 2,
+      "duty": "each level's completion gate produces a named altitude-specific artifact; never re-run lower-level verification (LR-13 cure)",
+      "source": null,
+      "notes": "v1 = the splice_gate_contracts.py landing (legacy marker '<!-- gate-output-contract (LR-13) -->'), migrated verbatim into this scheme as v2. Every carrier is an adaptation — there is no base. L2's variant includes the Small-Project Scale-Down section the same splice landed. L5+ gains the GATE-OUTPUT-CONTRACTS-DRAFT §4 statement, completing the per-level gate-artifact set. L3 deliberately has NO adaptation (no L3 gate artifact was ever drafted — its integration judgment lives in report.md; see DOC-SYSTEM 'Known non-coverage').",
+      "carriers": [
+        {"doc": "operational/L1/role.md", "variant": "gate-output-contract.L1.md", "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L2/role.md", "variant": "gate-output-contract.L2.md", "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L4/role.md", "variant": "gate-output-contract.L4.md", "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L5+/role.md", "variant": "gate-output-contract.L5+.md", "anchor": "## Boundaries"}
+      ]
+    },
+    "plan-first": {
+      "version": 1,
+      "duty": "first act = plan.md (goal + checklist; fixed final three items); mirror in the runtime task tool; a respawned successor inherits the file",
+      "source": "plan-first.md",
+      "carriers": [
+        {"doc": "operational/L1/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L2/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L3/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L4/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L5/role.md", "variant": null, "anchor": "## Responsibilities"},
+        {"doc": "operational/L5+/role.md", "variant": null, "anchor": "## Boundaries"}
+      ]
+    },
+    "report-contract": {
+      "version": 1,
+      "duty": "report.md required at DONE at every level (E2 refuses without it); shared template; given requirement IDs cited as bare references",
+      "source": "report-contract.md",
+      "carriers": [
+        {"doc": "operational/L1/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L2/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L3/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L4/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L5/role.md", "variant": null, "anchor": "## Responsibilities"},
+        {"doc": "operational/L5+/role.md", "variant": null, "anchor": "## Boundaries"}
+      ]
+    },
+    "trace-discipline": {
+      "version": 1,
+      "duty": "trace stanzas declared once in declaring artifacts; downstream docs cite bare IDs and never re-declare; given IDs never re-minted",
+      "source": "trace-discipline.md",
+      "carriers": [
+        {"doc": "operational/L1/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L2/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L3/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L4/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
+        {"doc": "operational/L5/role.md", "variant": null, "anchor": "## Responsibilities"},
+        {"doc": "operational/L5+/role.md", "variant": null, "anchor": "## Boundaries"}
+      ]
+    }
+  }
+}
