@@ -321,6 +321,6 @@ The inter-level contract and documentation questions that this section once list
 ---
 
 *Created: 2026-03-10*
-*Source: Design conversation — voice notes on hierarchical agent architecture + neoack's tortuise post research + InternalAI 2.0 design principles as grounding*
+*Source: Design conversation — voice notes on hierarchical agent architecture + neoack's tortuise post research + prior LLM design-principles work as grounding*
 *Last consolidated: 2026-06-02 — folded in the design-conversation decision-set (added principles 21 Decomposition, 22 Fidelity-Before-Elegance, 23 Neutral Tradeoff Framing; V1 = software-building; need-to-know visibility graph; god-view-bounded observability; kind-of-thinking as the governing level test; held-softly-at-scale caveat; resolved the inter-level-contract / documentation open questions). 23 principles.*
 *Status: Living document — principles will be refined as the architecture develops*
