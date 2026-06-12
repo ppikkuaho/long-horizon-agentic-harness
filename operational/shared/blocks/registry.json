@@ -4,7 +4,13 @@
   "blocks_root": "operational/shared/blocks",
   "templates": [
     "operational/shared/templates/plan-template.md",
-    "operational/shared/templates/report-template.md"
+    "operational/shared/templates/report-template.md",
+    {
+      "path": "operational/shared/templates/report-template.L5+.md",
+      "adapts": "operational/shared/templates/report-template.md",
+      "level": "L5+",
+      "reason": "a reviewer does not DISCHARGE requirements — it VERIFIES them; 'Requirement IDs discharged' becomes 'Requirement IDs verified (per-criterion verdicts)', aligning with QUALITY-GATE M52 (the verdict table is the reviewer's gate artifact)"
+    }
   ],
   "blocks": {
     "gate-output-contract": {
@@ -36,18 +42,19 @@
       "version": 1,
       "duty": "report.md required at DONE at every level (E2 refuses without it); shared template; given requirement IDs cited as bare references",
       "source": "report-contract.md",
+      "notes": "L5+ carries a NAMED adaptation: a reviewer VERIFIES requirement IDs rather than discharging them, follows the report-template.L5+.md adaptation, and owes the citation duty for its OWN report — both Run-2 L5+ reviewers tripped the E2 citation check because the L5+ bundle carried no such duty.",
       "carriers": [
         {"doc": "operational/L1/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
         {"doc": "operational/L2/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
         {"doc": "operational/L3/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
         {"doc": "operational/L4/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},
         {"doc": "operational/L5/role.md", "variant": null, "anchor": "## Responsibilities"},
-        {"doc": "operational/L5+/role.md", "variant": null, "anchor": "## Boundaries"}
+        {"doc": "operational/L5+/role.md", "variant": "report-contract.L5+.md", "anchor": "## Boundaries"}
       ]
     },
     "trace-discipline": {
-      "version": 1,
-      "duty": "trace stanzas declared once in declaring artifacts; downstream docs cite bare IDs and never re-declare; given IDs never re-minted",
+      "version": 2,
+      "duty": "trace stanzas declared once in declaring artifacts; downstream docs cite bare IDs and never re-declare; given IDs never re-minted; declaration ownership follows artifact ownership (v2 — the law behind Run-2's DUP-ID bounces)",
       "source": "trace-discipline.md",
       "carriers": [
         {"doc": "operational/L1/role.md", "variant": null, "anchor": "## Visibility Scope (F34)"},

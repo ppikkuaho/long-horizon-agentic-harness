@@ -182,9 +182,14 @@ freedom.
 | Block | v | Carriers | Duty |
 |---|---|---|---|
 | `plan-first` | 1 | all six role docs, verbatim | first act = `plan.md` (goal + checklist; final three items fixed); mirror in the runtime task tool; successor inherits the file |
-| `report-contract` | 1 | all six role docs, verbatim | `report.md` required at DONE at every level (the E2 floor refuses without it); shared template; bare requirement-ID citations |
-| `trace-discipline` | 1 | all six role docs, verbatim | stanzas declared once in declaring artifacts; downstream docs cite bare IDs; given IDs never re-minted |
+| `report-contract` | 1 | five role docs verbatim; **L5+ a named adaptation** | `report.md` required at DONE at every level (the E2 floor refuses without it); shared template; bare requirement-ID citations. The L5+ variant (`report-contract.L5+.md`): a reviewer **verifies** requirement IDs rather than discharging them, follows the `report-template.L5+.md` adaptation, and owes the citation duty for its OWN report — both Run-2 L5+ reviewers tripped the E2 citation check because the L5+ bundle carried no such duty. |
+| `trace-discipline` | 2 | all six role docs, verbatim | stanzas declared once in declaring artifacts; downstream docs cite bare IDs; given IDs never re-minted. v2 adds **declaration ownership follows artifact ownership** (you declare only IDs YOU mint, in YOUR artifacts; children mint strictly-deeper sub-IDs) — the law behind Run-2's DUP-ID bounces, codifying the healed behavior (testers renumbering to deeper sub-IDs), not inventing. |
 | `gate-output-contract` | 2 | L1, L2, L4, L5+ role docs — all adaptations | the LR-13 cure, migrated from the legacy `<!-- gate-output-contract (LR-13) -->` markers into the registry scheme (v1 = the splice; content preserved verbatim, L2's small-project-scale-down section included). L5+ gains the draft's §4 statement (report verdict table IS the gate artifact), completing the per-level gate-artifact set. |
+
+Templates adapt the same way blocks do: `report-template.L5+.md` is the first registered template
+adaptation ("Requirement IDs discharged" → "Requirement IDs verified (per-criterion verdicts)",
+per QUALITY-GATE M52 — the verdict table is the reviewer's gate artifact). The registry entry
+names the base it adapts and the reason; an unreasoned adaptation is a fork and fails the check.
 
 This closes the L3 report gap entirely: L3's role doc now carries `report-contract` (and the other
 two) — the registry shows it, and the checker keeps it true.
@@ -227,6 +232,11 @@ manual touch of a marked region), re-check.
 - **Template fit** — agents filling the report template badly (rote checklists, payload pasted
   into "Verification evidence") is invisible to the checker; it is exactly what the run-adherence
   audit's report-quality rows are for.
+- **Citation completeness** — the E2 runtime floor deliberately stays at "≥1 given ID cited"
+  (confirmed when this system landed); whether a report accounts for EVERY given ID is the L5+
+  review's and the audit's job, not the walker's. Do not "fix" the floor upward — completeness is
+  a judgment call (deferred/escalated IDs are legitimate), exactly what the deterministic layer
+  must not adjudicate.
 
 ---
 
