@@ -88,6 +88,16 @@ def check_done_contract(node_address: str, binding: dict) -> ContractVerdict:
             f"parent-facing deliverable every role doc requires (you cannot report complete)"
         )
 
+    # --- 1b. UNFILLED-REPORT-FORM (#30): the pre-instantiated skeleton must never auto-satisfy
+    #     this contract — a report still carrying the form:unfilled sentinel is NOT a report.
+    if report_text and "form:unfilled" in report_text:
+        defects.append(
+            f"UNFILLED-REPORT-FORM: {node_address} signed DONE with the harness-instantiated "
+            f"report skeleton untouched (the form:unfilled sentinel is still present) — fill the "
+            f"form (replace the prompts, account for each pre-listed ID) and delete the sentinel "
+            f"line before re-signaling"
+        )
+
     # --- 2. MISSING-REQUIREMENT-CITATION (L5-class, only when IDs were GIVEN) ----------------
     level = (binding.get("level") or "").strip()
     if level in ("L5", "L5+") and report_text:

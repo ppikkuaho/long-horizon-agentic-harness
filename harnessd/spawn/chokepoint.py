@@ -1246,6 +1246,80 @@ def _absolutize_manifest_path(path: str) -> str:
     return str(repo_root / base) + (sep + frag if sep else "")
 
 
+FORM_UNFILLED_SENTINEL = "form:unfilled"
+
+
+def _instantiate_node_forms(child_address: str, level: str, role_variant: str,
+                            parent_address, node_dir: Path) -> None:
+    """#30 — pre-instantiated node FORMS (user mental model, 2026-06-12): drop report.md +
+    plan.md skeletons into the node at brief-write time — header pre-filled from the address,
+    the GIVEN requirement IDs pre-listed (derived from brief.md/acceptance.md, the SAME sources
+    the E2 walker reads), the L5+ seat getting the verified-not-discharged template variant.
+    "They get everything in front of them": filling the form is the only path; zero
+    transcription ambiguity.
+
+    NEVER overwrites an existing file (stateless respawn: the successor inherits the prior
+    incarnation's filled forms). Every instantiated report carries FORM_UNFILLED_SENTINEL —
+    without it the skeleton would auto-satisfy E2's MISSING-REPORT (file exists) AND the
+    citation check (IDs pre-filled); the walker refuses a DONE that still carries it
+    (UNFILLED-REPORT-FORM, return_contract). Best-effort: forms are aids, the E2 gate is the
+    floor — a template hiccup never fails the spawn.
+    """
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        templates = repo_root / "operational" / "shared" / "templates"
+
+        # --- the GIVEN ids (the walker's own token + sources — one derivation, two readers) ---
+        from harnessd.return_contract import _ID_TOKEN
+        given: list = []
+        seen = set()
+        for name in ("brief.md", "acceptance.md"):
+            f = node_dir / name
+            if f.is_file():
+                for tok in _ID_TOKEN.findall(f.read_text(encoding="utf-8", errors="replace")):
+                    if tok not in seen:
+                        seen.add(tok)
+                        given.append(tok)
+
+        # --- report.md (level variant for the reviewer seat) ---
+        report_path = node_dir / "report.md"
+        if not report_path.exists():
+            variant = templates / f"report-template.{level}.md"
+            tpl = variant if variant.is_file() else (templates / "report-template.md")
+            body = tpl.read_text(encoding="utf-8")
+            body = body.replace("<node-address>#<seat>", child_address)
+            body = body.replace("<parent-address>", str(parent_address or "(root)"))
+            body = body.replace("(<level> <role>)", f"({level} {role_variant})")
+            if given:
+                prefilled = "\n".join(
+                    ["Your given IDs (pre-filled by the harness from brief.md/acceptance.md — "
+                     "account for each):", ""]
+                    + [f"- `{i}` — <discharged | deferred (reason) | escalated>" for i in given]
+                    + [""]
+                )
+                marker = "## Requirement IDs"
+                idx = body.find(marker)
+                if idx != -1:
+                    eol = body.find("\n", idx)
+                    if eol != -1:
+                        body = body[: eol + 1] + "\n" + prefilled + body[eol + 1:]
+            sentinel = (
+                f"<!-- {FORM_UNFILLED_SENTINEL} — harness-instantiated skeleton: replace every "
+                "<angle-bracket> prompt, account for each pre-listed ID, then DELETE THIS LINE "
+                "before signing off (E2 refuses a DONE that still carries it) -->\n"
+            )
+            store.atomic_replace(report_path, lambda h: (h.write(sentinel), h.write(body)))
+
+        # --- plan.md ---
+        plan_path = node_dir / "plan.md"
+        if not plan_path.exists():
+            tpl = templates / "plan-template.md"
+            body = tpl.read_text(encoding="utf-8").replace("<node-address>", child_address)
+            store.atomic_replace(plan_path, lambda h: h.write(body))
+    except Exception:  # noqa: BLE001 — best-effort: the E2 gate is the floor, never the form
+        pass
+
+
 def _write_child_brief(
     child_address: str,
     child_level_config,
@@ -1318,6 +1392,13 @@ def _write_child_brief(
     # Record the deliverable_state=briefed onto the child binding (own-slice write through the single
     # writer; the child is still ``planned`` + unclaimed, so we fence on the registered owner_token).
     # The brief is present by whichever path; the spec_pointer already names brief.md on the binding.
+    # #30: the pre-instantiated forms ride the same brief-write moment (after brief.md
+    # settles so the ID derivation reads the FINAL brief).
+    _instantiate_node_forms(
+        child_address, neutral.level, neutral.role_variant,
+        registered_binding.get("parent_address"), node_dir,
+    )
+
     summary = (f"child brief written into the node ({brief_path})" if wrote
                else f"child brief pre-authored; left intact ({brief_path})")
     executor.deliver(
