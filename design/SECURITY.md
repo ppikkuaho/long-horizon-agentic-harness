@@ -91,12 +91,12 @@ L1 and optimizer-L1 hold read-only whole-portfolio god-views (WORKSPACE-SCHEMA l
 
 ### 1.5 Threat-model correction — the "0700 home already protects secrets" premise is FALSE on this box
 
-The cluster prompt notes "Unix 0700 home dirs already block cross-user secret reads." **On this machine that premise is only partly true and must be enforced, not assumed:**
+The cluster prompt notes "Unix 0700 home dirs already block cross-user secret reads." **On a default macOS box that premise is only partly true and must be enforced, not assumed:**
 
-| Path | Actual perms (VERIFIED) | Consequence |
+| Path | Typical macOS perms | Consequence |
 |---|---|---|
-| `~peeta` (`/Users/peeta`) | `drwxr-x---` **(0750, group staff)** | A helper user **in group staff** could traverse and read any group-readable file. NOT 0700. |
-| `/Users/peeta/Documents` | `drwx------` **(0700)** | Blocks a different non-staff UID from traversing into the harness tree at all. |
+| `$HOME` | `drwxr-x---` **(0750, group staff)** | A helper user **in group staff** could traverse and read any group-readable file. NOT 0700. |
+| `$HOME/Documents` | `drwx------` **(0700)** | Blocks a different non-staff UID from traversing into the harness tree at all. |
 | `~/.ssh` | `drwx------` **(0700)** | SSH keys protected from a different UID by ownership alone. ✅ |
 | `~/Library/Keychains/*` | `0600` | Keychain DB protected from a different UID by ownership alone. ✅ |
 | harness repo root | `drwxr-xr-x` **(0755, world-readable)** | A helper user could read `harnessd/` + `design/` + `.cc-pinned/config/.oauth_token` unless tightened. |
@@ -125,7 +125,7 @@ A per-spawn seatbelt profile, templated from the node's one-spine address, wrapp
 Spawn the agent as a separate, unprivileged UID; rely on the kernel's cross-UID ownership wall for secret reads.
 
 - ✅ **Stronger, kernel-level cross-UID isolation** for the user's own `~/.ssh`, keychain, and other projects — needs no path canonicalization, no symlink fragility.
-- ❌ **Blocked by the verified perms wall** (§1.5): `/Users/peeta` is 0750 and `/Users/peeta/Documents` is **0700**, so a different non-staff UID **cannot even traverse into the harness tree** to reach the 214 MB pinned binary or the role docs. Fixing this means **relocating the harness outside the home dir** or adding ACLs/group membership along the entire path — materially invasive.
+- ❌ **Blocked by the perms wall** (§1.5): `$HOME` is 0750 and `$HOME/Documents` is **0700**, so a different non-staff UID **cannot even traverse into the harness tree** to reach the 214 MB pinned binary or the role docs. Fixing this means **relocating the harness outside the home dir** or adding ACLs/group membership along the entire path — materially invasive.
 - ❌ **Coarse** — one helper user serves all nodes, so every node can write every other node's workspace *as that user* unless combined with seatbelt or per-node POSIX ACLs. Per-node helper users give true isolation but add user-management overhead at spawn/teardown.
 - ❌ **One-time privileged setup** — `sysadminctl`/`dscl` are root-only. Plus `chmod 700 ~`, tighten the 0755 repo root, protect the token file. A real prerequisite, not a per-spawn cost — but a setup cost the default should not require.
 

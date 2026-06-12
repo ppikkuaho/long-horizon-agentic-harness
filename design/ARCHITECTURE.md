@@ -430,7 +430,7 @@ The analogy: a watchmaker peering at the gears. Observation and participation wi
 
 The current design covers the project-work L1. Separate L1s are anticipated for:
 
-- **Personal/life domains** -- Different function, different structure. Therapy, health, life admin operate differently than project work.
+- **Personal/life domains** -- Different function, different structure. Health, life admin, and other personal matters operate differently than project work.
 - **Improvement Workspace** -- System observation, process improvement, meta-analysis. Its "projects" are the system itself. (A separate, future optimizer-L1 capability may someday run out of this workspace — not V1.)
 
 These are separate design tasks. They may not need the same L1-L5 structure -- their cognitive requirements may call for different shapes entirely.
