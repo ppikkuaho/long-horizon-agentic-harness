@@ -408,3 +408,20 @@ process can read the live token from the process table. PoC-acceptable under the
 denylist posture (single-user machine), but the spawn should deliver env via
 tmux's own environment mechanism or a sourced file before any multi-user or
 jailed deployment. Registered for the jail/security wave (F9-F13 family).
+
+### LR-21 — kill_stale_pane was a production no-op: wrong identifier at the spawn leg, no seam at re-register/resume (CRITICAL, FIXED)
+Run-2: the assembly execution-L3's fresh spawn collided against its done
+predecessor's still-alive pane — LR-18's teardown ran but killed a session
+named after the RAW NODE ADDRESS (no such session; error swallowed). The
+re-register/resume sites had the opposite bug: correct recorded identifier, but
+seam resolution was adapter-or-ADAPTER, and E4 moved production adapters to the
+REGISTRY (injected ADAPTER ships None) — seam None, silent return. Net: NO
+production path ever tore a pane down. The LR-18 test pinned the bug itself
+(asserted kill-called-with-the-address). Interaction note: LR-19's truth-check
+then correctly refused to re-drive into the LIVE stale session — the two fixes
+turned the collision crash into a clean visible wedge; this fix removes the
+wedge. FIX: _stale_session_name normalizes address/triple/bare-name to the
+SESSION tmux resolves; no-seam-at-all now routes through the REAL tmux module
+(a seam that exists but lacks tmux.kill still skips — dry-run semantics kept).
+Live unwedge performed by operator hand-kill; the re-drive respawned assembly
+within one cooldown window.

@@ -216,6 +216,20 @@ _subtree_paused = subtree_paused  # back-compat alias (the pre-F16 private name)
 # resume / re-register paths run before reopening a deterministic session name.
 # ---------------------------------------------------------------------------
 
+def _stale_session_name(identifier: str) -> str:
+    """Normalize ANY recorded pane identifier to the tmux SESSION name the kill targets (LR-21).
+
+    Three shapes reach the teardown: a node ADDRESS ('proj/widget#exec' — the spawn leg passes
+    it), the RECORDED '<session>:<window>.<pane>' triple STEP4 stamped (re-register/resume pass
+    it), and a bare session name. ``tmux kill-session`` wants the session — an address names no
+    session (the kill tears down NOTHING, error swallowed: the Run-2 assembly collision), and a
+    triple must keep only its session part.
+    """
+    if "/" in identifier or "#" in identifier:
+        return addressing.session_name_for(identifier)
+    return identifier.split(":", 1)[0]
+
+
 def kill_stale_pane(tmux_target: Optional[str], adapter=None) -> None:
     """Best-effort, IDEMPOTENT teardown of a PRIOR incarnation's recorded pane (LT-4/INT-1).
 
@@ -224,19 +238,29 @@ def kill_stale_pane(tmux_target: Optional[str], adapter=None) -> None:
     SpawnFailure tmux_session_collision). The resume / re-register paths call this with the FENCED
     prior incarnation's recorded ``tmux_target``, strictly AFTER the re-adopting claim committed
     (the epoch bump already fenced the prior incarnation — no live owner holds that pane) and
-    strictly BEFORE the fresh ``create_detached``. Routed through the injected adapter's OWN tmux
-    seam (a mock without ``kill`` skips — the dry-run tears nothing down); ``tmux.kill`` itself is
-    idempotent (a session already gone is not an error), and any teardown hiccup is swallowed —
-    the collision SpawnFailure at create_detached remains the loud net.
+    strictly BEFORE the fresh ``create_detached``. The identifier is normalized to its SESSION
+    name (LR-21 — an address or a triple kills nothing as-is). Seam resolution (LR-21): the
+    adapter arg, else the injected ADAPTER; a seam that exists but lacks ``tmux.kill`` skips (the
+    dry-run tears nothing down); NO seam at all — production, where E4 moved adapters to the
+    registry and ADAPTER ships None — routes through the REAL tmux module (the old seam-or-skip
+    made the production teardown a silent no-op at the re-register/resume sites). ``tmux.kill``
+    itself is idempotent (a session already gone is not an error), and any teardown hiccup is
+    swallowed — the collision SpawnFailure at create_detached remains the loud net.
     """
     if not tmux_target:
         return
+    session = _stale_session_name(str(tmux_target))
     seam = adapter if adapter is not None else ADAPTER
-    kill = getattr(getattr(seam, "tmux", None), "kill", None)
-    if kill is None:
-        return
+    if seam is not None:
+        kill = getattr(getattr(seam, "tmux", None), "kill", None)
+        if kill is None:
+            return
+    else:
+        from harnessd.spawn import tmux as _tmux_mod
+
+        kill = _tmux_mod.kill
     try:
-        kill(tmux_target)
+        kill(session)
     except Exception:  # noqa: BLE001 — best-effort teardown; the collision SpawnFailure is the net
         pass
 

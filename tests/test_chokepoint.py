@@ -1077,8 +1077,61 @@ def test_lr18_fresh_spawn_tears_down_a_stale_prior_pane(runtime):
         level_config=_level_config(),
     )
 
+    import harnessd.addressing as addressing
+
     assert _ok(result) is True
-    assert kills == [NODE], (
+    assert kills == [addressing.session_name_for(NODE)], (
         f"the fresh spawn must tear down the prior incarnation's pane (kill_stale_pane) before "
-        f"create_detached; kill calls: {kills!r}"
+        f"create_detached, and the kill target must be the CANONICAL SESSION NAME — the raw node "
+        f"address names no tmux session, so killing it tears down nothing (LR-21, observed live: "
+        f"Run-2 assembly execution-L3 collided against its done predecessor's pane); kill calls: "
+        f"{kills!r}"
+    )
+
+
+def test_lr21_kill_stale_pane_normalizes_a_recorded_triple_to_its_session(runtime):
+    """LR-21 pin: the re-register/resume sites pass the RECORDED tmux_target — the
+    '<session>:<window>.<pane>' triple STEP4 stamped. tmux kill-session wants the session;
+    the triple must be normalized. (Mutant: no normalization -> kill called with the triple
+    -> caught.)"""
+    chokepoint = _chokepoint()
+    kills = []
+
+    class _KillTmux:
+        def kill(self, target):
+            kills.append(target)
+
+    fake = FakeAdapter()
+    fake.tmux = _KillTmux()
+
+    chokepoint.kill_stale_pane("harness-proj-widget-exec:0.0", adapter=fake)
+
+    assert kills == ["harness-proj-widget-exec"], (
+        f"a recorded triple must be normalized to its session name for the kill; got {kills!r}"
+    )
+
+
+def test_lr21_kill_stale_pane_reaches_the_real_tmux_module_when_no_adapter_is_anywhere(runtime, monkeypatch):
+    """LR-21 pin (the production no-op): in the E4 registry world the injected ADAPTER is None
+    and the re-register/resume call sites pass no adapter — the old seam-or-skip resolution made
+    the teardown silently do NOTHING in production (observed live: Run-2 assembly execution-L3
+    respawn collided against its done predecessor's still-alive pane; with LR-19's truth-check
+    the re-drive then correctly refused to touch the live session -> wedge). With no seam at all,
+    the REAL tmux module is the teardown channel. A seam that EXISTS but lacks tmux.kill still
+    skips (the dry-run tears nothing down — unchanged). (Mutant: seam-or-skip restored -> the
+    real kill never fires -> caught.)"""
+    chokepoint = _chokepoint()
+    prev = getattr(chokepoint, "ADAPTER", None)
+    chokepoint.set_adapter(None)
+    kills = []
+    import harnessd.spawn.tmux as tmux_mod
+    monkeypatch.setattr(tmux_mod, "kill", lambda s: kills.append(s))
+    try:
+        chokepoint.kill_stale_pane("harness-x-exec:0.0")
+    finally:
+        chokepoint.set_adapter(prev)
+
+    assert kills == ["harness-x-exec"], (
+        f"with no adapter anywhere the teardown must route through the REAL tmux module "
+        f"(production is the registry world — ADAPTER is None); real kills: {kills!r}"
     )

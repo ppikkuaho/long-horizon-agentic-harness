@@ -234,9 +234,11 @@ def test_resume_kills_the_recorded_stale_pane_before_reopening(runtime):
     )
 
     assert result.ok, f"resume must succeed: {result!r}"
-    assert stale_target in adapter.tmux.killed, (
+    assert stale_target.split(":", 1)[0] in adapter.tmux.killed, (
         "resume must tear down the FENCED prior incarnation's recorded pane (the uuid-mismatched "
-        "leftover the genesis RESUME branch exists for) before reopening the deterministic name"
+        "leftover the genesis RESUME branch exists for) before reopening the deterministic name "
+        "(LR-21: the recorded triple is normalized to its SESSION name — the kill target tmux "
+        "actually resolves)"
     )
     kinds = [k for (k, _t) in adapter.tmux.events]
     assert kinds.index("kill") < kinds.index("create"), "the teardown precedes the fresh open"
@@ -322,8 +324,9 @@ def test_reregister_terminal_child_kills_its_warm_pane(runtime):
     )
 
     assert result.ok, f"the re-spawn must succeed: {result!r}"
-    assert stale_target in adapter.tmux.killed, (
+    assert stale_target.split(":", 1)[0] in adapter.tmux.killed, (
         "re-registering a TERMINAL child (a watchdog-FAILED warm leaf) must tear its recorded "
         "stale pane down before the fresh claim_and_spawn — else 'duplicate session' wedges the "
-        "child in an invisible register->claim->crash->necro loop"
+        "child in an invisible register->claim->crash->necro loop (LR-21: normalized to the "
+        "SESSION name tmux actually resolves)"
     )
