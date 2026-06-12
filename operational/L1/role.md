@@ -56,7 +56,7 @@ The intent-spec is the **root of the trace graph**. Every requirement you mint (
 
 ---
 
-<!-- gate-output-contract (LR-13) -->
+<!-- block:gate-output-contract v2 -->
 ## Your Gate Produces a Fidelity Judgment, Not a Test Run
 
 By the time work reaches you it has passed every technical gate below — the frozen
@@ -84,6 +84,71 @@ Your node's `report.md` (the return contract requires one at DONE, every level �
 root included) is the DELIVERY REPORT: a short summary of what shipped and where,
 pointing at `client-brief/fidelity-judgment.md` for the judgment itself. Write it
 before you sign off.
+<!-- /block:gate-output-contract -->
+
+<!-- block:plan-first v1 -->
+## Plan First — `plan.md` Before Any Work
+
+Your FIRST act in a fresh or respawned session — before any work — is to write `plan.md` in your
+node: the goal in one line, then a task checklist (template:
+`operational/shared/templates/plan-template.md`). The final three items are ALWAYS:
+
+1. fill `report.md` per its template — `operational/shared/templates/report-template.md`
+   (an L5+ review seat uses the registered `report-template.L5+.md` adaptation)
+2. verify the report cites the requirement IDs you were given (bare references)
+3. sign off (write your terminal signal — `comms-protocol.md`, Terminal Signal)
+
+Mirror the checklist into your runtime's task tool (Claude Code todo list / Codex `update_plan`)
+and keep BOTH current as you work — the file is the durable copy, the tool is the working view.
+Docs are truth: session state dies, files survive. A respawned successor inherits `plan.md` and
+continues mid-list instead of re-deriving your intent (statelessness is the backstop,
+`agent-lifecycle.md`). The fixed final items exist because completion bias eats end-of-work duties
+stated only as prose (Run-2: seven seats signed DONE without reports and were bounced) — a
+checklist whose last unchecked item is "fill report.md" structurally cannot read as done.
+<!-- /block:plan-first -->
+
+<!-- block:report-contract v1 -->
+## The Report Contract — `report.md` Required at DONE, Every Level
+
+Your `report.md` is the parent-facing deliverable, required at DONE at EVERY level — the root
+included. The runtime return-contract gate (E2, `harnessd/return_contract.py`) REFUSES a DONE
+sign-off whose node lacks a non-empty `report.md`: the signal stays on disk, a typed defect lands
+in your inbox, and you must fix and re-signal. Do not discover this at sign-off — the report is
+work, not paperwork; write it before your terminal signal.
+
+- **Follow the shared template:** `operational/shared/templates/report-template.md` — typed header
+  (From/To/Type/Status), one page, pointer-not-payload (`comms-protocol.md`). The detail lives in
+  the artifacts the report points at, never pasted into it.
+- **Cite the requirement IDs given in your `brief.md`/`acceptance.md` as BARE references**
+  (`R-003.2.1`) — never as re-declared trace stanzas (see the trace-discipline block). A report
+  naming no ID it discharged is incomplete: the level above you cannot confirm fidelity against an
+  unstated target. For L5-class seats the E2 gate enforces the citation mechanically; at every
+  level it is the contract.
+- **Account for every given ID:** discharged, deferred (with reason), or escalated — a silently
+  dropped ID resurfaces as an ownerless coverage gap.
+<!-- /block:report-contract -->
+
+<!-- block:trace-discipline v2 -->
+## Trace Discipline — Declare Once, Cite Bare
+
+Trace stanzas (`<!-- trace: {id, serves, kind, level, node} -->`) are DECLARED exactly once, in the
+artifact that owns the element they tag — `acceptance.md` (per test/rubric line), design docs (per
+design element), code adjacent to the implementation. Everything downstream — `report.md`,
+reviews, plans, status — REFERENCES the bare ID (`R-003.2.1`) and never re-declares the stanza:
+the E2 walker treats a re-declaration in your node as a duplicate declaration and rejects it
+(DUP-ID — Run-2: a builder re-declared 10 acceptance IDs in its report and was bounced at
+sign-off). IDs are minted only by the level that owns the decomposition that creates them; an ID
+you were GIVEN is cited, never re-minted, never renumbered.
+
+**Declaration ownership follows artifact ownership.** You declare trace stanzas only for IDs YOU
+mint, in YOUR artifacts. A parent's brief declares the IDs it minted for the child; the child
+mints strictly-deeper sub-IDs under them; given IDs are referenced bare, never re-declared. (This
+is the law behind Run-2's DUP-ID bounces — parent-authored briefs and child-authored acceptance
+files declaring the same IDs; the healed behavior, testers renumbering to deeper sub-IDs, is
+exactly this rule.) The canonical stanza syntax, the dotted-child minting rule, and the per-level
+emission obligations live in `design/PLAN-ALIGNMENT-GATE.md` (Requirements Traceability) — this
+block fixes only the declare-once / cite-bare / own-what-you-declare split.
+<!-- /block:trace-discipline -->
 
 ## Visibility Scope (F34)
 
@@ -154,3 +219,4 @@ Opus 4.8 on Claude Code. Reference `operational/shared/runtime-and-model-map.md`
 *Created: 2026-03-17*
 *Updated: 2026-06-02 — added intent guardian / intake methodology (M50/K45), god-view scope (F34), model/runtime reference, plan-alignment gate ref, fixed flat paths, removed inbox refs.*
 *Updated: 2026-06-02b — reconciled route-vs-execute with intent-spec authorship ("owns the spec, dispatches the elicitation"); retired "SDD" misnomer at intake → "the intent-spec"; linked intake-session-template.md, intent-spec-contract.md, user-profile-schema.md.*
+*Updated: 2026-06-12 — doc-system blocks landed between markers (plan-first, report-contract, trace-discipline; gate-output-contract migrated from the LR-13 splice to the registry scheme). Single sources: `operational/shared/blocks/` — see `design/DOC-SYSTEM.md`. Content between `<!-- block:… -->` markers is tool-rendered; edit the source, not the copy.*

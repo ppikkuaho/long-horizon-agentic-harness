@@ -338,6 +338,60 @@ Appends to project log. Escalates to L2 over the bus when needed (durable copy l
 
 **L1 (System Orchestrator):** Portfolio-level workspace. See dedicated section below.
 
+## Per-Node File Schemas (Doc-System extension, 2026-06-12)
+
+What files EVERY node of a level contains — the workspace philosophy above extended down to the
+single node, so that a stateless successor spawned cold at any node of its level knows where
+everything is without exploring, and a parent (or auditor) can read any child node without
+per-node archaeology. Grounded empirically in the Run-2 trees
+(`~/Documents/l1-l5-workspaces/build-site1/nodes/`), where sibling nodes at the same level
+disagreed by accident: `assembly/ws-b` lacked the `status.md` + `composition-report.md` its
+siblings ws-a/ws-c carried; the `assembly` L3 node lacked the `log.md` and `reviews/` the
+`markdown` L3 node kept; one run named its review seats `review/`, `builder-review/`, and
+`coder-review/`. None of those differences were decisions.
+
+> **ENFORCEMENT BOUNDARY (user ruling — do not move it):** schema conformance is checked
+> **EVAL-SIDE only**, by the run-adherence audit instrument — **NEVER as a runtime gate.** The E2
+> runtime floor stays exactly the three deterministic checks in `harnessd/return_contract.py`
+> (non-empty `report.md` at DONE; given requirement IDs cited for L5-class seats; trace stanzas
+> valid where present). Code layout, scratch space, and creative artifacts keep their freedom —
+> the schema names the **management skeleton** of a node, not its work product.
+
+**Common to every node (any level, any seat)** — the management skeleton:
+
+| File | Origin | Policy |
+|---|---|---|
+| `brief.md` | parent-authored before spawn | immutable once sent (pointer-not-payload) |
+| `acceptance.md` | delegating level / tester lateral, where the node is gated | frozen, read-only to the executor (D26) |
+| `plan.md` | the node's OWN first act (the `plan-first` block) | living; goal line + checklist; final three items fixed |
+| `report.md` | the node, at terminal sign-off | per `operational/shared/templates/report-template.md`; required at DONE (E2) |
+| `.sign-off.<seat>.json` / `.signal.<seat>.json` / `.inbox.<seat>.jsonl` | harness | machinery, not documentation |
+
+**Per-level, beyond the skeleton** (required = the audit flags its absence; optional = legitimate
+when the node's shape needs it, absence is not a defect):
+
+| Level | Required | Optional / when-needed |
+|---|---|---|
+| **L1 (root)** | `portfolio.md`, `README.md`, `log.md`, `decisions/` | `threads/`, `notes/`, `.intake-scratch/`; project child nodes as subdirs |
+| **L2 (project)** | `status.md`, `log.md`, `conventions.md`, `README.md`, `client-brief/` (L1-authored: `vision.md`, `priorities.md`, `intent-spec.md`; `fidelity-judgment.md` at L1 close), `L2/` inner workspace (`project.md`, `decisions/`, `briefs/`, planning outputs), `composition-review.md` at its gate | `L2-config.md` (L1-authored spawn artifact); area child nodes as subdirs |
+| **L3 (area)** | `design.md` (frozen north star), `log.md` | `status.md`, `reviews/`, `briefs/`; L4 child nodes as subdirs. (A planning-L3 produces the area design in L2's planning workspace and collapses — the skeleton minus `acceptance.md` applies to its seat node.) |
+| **L4 (workstream)** | `status.md`, `composition-report.md` at its gate, `log.md` | `reviews/`; child seat dirs (next row) |
+| **L4 child seats (naming convention)** | `tester/` (the M51 lateral); `{task}/` (the L5 executor, named for the task); `{task}-review/` (its L5+ reviewer) | — Run-2's `review`/`builder-review`/`coder-review` spread is exactly what this fixes |
+| **L5 (task)** | the work artifacts themselves | `scratch/` (infrastructure-cleaned) |
+| **L5+ (review seat)** | `report.md` carries the per-criterion **verdict table — it IS the gate artifact**, no separate `verdict.md` (the verdict is restated in the terminal signal's `evidence.notes`) | — |
+
+**Recorded tension (needs a ruling — observed in both live runs, codified here rather than papered
+over):** the Log Mechanics section below specifies a SINGLE project-level `log.md` that every
+level appends to, and `status.md` as one shared project board — but the write-jail (SECURITY §1.3:
+writes confined to the node's own subtree) makes a child structurally unable to append to its
+ancestor's files. Run-2 resolved this organically with **per-node** `log.md`/`status.md`, which is
+what this schema codifies. Until the ruling, the per-node form is the operative convention; the
+shared-file form remains the spec's aspiration (a harness append-relay or a jail exception would
+reconcile them).
+
+See `design/DOC-SYSTEM.md` for the block/template mechanism that delivers these duties into the
+role docs, and the critical constraint on what mechanical checks can and cannot certify.
+
 ## L1 Portfolio Workspace
 
 L1's workspace is fundamentally different from L2-L5. Lower levels produce work products in structured folders. L1 produces decisions and direction, and mostly consumes information from below. Its primary input is unstructured user conversation across any number of topics; its primary output is structured delegation.
@@ -466,4 +520,5 @@ Single log at project level only (no area-level or workstream-level logs — pla
 *Created: 2026-03-17*
 *Updated: 2026-03-29 — Restructured for 5-level hierarchy with nested workspace tree*
 *Updated: 2026-06-02 — Added the one hierarchical-path spine (F35/D26 unification); the Visibility & Read-Permission Graph (F34, supersedes broad project-wide read); per-unit frozen read-only `acceptance.md` rubric (D26); reframed `comms/` as a durable mailbox/audit copy with the bus as live transport (F33).*
+*Updated: 2026-06-12 — Per-Node File Schemas section (Doc-System extension; eval-side only, never a runtime gate; Run-2 empirical grounding; recorded the shared-log/status vs write-jail tension). See `design/DOC-SYSTEM.md`.*
 *Status: Extracted from NOTES.md and promoted to standalone process design document; consolidated against `working-notes/consolidation-plan-2026-06-02.md`*
