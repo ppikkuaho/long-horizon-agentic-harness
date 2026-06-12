@@ -29,6 +29,11 @@ from harnessd.spawn import tmux as _tmux
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PINNED_CONFIG_DIR = _REPO_ROOT / ".cc-pinned" / "config"
 
+# Workspaces live OUTSIDE the repo, in their own root (user ruling 2026-06-12): the repo is
+# code + spec; the trees the harness builds are deployment state, not repo contents. Per-run
+# $HARNESS_RUNTIME_ROOT still wins; $HARNESS_WORKSPACES_ROOT relocates the whole family.
+DEFAULT_WORKSPACES_ROOT = Path.home() / "Documents" / "l1-l5-workspaces"
+
 # The L1 root address/level (the parentless System Orchestrator — genesis registers it parentless, §7).
 L1_ADDRESS = "L1#exec"
 L1_LEVEL = "L1"
@@ -69,9 +74,10 @@ def _tmux_socket_name(build_id: str) -> str:
 def build_runtime(*, runtime_root=None, build_id: str = None, oauth_token: str = None) -> SimpleNamespace:
     """Assemble the ``runtime`` descriptor ``daemon.run``/``boot`` consume.
 
-    runtime_root: where the per-build tree lives (``/runtime/<build-id>/`` style); resolved from the arg,
-    else $HARNESS_RUNTIME_ROOT, else ``<repo>/runtime/<build-id>``. build_id: the arg, else
-    $HARNESS_BUILD_ID, else ``build-local``. oauth_token: the arg, else read from the pinned install.
+    runtime_root: where the per-build tree lives; resolved from the arg, else $HARNESS_RUNTIME_ROOT,
+    else ``$HARNESS_WORKSPACES_ROOT/<build-id>``, else ``DEFAULT_WORKSPACES_ROOT/<build-id>``
+    (~/Documents/l1-l5-workspaces — OUTSIDE the repo, user ruling 2026-06-12). build_id: the arg,
+    else $HARNESS_BUILD_ID, else ``build-local``. oauth_token: the arg, else the pinned install.
 
     Returns a descriptor carrying: ``runtime_root``, ``build_id``, ``config`` (the genesis cfg: env +
     l1_address/level + runtime_root + build_id + pinned_binary + level_config), ``adapter`` (the REAL
@@ -82,7 +88,12 @@ def build_runtime(*, runtime_root=None, build_id: str = None, oauth_token: str =
     build_id = build_id or os.environ.get("HARNESS_BUILD_ID") or "build-local"
     if runtime_root is None:
         env_root = os.environ.get("HARNESS_RUNTIME_ROOT")
-        runtime_root = Path(env_root) if env_root else (_REPO_ROOT / "runtime" / build_id)
+        if env_root:
+            runtime_root = Path(env_root)
+        else:
+            ws_env = os.environ.get("HARNESS_WORKSPACES_ROOT")
+            base = Path(ws_env) if ws_env else DEFAULT_WORKSPACES_ROOT
+            runtime_root = base / build_id
     runtime_root = Path(runtime_root)
 
     token = oauth_token or _read_oauth_token()

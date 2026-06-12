@@ -197,3 +197,16 @@ These are not separate work items — they are the empirical values V33/Phase 7 
 - **REAL-BOOT FINDING (Increment 16, 2026-06-06) — the pinned OAuth token expires (~daily) AND the harness gate does not catch it.** The first real boot probe (real binary + real `env -i` + `--system-prompt-file`) reached real auth and got `401 Invalid authentication credentials`: the pinned install's `sk-ant-oat01` token (1 day old) had expired. **Two results:** (1) it VINDICATES the Inc-8 `auth_expired`-distinct-class design (this is exactly the "refresh the token, not model-down" case). (2) it CONFIRMS the FORK-TOKEN-EXPIRY gap empirically: `oauth_guard.check_credential_health` is **presence-only**, so a present-but-expired token PASSES the genesis precondition and the harness would spawn L1 only to hit the 401 mid-boot as a confusing failure instead of a clean fail-loud `auth_expired` at the gate. **Recommendation (elevated from deferred):** add a real auth-PROBE to the genesis credential precondition (a cheap one-turn print call, or token-expiry decode if structured) so an expired token fails loud as `auth_expired` BEFORE any spawn. **Blocker for the real-boot RUN:** the pinned install needs a fresh token (isolated from `~/.claude` by design); the `tests/test_real_boot.py` gate SKIPS clean with a "refresh the token" message until then. Owner: user refreshes the pinned token; then `pytest -m real_boot`.
 - **Resource envelope** — settle empirically (= V23/D10); feeds the cap denomination (D6).
 - **H40 spike** — settle empirically (= V20).
+
+- **L1 PROJECT-WORKSPACE PREROGATIVE (user ruling 2026-06-12, design pending — the multi-project daemon).**
+  At kickoff of a GREENFIELD project, L1 provisions a fresh project workspace (so only that
+  project's files live there); for CONTINUATION work it attaches to the existing workspace.
+  The provisioning is a HARNESS VERB (chokepoint/IPC — the daemon owns the filesystem
+  boundary; agents are the vehicle, per the invocation-vs-authority ruling LR-10). Today:
+  one daemon boot = one workspace root = one genesis L1, and a "project" exists only as a
+  subtree of the L1 node (the WORKSPACE-SCHEMA portfolio shape both live runs produced).
+  The extension touches genesis/daemon lifecycle (a STANDING L1 across projects, per-project
+  workspace roots under ~/Documents/l1-l5-workspaces/) and the LR-22 multi-project promote
+  ambiguity (a project-addressed promote). Design with PROJECT-PLANNING + DAEMON together.
+  Filesystem half ALREADY LANDED 2026-06-12: workspaces root moved out of the repo
+  (commissioning.DEFAULT_WORKSPACES_ROOT; WORKSPACE-SCHEMA §/runtime/ amended).

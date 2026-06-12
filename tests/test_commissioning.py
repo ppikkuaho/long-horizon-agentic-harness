@@ -82,3 +82,21 @@ def test_runtime_exposes_the_tmux_socket_name_for_observability(tmp_path):
     rt = commissioning.build_runtime(runtime_root=tmp_path / "runtime", build_id="b",
                                      oauth_token="sk-ant-oat01-X")
     assert getattr(rt, "tmux_socket", None), "the runtime must name its tmux socket for attach"
+
+
+def test_default_runtime_root_lands_in_the_external_workspaces_root(monkeypatch, tmp_path):
+    """Workspaces live OUTSIDE the repo (user ruling 2026-06-12): with no explicit root and no
+    per-run env override, the default lands under DEFAULT_WORKSPACES_ROOT/<build-id> — never
+    inside the repo. $HARNESS_WORKSPACES_ROOT relocates the family. (Mutant: repo-nested
+    default restored -> caught.)"""
+    monkeypatch.delenv("HARNESS_RUNTIME_ROOT", raising=False)
+    monkeypatch.delenv("HARNESS_WORKSPACES_ROOT", raising=False)
+    rt = commissioning.build_runtime(build_id="b-default", oauth_token="sk-ant-oat01-X")
+    assert rt.runtime_root == commissioning.DEFAULT_WORKSPACES_ROOT / "b-default"
+    assert "l1-l5-agent-harness" not in str(rt.runtime_root), (
+        "the default workspace tree must not nest inside the repo"
+    )
+
+    monkeypatch.setenv("HARNESS_WORKSPACES_ROOT", str(tmp_path / "ws"))
+    rt2 = commissioning.build_runtime(build_id="b-relocated", oauth_token="sk-ant-oat01-X")
+    assert rt2.runtime_root == tmp_path / "ws" / "b-relocated"

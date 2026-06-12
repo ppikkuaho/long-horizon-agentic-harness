@@ -137,6 +137,18 @@ The user's triage of what they care about. Contains: which areas the user wants 
 
 ### `/runtime/` root + promotion-out-of-`/runtime/`
 
+> **AMENDED 2026-06-12 (user ruling — workspaces out of the repo):** the per-build trees no
+> longer nest inside the repo's gitignored `/runtime/`. They live in their own root,
+> **`~/Documents/l1-l5-workspaces/<build-id>/`** (`commissioning.DEFAULT_WORKSPACES_ROOT`;
+> `$HARNESS_WORKSPACES_ROOT` relocates the family, per-run `$HARNESS_RUNTIME_ROOT` still wins).
+> The repo is code + spec; the trees the harness builds are deployment state. Everything below
+> about the tree's INTERNAL shape and the write-jail is unchanged — read `/runtime/` as "the
+> workspace root". **Registered extension (same ruling, design pending):** L1 gains a
+> project-workspace prerogative — at kickoff of a GREENFIELD project it provisions a fresh
+> project workspace via a harness verb (the daemon owns the filesystem boundary, agents are the
+> vehicle), and for CONTINUATION work it attaches to the existing one; today one daemon boot =
+> one workspace = one genesis L1, and projects exist only as subtrees of the L1 node.
+
 The logical `proj/{project}/...` tree shown above is rooted, at runtime, at the **gitignored throwaway `/runtime/`** (per-build project trees live under `/runtime/proj/{project}/`; see `INDEX.md`). Everything an agent produces — the whole project node and its deliverable — is written **inside `/runtime/`**, and every agent's write-jail confines it to its own node subtree there (`SECURITY.md` §1.3, §2.3: global `(deny file-write*)` then an allow-list scoped to `<WORKROOT>`).
 
 A finished project's deliverable does not stay in `/runtime/`. On L1 **final-accept**, the **control plane (`harnessd`) promotes the deliverable OUT of `/runtime/` to the destination captured at intake** (a user-path or git remote, recorded as a field of the frozen intent-spec). This destination is **outside every node's write-jail**, so the cross-boundary write is a **control-plane operation, gated on L1's accept signal — never a jailed-agent write**. The deliverable binding (`deliverable_state` + the dedicated `delivery_destination`/`delivery_kind`, the harnessd per-node binding block in `harnessd/IMPLEMENTATION-PLAN.md` §3.2) tracks it — the promote step sets `deliverable_state=delivered` (or `delivery-failed`) and records the target in `delivery_destination`, kept distinct from `write_targets` (the in-jail source surface). The L1-authored `client-brief/` files (`vision.md`, `priorities.md` — views of the frozen intent-spec, written at project creation, immutable, above) are the brief side of the same arc; promotion is the delivery side. See `INTAKE-TO-DELIVERY.md` for the full intake→delivery arc.
