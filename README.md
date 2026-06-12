@@ -1,32 +1,75 @@
 # L1–L5 Agent Harness
 
-The standalone home for the **L1–L5 agentic software-building system** — a five-level hierarchy of LLM agents that turns a user's intent into built, verified software.
+A hierarchy of LLM agents that turns a user's intent into built, verified software — and keeps what gets built faithful to what was meant, all the way down to the code.
 
-- **L1 System Orchestrator** → **L2 Project Architect** → **L3 Module Designer** → **L4 Workstream Coordinator** → **L5 Task Executor** (+ L5+ reviewer)
+Models already write good code, so the bottleneck in building software with them has shifted from execution to coordination and fidelity: directing many efforts in parallel, and keeping what gets built faithful to what was meant. One person can run one project by hand; they cannot direct, keep coherent, and quality-check twenty at once, nor guarantee that a long autonomous build still matches what they asked for. This system enforces a separation of concerns across five levels of abstraction, each doing a genuinely different kind of thinking, so the person sets and guards intent while the hierarchy carries the work. Three things come out of that:
 
-This repo holds two things: the **design corpus** (the hardened spec, copied from Life-OS on 2026-06-02) and — to be built — the **harness** (the runtime that actually spawns and coordinates the agents).
+**1 — Higher-quality architecture and code.** It architects the way a senior architect actually does, not ad-hoc. There's a real method underneath: carve a system by where its connections are thin — where change is naturally isolated — not by drawing arbitrary boxes; keep complexity hidden behind narrow, stable interfaces; point dependencies toward the stable core. "Deep modules" is used as a quality rubric that pressure-tests a design, never as the carving rule itself. The result is codebases with clean seams that stay coherent as they grow.
+
+**2 — Long-horizon, high-difficulty autonomous execution.** Large autonomous builds usually degrade because error compounds over a long horizon with nothing to catch it. Here, nothing runs without a validated plan; work is decomposed until each unit is small and independently verifiable; every level reviews composition and fidelity at its own altitude; and tests are frozen before code, so the work is anchored to them rather than the reverse. A genuinely hard task can run end-to-end with accuracy held up by structure instead of hope.
+
+**3 — Alignment and fidelity.** The first priority is that the thing built is the thing meant — and stays that way from intent to shipped code. Intent is captured precisely: the intake probes tradeoffs to find where the user actually has opinions (people reveal them at a fork, not when asked "do you care?"), and records how technically fluent they are per area, so the system knows what to decide for them and what to bring back. Every requirement then carries a stable ID that threads through the whole system — design element, test, branch, and review all trace to it. The gate, the per-level independent reviews, and that traceability spine exist for one purpose: to kill drift.
+
+## The five levels
+
+A separation by the kind of thinking each does, not a rank ladder:
+
+- **L1 — System Orchestrator** — captures the user's intent, guards it for the life of the project, routes work, and is the only level the user talks to.
+- **L2 — Project Architect** — designs the shape of the solution: where the module boundaries fall, the interfaces between them, the decisions that are expensive to reverse.
+- **L3 — Module Designer** — takes one module and designs it in depth, then manages its construction.
+- **L4 — Workstream Coordinator** — breaks a module into concrete tasks and authors the acceptance tests they'll be judged against.
+- **L5 — Task Executor** — writes the actual code against frozen tests, paired with an independent reviewer (L5+) that checks it.
+
+Direction flows down as minimal "short-email" briefs (what, not how); results flow up as compressed reports. Raw work never moves up, and clean context is preserved at every boundary.
+
+## How it works, end to end
+
+Work runs as two cycles joined by a single hard gate — design, then build — never one big waterfall.
+
+The **design cycle** produces a validated plan and not a line of code. Intake turns the user's intent into a precise, tagged, traceable spec. The architect proposes the structure. The module designers detail each area in a single coordinated round, renegotiating interfaces against real constraints. And — critically — the tests and review rubrics are written here, before any code, by agents that aren't the ones who'll do the work.
+
+The **plan-alignment gate** is the heart of the system, at the seam between designing and building. It reads the whole assembled plan against the original intent — something per-level reviews structurally can't do — and catches the three ways a plan drifts even when every local step looked fine: dropped requirements, unrequested additions, and requirements technically present but subtly wrong. It even inspects its own first translation (turning the user's prose into requirements), because that's where drift enters upstream of every other check. A human gives a warm sign-off on a triangulated view; nothing builds until it passes.
+
+The **build cycle** begins only on PASS: executors write code against the now-frozen plan, every level's output checked by independent review before it moves up.
+
+## What makes it distinctive
+
+- **Tests before code, by not-the-coder.** Tests written after the fact get bent to fit the code; written first, from the spec, by someone else, the code must serve them. (Corollary, proven in simulation: tests anchor only what they assert — so an independent reviewer is load-bearing, catching the fidelity gaps tests miss.)
+- **One spine.** A single hierarchical scheme is the requirement ID, the agent's address, the workspace path, the git branch, the rubric location, and the visibility graph — decided once, it serves all of them.
+- **Cross-model by design.** Opus 4.8 for the generative/architecture levels; GPT-5.5 (via Codex) for execution, where literal precision is the strength. Failures escalate rather than silently degrade.
+- **Documentation is memory.** Every level can be killed and respawned from its artifacts; truth lives in documents, coordinated over a lightweight bus. The system also keeps a workspace to observe itself and propose its own improvements.
+- **Walking-skeleton first.** A thin end-to-end thread proves the connections before the full build commits to them.
+
+The methodology isn't invented — it's borrowed from how architecture firms and consultancies actually turn a client's intent into a built thing, instantiated with agents instead of people.
+
+## Repository layout
+
+This repository holds both the specification corpus and the runtime built from it.
+
+```text
+design/         the specification corpus: architecture, principles, and the
+                mechanism docs (plan-alignment gate, decomposition, quality gate,
+                observability, communication, workspace schema, improvement workspace),
+                plus working notes: live-run findings, adherence audits, session logs
+operational/    what each agent loads at spawn: L1–L5 and the L5+ reviewer (role,
+                config, soul, spawn-template) and shared protocols (runtime-and-model
+                map, agent-definition principles, lifecycle, comms, git, intent-spec
+                contract, user-profile schema)
+harnessd/       the runtime: a resident daemon that spawns and supervises the
+                cascade in tmux — spawn chokepoint with per-runtime adapters
+                (Claude Code, Codex), liveness watchdog, return-contract walker,
+                promote/intake gate, WAL-backed state store
+tests/          the harness test suite
+dry-run/        the end-to-end simulation: an intent-spec taken through L2
+                (ADRs, contracts, plan), a walking skeleton, the plan-alignment
+                gate report, and the built payments slice with its tests
+research/       curated prior research, kept for reference
+```
+
+Good entry points: `design/ARCHITECTURE.md` (the system design), `design/QUALITY-GATE.md` (the review/altitude rules), `harnessd/daemon.py` (the runtime spine), and `dry-run/` (the worked example).
 
 ## Status
 
-- ✅ **Design corpus** — consolidated and hardened against a faithful end-to-end simulation (the finishing pass). Copied here non-destructively; see `MOVE-MANIFEST.md` + `manifest.json` for the integrity record.
-- ⬜ **Harness runtime** — not yet started. First spike: the Claude Code base-prompt patch + minimal spawn (the one genuinely unproven piece).
+The design is complete and hardened against a full end-to-end simulation — which built a real vertical slice (17/17 tests passing, a genuine cross-model handoff) and surfaced the gaps, now closed.
 
-## Layout
-
-| Path | What |
-|------|------|
-| `design/` | The system spec — 17 core docs. Start with `PROJECT-PLANNING.md` (the flow), `PLAN-ALIGNMENT-GATE.md` (the alignment gate), `DECOMPOSITION-METHODOLOGY.md`, `ARCHITECTURE.md`. `working-notes/` holds the consolidation history. |
-| `operational/` | The agent definitions — `L1`–`L5` (role/config/spawn-template) + `shared/` (runtime-and-model-map, agent-definition-principles, comms-protocol, git-protocol, agent-lifecycle, intent-spec-contract, user-profile-schema). |
-| `reference/` *(dry-run)* | `dry-run/` — the finishing-pass simulation output: a real Payments slice built end-to-end (intent spec, ADRs, area design, frozen acceptance tests, working code, 17/17 passing). A reference exemplar, not part of the spec. |
-| `research/` | Curated prior research from Life-OS, kept for reference (pruned ~630 → 45, then a follow-up audit recovered 27 wrongly-removed design/methodology files → **72**). **Suspect — reference, not source of truth.** Holds: `agentic-design/` (building good agents/skills), `ai-driven-autonomous-iterative-improvement/` + `orchestration-frame/` methodology + `self-improvement-harness/` + `phase-2-runs/` design/templates (prior self-improvement-loop work — feeds the Improvement Workspace), `reference/`. See `MOVE-MANIFEST.md` for the prune+recovery record. |
-| `PRIOR-ART-SUSPECT.md` | Life-OS code/infra to mine for *lessons* (not reuse) during the build — marked suspect. |
-
-## Build decisions (settled 2026-06-02)
-
-- **Standalone, clean start.** Build the harness fresh; do not import the Life-OS implementation code (it's subpar for this — see `PRIOR-ART-SUSPECT.md`).
-- **Pinned Claude Code version.** The harness runs against a frozen, isolated CC install (separate from any interactive CC, which keeps auto-updating). CC is updated only deliberately, for model needs, with a re-test pass. This stabilizes the hook/prompt surface and makes the base-prompt patch (H40) tractable — patch a known version, not a moving target.
-- **Own bus.** The comms layer assumed reusing the Life-OS bus; standalone, the harness owns its bus. The filesystem-truth + best-effort design lets it start dead-simple. (Study the Life-OS bus for ideas; don't reuse as-is.)
-- **Runtime artifacts outside git.** The project trees the harness creates when it builds software live in a runtime dir, not committed.
-- **L1–L4 on Claude Code (Opus 4.8); L5 on Codex (GPT-5.5).** Cross-runtime handoff proven in the simulation.
-
-*Originals remain in `~/Documents/Life-os/projects/ai-architecture/` (untouched).*
+The runtime is built and running supervised live builds. A resident daemon boots the hierarchy on a pinned Claude Code (L1–L4 and the L5+ reviewer) and Codex (L5), watches liveness through real transcripts, and enforces the spec's gates deterministically at three chokepoints: no under-equipped agent spawns (pieces-present gate), no DONE is accepted without its report, requirement citations, and traceability stanzas (return-contract walker), and no delivery leaves without intake-confirmation and a derived destination (promote gate). First live runs have delivered working software end-to-end — including the full refuse → self-heal → re-sign loop firing unattended at both leaf and root. Current work: scoring behavioral adherence run-by-run against the spec and closing the gaps it surfaces; the commit history is the build log.
