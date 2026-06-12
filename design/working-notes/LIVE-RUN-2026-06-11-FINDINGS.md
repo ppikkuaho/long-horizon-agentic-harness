@@ -425,3 +425,14 @@ SESSION tmux resolves; no-seam-at-all now routes through the REAL tmux module
 (a seam that exists but lacks tmux.kill still skips — dry-run semantics kept).
 Live unwedge performed by operator hand-kill; the re-drive respawned assembly
 within one cooldown window.
+
+### LR-22 — the promote gate's intent-spec discovery missed the WORKSPACE-SCHEMA portfolio shape (HIGH, FIXED)
+Run-2 close: the operator accept-promote was REFUSED ("no delivery_destination
+captured at intake") despite a canonical §8 in-place row — the frozen spec lives
+at L1/sitegen/client-brief/intent-spec.md (WORKSPACE-SCHEMA: client-brief/ is
+under project-{name}/, the portfolio shape BOTH live runs produced), and E3's
+_find_intent_spec read only the node root. The unit fixtures wrote the spec at
+the root — the fixture-reality lesson a third time (LR-1, LR-19). FIX: discovery
+extends to */client-brief/intent-spec.md; exactly one carries the derivation;
+MULTIPLE candidates refuse loudly naming the projects (a root-addressed promote
+never guesses among a multi-project portfolio). Root shapes still win.

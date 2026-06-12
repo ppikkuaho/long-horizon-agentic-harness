@@ -105,26 +105,51 @@ _DEST_ROW = re.compile(r"^\|?\s*`?Destination`?\s*\|\s*(.+?)\s*\|?\s*$", re.IGNO
 _KIND_TOKEN = re.compile(r"\b(filesystem-path|git-remote|in-place)\b", re.IGNORECASE)
 
 
-def _find_intent_spec(node_address: str) -> Optional[Path]:
+def _find_intent_spec(node_address: str) -> tuple:
+    """Locate the frozen intent-spec for a promote at ``node_address``: (path, ambiguity_error).
+
+    Node-root shapes first (client-brief/intent-spec.md, intent-spec.md). LR-22: the
+    WORKSPACE-SCHEMA portfolio shape puts ``client-brief/`` under ``project-{name}/`` INSIDE the
+    L1 node (both live runs nested it: L1/wordcount/, L1/sitegen/) — a root-only discovery
+    refused Run-2's fully-confirmed in-place delivery. One project subtree carries the
+    derivation; MULTIPLE candidate specs make a root-addressed promote ambiguous — refuse
+    loudly naming the candidates, never guess a destination.
+    """
     if ledger.RUNTIME_ROOT is None:
-        return None
+        return None, None
     try:
         node_dir = addressing.node_dir(node_address, ledger.RUNTIME_ROOT)
     except (OSError, ValueError):
-        return None
+        return None, None
     for rel in ("client-brief/intent-spec.md", "intent-spec.md"):
         candidate = node_dir / rel
         if candidate.is_file():
-            return candidate
-    return None
+            return candidate, None
+    try:
+        nested = sorted(p for p in node_dir.glob("*/client-brief/intent-spec.md") if p.is_file())
+    except OSError:
+        return None, None
+    if len(nested) == 1:
+        return nested[0], None
+    if len(nested) > 1:
+        names = ", ".join(p.parent.parent.name for p in nested)
+        return None, (
+            f"AMBIGUOUS-INTENT-SPEC: {len(nested)} project subtrees under {node_address} each "
+            f"carry client-brief/intent-spec.md ({names}) — a root-addressed promote cannot "
+            f"derive §8 from a multi-project portfolio; promote the specific project or stamp "
+            f"the binding's delivery_destination explicitly"
+        )
+    return None, None
 
 
 def _intake_gate(node_address: str) -> tuple:
     """Read the frozen intent-spec (when present): (derived_destination, derived_kind,
     refusal_errors). Absent spec -> (None, None, []) — derivation has nothing to read and the
     freeze block nothing to enforce (a binding-stamped destination then carries the promote,
-    the pre-E3 behavior)."""
-    spec = _find_intent_spec(node_address)
+    the pre-E3 behavior). An AMBIGUOUS portfolio (LR-22) is a refusal, never a guess."""
+    spec, ambiguity = _find_intent_spec(node_address)
+    if ambiguity:
+        return None, None, [ambiguity]
     if spec is None:
         return None, None, []
     try:

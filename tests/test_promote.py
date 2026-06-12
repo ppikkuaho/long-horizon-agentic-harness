@@ -798,3 +798,51 @@ def test_e3_binding_destination_still_respects_freeze_block(runtime):
 
     assert result.ok is False and result.delivered is False
     assert any("FREEZE-ON-PENDING" in str(e) for e in (result.errors or []))
+
+
+def test_e3_discovers_the_intent_spec_in_a_project_subtree(runtime):
+    """LR-22: WORKSPACE-SCHEMA puts client-brief/ under project-{name}/ INSIDE the L1 node — the
+    portfolio shape both live runs produced (L1/wordcount/, L1/sitegen/). Discovery limited to the
+    node root missed it and the live Run-2 promote refused a fully-confirmed in-place delivery.
+    A single project subtree's frozen spec must carry the derivation. (Mutant: root-only
+    discovery -> no-destination refusal -> caught.)"""
+    promote_mod = _promote_module()
+    _build_runtime_tree(runtime)
+    binding, _token = _binding(delivery_destination=None, delivery_kind=None)
+    _seed(binding)
+    d = addressing.node_dir(NODE, runtime) / "sitegen" / "client-brief"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "intent-spec.md").write_text(_SPEC_IN_PLACE, encoding="utf-8")
+
+    result = promote_mod.promote(NODE, accept_signal=_accept_signal(NODE))
+
+    assert result.ok is True and result.delivered is True, (
+        f"a project-subtree §8 in-place spec must promote (LR-22); errors: {result.errors!r}"
+    )
+    after = _read()
+    assert after["deliverable_state"] == "delivered"
+    assert "in-place" in (after.get("delivery_destination") or "")
+
+
+def test_e3_refuses_an_ambiguous_multi_project_portfolio(runtime):
+    """LR-22 ambiguity leg: TWO project subtrees each carrying a frozen intent-spec make the §8
+    derivation ambiguous for a root-addressed promote — refuse LOUDLY, naming both candidates;
+    never guess a destination. (Mutant: pick-first -> silent wrong-project delivery -> caught.)"""
+    promote_mod = _promote_module()
+    _build_runtime_tree(runtime)
+    binding, _token = _binding(delivery_destination=None, delivery_kind=None)
+    _seed(binding)
+    for proj in ("alpha", "beta"):
+        d = addressing.node_dir(NODE, runtime) / proj / "client-brief"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "intent-spec.md").write_text(_SPEC_IN_PLACE, encoding="utf-8")
+
+    result = promote_mod.promote(NODE, accept_signal=_accept_signal(NODE))
+
+    assert result.ok is False and result.delivered is False
+    joined = " ".join(str(e) for e in (result.errors or []))
+    assert "alpha" in joined and "beta" in joined, (
+        f"the ambiguity refusal must NAME the candidate project specs; got {result.errors!r}"
+    )
+    after = _read()
+    assert after["deliverable_state"] != "delivered"
