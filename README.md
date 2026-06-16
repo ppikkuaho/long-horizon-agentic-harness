@@ -38,7 +38,7 @@ The **build pass** writes code against the fixed plan and tests. Each level's ou
 ════════════════════ DESIGN CYCLE - plan pyramid, no code ════════════════════
 
                      ┌──────────────────────────┐
-                     │           USER           │ <---- final deliverable
+                     │           USER           │ ---> User gives task and sets scope
                      └────────────┬─────────────┘
                                   ▲
                                   │ up: L1 gate, product vs intent
