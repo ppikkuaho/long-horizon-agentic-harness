@@ -38,14 +38,21 @@ The **build pass** writes code against the fixed plan and tests. Each level's ou
 ════════════════════ DESIGN CYCLE - plan pyramid, no code ════════════════════
 
                      ┌──────────────────────────┐
-        intent ----> │           USER           │ <---- final deliverable
+                     │           USER           │ <---- final deliverable
                      └────────────┬─────────────┘
                                   ▲
-                                  │ L1 gate: product vs intent
+                                  │ up: L1 gate, product vs intent
                                   │
+                                  │ down: deep interview elicits intent
+                                  ▼
                      ┌────────────┴─────────────┐
                      │ L1 - System Orchestrator │
-                     │ guard intent + route     │
+                     │ elicit + guard + route   │
+                     └────────────┬─────────────┘
+                                  ▼
+                     ┌──────────────────────────┐
+                     │ tagged intent contract   │
+                     │ atoms + success criteria │
                      └────────────┬─────────────┘
                                   ▼
                        ┌────────────────┐
