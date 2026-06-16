@@ -34,6 +34,7 @@ The **build pass** writes code against the fixed plan and tests. Each level's ou
 
 ## View
 
+```text
 ════════════════════ DESIGN CYCLE - plan pyramid, no code ════════════════════
 
                      ┌──────────────────────────┐
@@ -209,6 +210,8 @@ Loop rule:
 ──────────────────────────────────────────────────────────────────────────────
 ONE SPINE - requirement-ID = agent address = workspace = git branch =
 rubric file = read-visibility. Decided once; everything keys off it.
+
+```
 
 
 
