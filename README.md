@@ -37,84 +37,93 @@ The **build pass** writes code against the fixed plan and tests. Each level's ou
 Two diagrams of the same system. The first is the flow of work — instructions down, reviewed results up. The second is the review structure drawn as nested loops.
 
 ```
-                    ┌──────────────────────────┐
-           intent ─▶│            USER          │◀─ deliverable
-                    └─────────────┬────────────┘
-                                  ▲ L1 gate: the user judges the
-                                  │ finished product against intent
-                    ┌─────────────┴────────────┐
-                    │ L1 · System Orchestrator │  guards intent, routes work
-                    └─────────────┬────────────┘
-               brief ▼            │            ▲ review-gated report (never raw)
+                       ┌──────────────────────────┐
+        intent ─────▶│           USER           │◀───── deliverable
+                     └────────────┬─────────────┘
+                                  ▲
+                                  │ L1 gate: user judges finished product
+                                  │ against the original intent
+                     ┌────────────┴─────────────┐
+                     │  L1 · System Orchestrator │  guards intent, routes work
+                     └────────────┬─────────────┘
+              brief ▼             │             ▲ review-gated report, never raw
 
-   ═══════════════ DESIGN CYCLE · produces a validated PLAN, never code ═══════
+════════════════════ DESIGN CYCLE · validates a PLAN, never code ═══════════════
 
         ┌────────────────┐
-        │ L2 · Architect │  module map + interface contracts + ADRs
+        │ L2 · Architect │  module map · interface contracts · ADRs
         └───────┬────────┘
-            ┌───┴────┬────────┐         ×N areas, planned in parallel
-        ┌───▼──┐ ┌───▼──┐ ┌───▼──┐
-        │L3 #1 │ │L3 #2 │ │L3 #3 │  deep area design; renegotiate interfaces up,
-        │ plan │ │ plan │ │ plan │  then collapse — the design is an output
-        └───┬──┘ └──────┘ └──────┘
-        ┌───▼────────┐
-        │ L4 · tester│  writes acceptance tests FROM the spec, before any
-        │     ×N     │  code, by ≠ the coder  ───────────────────▶  FROZEN
-        └────────────┘
-        · · walking skeleton: an ungated spike, proves the wiring · ·
-        every level FREEZES the pass-conditions for the level below ──┐
-                                                                      │
-   ╔══════════════════════════════════════════════════════════════════▼════════╗
-   ║  PLAN-ALIGNMENT GATE — the one hard checkpoint                            ║
-   ║  whole plan ⟷ tagged intent: coverage · prose→ID atomization ·            ║
-   ║  two-window blind reconstruction · adversarial compare · + human sign-off ║
-   ╚════════════════════════════════╤══════════════════════════════════════════╝
-                       PASS ⇒ unlock │  (no execution-L3, no code, until PASS)
+                │
+        ┌───────┴───────────────┬────────────────┐     ×N areas, parallel
+    ┌───▼───┐               ┌────▼───┐        ┌───▼───┐
+    │ L3 #1 │               │ L3 #2  │        │ L3 #3 │  deep area design
+    │ plan  │               │ plan   │        │ plan  │  renegotiate upward,
+    └───┬───┘               └────────┘        └───────┘  then collapse to output
+        │
+    ┌───▼────────┐
+    │ L4 · tester│  writes acceptance tests from the spec, before code,
+    │     ×N     │  by reviewer ≠ coder  ─────────────────────────▶ FROZEN
+    └────────────┘
 
-   ═══ BUILD CYCLE · begins only on PASS ═════════════════════════════════════
+    · · walking skeleton: ungated spike that proves the wiring · ·
 
-   CASCADE DOWN · briefs flow down (what, not how); work fans out every level
+    Every level freezes pass conditions for the level below.
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ PLAN-ALIGNMENT GATE · the one hard checkpoint                               ║
+║ whole plan ↔ tagged intent · coverage · prose→ID atomization ·              ║
+║ two-window blind reconstruction · adversarial compare · human sign-off       ║
+╚═════════════════════════════════════╤════════════════════════════════════════╝
+                         PASS unlocks │ no execution-L3, no code, until PASS
+
+════════════════════ BUILD CYCLE · begins only after PASS ═════════════════════
+
+CASCADE DOWN · briefs flow downward: what, not how; work fans out at each level
 
         ┌────────────────┐
         │ L2 · Architect │
         └───────┬────────┘
-            ┌───┴────┬────────┐  ×N areas
-        ┌───▼──┐ ┌───▼──┐ ┌───▼──┐
-        │L3 #1 │ │L3 #2 │ │L3 #3 │  execution-L3 — owns the frozen design
-        └───┬──┘ └──────┘ └──────┘
-        ┌───▼──┐ ┌──────┐  each L3 → many L4 workstreams
-        │L4 #1 │ │L4 ×N │
-        └───┬──┘ └──────┘
-        ┌───▼──┐ ┌──────┐  each L4 → many L5 tasks; the executor writes
-        │L5 #1 │ │L5 ×N │  code and makes the frozen acceptance tests
-        └──────┘ └──────┘  pass (it cannot edit them)
+                │
+        ┌───────┴───────────────┬────────────────┐     ×N areas
+    ┌───▼───┐               ┌────▼───┐        ┌───▼───┐
+    │ L3 #1 │               │ L3 #2  │        │ L3 #3 │  owns frozen design
+    └───┬───┘               └────────┘        └───────┘
+        │
+    ┌───▼───┐               ┌────────┐
+    │ L4 #1 │               │ L4 ×N  │  each L3 fans out to L4 workstreams
+    └───┬───┘               └────────┘
+        │
+    ┌───▼───┐               ┌────────┐
+    │ L5 #1 │               │ L5 ×N  │  executor writes code and makes frozen
+    └───────┘               └────────┘  tests pass; it cannot edit them
 
-   CASCADE UP · each output is reviewed at a gate, then climbs to its parent
-                reviewer ≠ producer · vs the FROZEN rubric · fidelity-first
+CASCADE UP · each output is reviewed at a gate, then climbs to its parent
+
+        reviewer ≠ producer · checked against frozen rubric · fidelity first
 
         ┌────────────┐
-        │  L5 gate   │  independent leaf review: unit + CI
-        └─────┬──────┘  reject ↺ bounces to L5 (bounded; L5 keeps context)
-              │ accept → up to L4
-        ┌─────┴──────┐
-        │  L4 gate   │  workstream integration: units compose? contracts hold?
+        │ L5+ review │  independent leaf review: tests + CI + spec fidelity
+        └─────┬──────┘  reject ↺ bounces to L5; accept ↑ to L4
+              │
+        ┌─────▼──────┐
+        │ L4+ gate   │  workstream integration: units compose? contracts hold?
         └─────┬──────┘
-              │ up to L3
-        ┌─────┴──────┐
-        │  L3 gate   │  module composition: area coherence; exposed interfaces
+              │
+        ┌─────▼──────┐
+        │ L3+ gate   │  module composition: area coherence; exposed interfaces
         └─────┬──────┘
-              │ up to L2
-        ┌─────┴──────┐
-        │  L2 gate   │  product composition: system integration; architecture fit
+              │
+        ┌─────▼──────┐
+        │ L2+ gate   │  product composition: system integration; architecture fit
         └─────┬──────┘
-              │ up to L1
-        ┌─────┴──────┐
-        │  L1 gate   │  client intent: the user judges the product vs the intent
+              │
+        ┌─────▼──────┐
+        │ L1 gate    │  client intent: user judges product against intent
         └────────────┘
 
-   ───────────────────────────────────────────────────────────────────────────
-   ONE SPINE · one path = requirement-ID = agent address = workspace = git
-   branch = rubric file = read-visibility. Decided once; everything keys off it.
+──────────────────────────────────────────────────────────────────────────────
+ONE SPINE · requirement-ID = agent address = workspace = git branch =
+rubric file = read-visibility. Decided once; everything keys off it.
 ```
 
 ![Nested review loops of the L1–L5 harness](docs/review-loops.png)
