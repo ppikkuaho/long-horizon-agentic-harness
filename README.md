@@ -211,6 +211,7 @@ ONE SPINE - requirement-ID = agent address = workspace = git branch =
 rubric file = read-visibility. Decided once; everything keys off it.
 
 
+
 ## Design choices
 
 - **Built for long horizons.** The target is work that runs longer than one context window or session. Each level holds only its own slice of the problem, the criteria for each piece are fixed before the work and cannot be moved to fit it, and state lives in files so any agent can be stopped and restarted from its documents. The failure being designed against is drift over a long run, not a single wrong answer.
